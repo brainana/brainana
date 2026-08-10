@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **BIDS input layout is validated before processing starts** — discovery now cross-checks every input file's `sub-`/`ses-` entities against the directories it sits in, and aborts the run with a report naming each affected file if they disagree. This closes a silent-corruption path: pybids resolves such a conflict in favour of the *directory* and discards the filename entity, so nothing downstream ever saw a conflict — but brainana names output directories from the (directory-derived) subject ID and output *filenames* from the original filename stem. A dataset with `sub-monkey1/anat/sub-monkey_ses-1_run-1_T1w.nii.gz` therefore processed to completion without a single warning and published `sub-monkey1/` filled with `sub-monkey_*` files: not valid BIDS derivatives, and broken for any tool keying on subject ID. Errors are `BIDS101` (subject label mismatch), `BIDS102` (no `sub-` entity), `BIDS103` (session label mismatch) and `BIDS104` (no `ses-` entity where the subject has several sessions). Validation is scoped to the subjects and sessions the run will actually process — whether you set them with `--subjects`/`--sessions` or in `bids_filtering` — so one malformed subject or session cannot block data you did not ask to process
+- **Subjects that mix session and data directories are rejected** — a subject holding both `sub-01/ses-001/` and `sub-01/anat/` is not valid BIDS (a subject directory contains *either* session directories *or* datatype directories) and discovery, which reads one session at a time, never looked inside the subject-level `anat/`. Those files were dropped from the run without appearing anywhere in the logs, so the pipeline reported success having quietly ignored part of your input. This is now a `BIDS105` error naming every orphaned file
+- **Files that are silently skipped are now reported** — a NIfTI under a subject directory that discovery would not select (outside `anat/`/`func/`, or carrying a suffix brainana does not read) is reported as a `BIDS202` warning saying it will not be processed, instead of vanishing without comment. A filename carrying a `ses-` entity with no matching `ses-*/` directory level is `BIDS201`, a filename missing a `ses-` entity where only one session is being processed is `BIDS204`, and a missing `dataset_description.json` is `BIDS203`. All are warnings and never stop a run
+
+### Changed
+
+- **Behaviour change — datasets that previously processed may now abort.** There is deliberately no flag to skip validation. An error fires in exactly two situations: the input directory and the input filename disagree about which subject or session a file belongs to (`BIDS101`–`BIDS104`), or a subject mixes session directories with subject-level data directories (`BIDS105`). Both mean the previous run was already wrong — the first published mislabelled derivatives, the second silently processed only part of your input — so output from before this release should not be trusted in either case. Errors are raised only for files brainana actually reads, so extra volumes kept alongside your anatomicals (CT, histology, PET) are reported as warnings and do not block a run. Every error names the affected files and the rename or move that resolves it
+
 
 ## [2.1.0] - 2026-07-26
 
