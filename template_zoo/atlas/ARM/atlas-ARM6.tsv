@@ -139,7 +139,7 @@ ID	label	region	name	name_full	hemi	color
 244	cortex_rh_possibly_V2	cortex	possibly_V2	possibly_part_of_visual_area_2	rh	#8CFFA8
 245	cortex_rh_clearly_V2	cortex	clearly_V2	clearly_part_of_visual_area_2	rh	#F1FFA6
 246	cortex_rh_V1	cortex	V1	primary_visual_cortex	rh	#FFFFBF
-1004	cortex_kg_area_32	cortex	area_32	area_32	kg	#803951
+1004	cortex_lh_area_32	cortex	area_32	area_32	lh	#803951
 1005	cortex_lh_area_25	cortex	area_25	subgenual_cortex	lh	#801D46
 1008	cortex_lh_area_24a	cortex	area_24a	area_24a	lh	#BF2C3B
 1009	cortex_lh_area_24b	cortex	area_24b	area_24b	lh	#FF73A2

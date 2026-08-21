@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **BIDS input layout is validated before processing starts** — discovery cross-checks every input file's `sub-`/`ses-` entities against the directories it sits in and aborts with a report naming each affected file. pybids resolves such a conflict in favour of the *directory* and drops the filename entity, but brainana names output directories from the directory and output filenames from the filename stem, so `sub-monkey1/anat/sub-monkey_ses-1_run-1_T1w.nii.gz` used to process without a single warning and publish `sub-monkey1/` full of `sub-monkey_*` files — invalid derivatives, broken for anything keying on subject ID. Validation is scoped to the subjects and sessions the run will actually process (`--subjects`/`--sessions` or `bids_filtering`), so one malformed subject cannot block the rest of a dataset
+  - Errors: `BIDS101` subject label mismatch · `BIDS102` no `sub-` entity · `BIDS103` session label mismatch · `BIDS104` no `ses-` entity where the subject has several sessions · `BIDS105` subject mixes `ses-*/` with subject-level datatype directories (not valid BIDS, and discovery — which reads one session at a time — silently dropped those files)
+  - Warnings, which never stop a run: `BIDS201` `ses-` entity with no `ses-*/` level · `BIDS202` NIfTI that will not be processed (outside `anat/`/`func/`, or a suffix brainana does not read) · `BIDS203` no `dataset_description.json` · `BIDS204` no `ses-` entity, single session
+
+### Changed
+
+- **Behaviour change — datasets that previously processed may now abort**, and there is deliberately no flag to skip validation. Errors fire only for files brainana actually reads (extra CT, histology or PET volumes are warnings) and only in two cases: directory and filename disagree about subject or session (`BIDS101`–`BIDS104`), or a subject mixes session and datatype directories (`BIDS105`). Both mean the earlier run was already wrong — mislabelled derivatives in the first case, silently dropped input in the second — so output from before this release should not be trusted. Every error names the affected files and the rename or move that resolves it
+
+### Fixed
+
+- **ARM6 atlas: area 32 (ID 1004) carried the hemisphere label `kg`** — a typo, now `lh`, matching ARM4/ARM5 and the ID's left-hemisphere range
+- **ARM4 atlas lookup table normalized to the shape every other ARM atlas uses** — it was the only one carrying `key_L1`–`name_L3` hierarchy columns (referenced by nothing) and `name_full` values with the abbreviation repeated in parentheses (`claustrum (Cl)` → `claustrum`). Its lone coloured subcortical row is now uncoloured like every other subcortical row in the family, so viewers assign it a procedural colour. IDs, labels, regions, names, hemispheres and all cortical colours are unchanged
+
 
 ## [2.1.0] - 2026-07-26
 
