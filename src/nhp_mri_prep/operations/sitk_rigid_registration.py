@@ -1129,9 +1129,13 @@ def _sitk_affine_lps(img: sitk.Image) -> np.ndarray:
 
 
 def _sitk_fsl_scale(img: sitk.Image) -> np.ndarray:
-    """Voxel-index -> FSL-mm scaling for an image (diag(pixdim), x-flipped if the
-    stored orientation is radiological, i.e. positive affine determinant — matching how
-    FSL/FLIRT build their internal mm coordinates)."""
+    """Voxel-index -> FSL-mm scaling for an image (diag(pixdim), x-flipped for a
+    positive affine determinant — what FSL itself calls NEUROLOGICAL storage order —
+    matching how FSL/FLIRT build their internal mm coordinates).
+
+    Note the flip offset ``(size[0] - 1) * spacing[0]``: it depends on the grid size, so
+    the FSL frame of a padded reference differs from the unpadded one along x by
+    ``pad_right``, not ``pad_left``. See :func:`fsl_mat_for_new_reference`."""
     spacing = np.array(img.GetSpacing(), dtype=np.float64)
     size = img.GetSize()
     scale = np.diag([spacing[0], spacing[1], spacing[2], 1.0])
@@ -1409,3 +1413,191 @@ def apply_sitk_affine(
     sitk.WriteImage(resampled, str(output_path))
     validate_output_file(output_path, logger)
     return {"imagef_registered": str(output_path)}
+
+
+# ---------------------------------------------------------------------------
+# Full-FOV conform: grid maths for an enlarged reference that crops nothing
+# ---------------------------------------------------------------------------
+# The conform reference grid is derived entirely from the template (padded 10%,
+# resampled to the input resolution), so it is sized for a brain, not a head:
+# a recording chamber, head-post or the neck falls outside it and is cropped.
+# The helpers below size a strictly larger, voxel-aligned reference that contains
+# every voxel of the moving image, so the extra output is a super-volume of the
+# standard conformed image rather than a differently-gridded sibling.
+
+# Guard rails for the enlarged grid. The conform resolution is min(input spacing)
+# applied to *all three* axes, so an anisotropic scan over a whole-head FOV can
+# explode: 0.2x0.2x2.0 mm at 1024x1024x40 becomes ~4.2e8 voxels (1.7 GB float32).
+DEFAULT_FULL_FOV_MAX_VOXELS = 512**3  # ~1.34e8 voxels, ~537 MB as float32
+DEFAULT_FULL_FOV_MAX_GROWTH = 3.0  # per-axis cap on (pad_left + pad_right) / size
+
+
+def fsl_mat_to_world_affine(
+    mat: "np.ndarray | Path | str",
+    fixedf: "Path | str",
+    movingf: "Path | str",
+) -> np.ndarray:
+    """FSL FLIRT matrix -> LPS world affine (fixed-world -> moving-world).
+
+    Exact algebraic inverse of :func:`_sitk_tx_to_fsl_matrix`: FLIRT's matrix maps
+    moving-FSL-mm -> fixed-FSL-mm, and FSL-mm is ``index * pixdim`` (x-flipped when
+    the stored orientation has a positive affine determinant), so
+
+        world = a_moving @ inv(s_moving) @ inv(mat) @ s_fixed @ inv(a_fixed)
+
+    ``fixedf`` must be the grid the matrix is *applied* with (``template_for_xfm``),
+    not the grid it was estimated on (``template_f_for_reg``) — the goal is to
+    reproduce where FLIRT actually puts the voxels.
+    """
+    m = (
+        np.asarray(mat, dtype=np.float64)
+        if isinstance(mat, np.ndarray)
+        else np.loadtxt(str(validate_input_file(mat, logger)))
+    )
+    fixed = _sitk_ensure_3d(sitk.ReadImage(str(validate_input_file(fixedf, logger))))
+    moving = _sitk_ensure_3d(sitk.ReadImage(str(validate_input_file(movingf, logger))))
+
+    a_fixed, a_moving = _sitk_affine_lps(fixed), _sitk_affine_lps(moving)
+    s_fixed, s_moving = _sitk_fsl_scale(fixed), _sitk_fsl_scale(moving)
+    return (
+        a_moving
+        @ np.linalg.inv(s_moving)
+        @ np.linalg.inv(np.asarray(m, dtype=np.float64))
+        @ s_fixed
+        @ np.linalg.inv(a_fixed)
+    )
+
+
+def world_mat_to_vox2vox(
+    world_mat: np.ndarray, reff: "Path | str", movingf: "Path | str"
+) -> np.ndarray:
+    """Moving voxel index -> reference voxel index, from an LPS world affine.
+
+    ``world_mat`` maps reference-world -> moving-world (the direction
+    :func:`sitk.Resample` consumes), so the index-space map is
+    ``inv(A_ref) @ inv(world) @ A_moving``.
+    """
+    ref = _sitk_ensure_3d(sitk.ReadImage(str(validate_input_file(reff, logger))))
+    moving = _sitk_ensure_3d(sitk.ReadImage(str(validate_input_file(movingf, logger))))
+    return (
+        np.linalg.inv(_sitk_affine_lps(ref))
+        @ np.linalg.inv(np.asarray(world_mat, dtype=np.float64))
+        @ _sitk_affine_lps(moving)
+    )
+
+
+def fsl_mat_for_new_reference(
+    mat: "np.ndarray | Path | str", old_reff: "Path | str", new_reff: "Path | str"
+) -> np.ndarray:
+    """Re-express an FSL matrix for a reference grid with a different FOV.
+
+    FSL-mm coordinates are tied to the reference's own voxel grid, so a matrix
+    estimated against ``old_reff`` is invalid once the grid is padded. Changing
+    frames through world space gives
+
+        mat_new = S_new @ inv(A_new) @ A_old @ inv(S_old) @ mat_old
+
+    For a pure zero-pad this collapses to a translation, but *not* a symmetric one:
+    on the x axis of a positive-determinant reference FSL measures from the far edge
+    (``(size-1) * pixdim``), so that component moves with ``pad_right`` while the
+    others move with ``pad_left``. Hand-rolling ``t += spacing * pad_left`` therefore
+    introduces an x error of ``spacing * (pad_left_x - pad_right_x)`` on exactly the
+    templates this pipeline ships. Compute it through S/A instead.
+    """
+    m = (
+        np.asarray(mat, dtype=np.float64)
+        if isinstance(mat, np.ndarray)
+        else np.loadtxt(str(validate_input_file(mat, logger)))
+    )
+    old = _sitk_ensure_3d(sitk.ReadImage(str(validate_input_file(old_reff, logger))))
+    new = _sitk_ensure_3d(sitk.ReadImage(str(validate_input_file(new_reff, logger))))
+
+    change_of_frame = (
+        _sitk_fsl_scale(new)
+        @ np.linalg.inv(_sitk_affine_lps(new))
+        @ _sitk_affine_lps(old)
+        @ np.linalg.inv(_sitk_fsl_scale(old))
+    )
+    if not np.allclose(change_of_frame[:3, :3], np.eye(3), atol=1e-9):
+        raise ValueError(
+            "Reference grids differ by more than a translation (spacing or direction "
+            "changed); the FSL matrix cannot be re-expressed by padding alone."
+        )
+    return change_of_frame @ np.asarray(m, dtype=np.float64)
+
+
+def reference_padding_to_cover(
+    vox2vox: np.ndarray,
+    moving_shape: "tuple[int, int, int]",
+    ref_shape: "tuple[int, int, int]",
+    *,
+    margin: int = 1,
+    max_growth: float = DEFAULT_FULL_FOV_MAX_GROWTH,
+) -> "tuple[np.ndarray, np.ndarray]":
+    """Voxel padding of the reference grid needed to contain the whole moving image.
+
+    Maps the eight corners of the moving image's *outer-edge* box
+    (``-0.5 .. size-0.5``) through ``vox2vox`` and takes the axis-aligned hull. Edges,
+    not centres: SimpleITK's linear interpolator returns data over ``[-0.5, size-0.5)``,
+    so centre corners would discard a nonzero half-voxel slab on every face — exactly
+    the outermost data (the chamber rim) this output exists to keep. An affine map
+    sends the convex hull of the corners to the hull of their images, so eight corners
+    are exact even for oblique geometry.
+
+    Both pads are clamped at zero, which makes the padded grid a strict superset of the
+    reference, so the two differ by a whole number of voxels and the standard conformed
+    image sits at ``pad_left`` inside the enlarged one.
+
+    Args:
+        vox2vox: 4x4 moving-index -> reference-index affine.
+        moving_shape: Spatial shape of the moving image, in ``(x, y, z)`` index order.
+        ref_shape: Spatial shape of the reference grid, in ``(x, y, z)`` index order.
+        margin: Extra voxels per face. One by default: it costs almost nothing, covers
+            FLIRT's zero-pad ramp (nonzero support out to a full voxel, wider than
+            SimpleITK's edge clamp) and absorbs the floor/ceil rounding.
+        max_growth: Per-axis sanity cap on total padding as a multiple of the reference
+            size. A NaN or garbage transform yields an absurd hull; this catches it
+            before anything is allocated.
+
+    Returns:
+        ``(pad_left, pad_right)``, non-negative int arrays of shape ``(3,)``.
+
+    Raises:
+        ValueError: If ``vox2vox`` is not finite, or the padding exceeds ``max_growth``.
+    """
+    vox2vox = np.asarray(vox2vox, dtype=np.float64)
+    if not np.isfinite(vox2vox).all():
+        raise ValueError(f"Non-finite moving->reference transform:\n{vox2vox}")
+
+    moving_shape = np.asarray(moving_shape, dtype=np.float64)[:3]
+    ref_shape = np.asarray(ref_shape, dtype=np.int64)[:3]
+
+    # Eight outer-edge corners of the moving image, as homogeneous columns.
+    lows, highs = np.full(3, -0.5), moving_shape - 0.5
+    corners = np.array(
+        [
+            [
+                lows[0] if not i & 1 else highs[0],
+                lows[1] if not i & 2 else highs[1],
+                lows[2] if not i & 4 else highs[2],
+                1.0,
+            ]
+            for i in range(8)
+        ]
+    ).T
+    mapped = (vox2vox @ corners)[:3]
+
+    lo = np.floor(mapped.min(axis=1)).astype(np.int64) - margin
+    hi = np.ceil(mapped.max(axis=1)).astype(np.int64) + margin
+
+    pad_left = np.maximum(0, -lo).astype(int)
+    pad_right = np.maximum(0, hi - (ref_shape - 1)).astype(int)
+
+    growth = (pad_left + pad_right) / np.maximum(ref_shape, 1)
+    if np.any(growth > max_growth):
+        raise ValueError(
+            f"Implausible full-FOV padding (left={list(pad_left)}, right={list(pad_right)}) "
+            f"for reference shape {list(ref_shape)}: grows by up to {growth.max():.1f}x, "
+            f"cap is {max_growth}x. The rigid transform is probably wrong."
+        )
+    return pad_left, pad_right

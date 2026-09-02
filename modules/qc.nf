@@ -16,7 +16,7 @@ process QC_CONFORM {
         pattern: '*.png'
     
     input:
-    tuple val(subject_id), val(session_id), path(conformed_file), val(bids_naming_template), path(template_resampled_file, stageAs: 'template.nii.gz')
+    tuple val(subject_id), val(session_id), path(conformed_file), val(bids_naming_template), path(template_resampled_file, stageAs: 'template.nii.gz'), path(full_fov_file, stageAs: 'full_fov.nii.gz'), path(full_fov_template_file, stageAs: 'full_fov_template.nii.gz'), path(fov_box_file, stageAs: 'fov_box.nii.gz')
     path config_file
     
     output:
@@ -51,13 +51,39 @@ qc_output_filename = create_bids_output_filename(
     modality=modality
 ).replace('.nii.gz', '.png')
 
-# Generate QC
+# Second figure, on the uncropped grid, with the processing FOV drawn as a box.
+qc_full_fov_filename = create_bids_output_filename(
+    original_file_path=bids_naming_template,
+    suffix='desc-conformFullFOV',
+    modality=modality
+).replace('.nii.gz', '.png')
+
+def _real(p):
+    # The full-FOV trio is an optional ANAT_CONFORM output; the workflow substitutes
+    # empty .dummy sentinels when it is absent. stageAs rewrites the sentinel to the
+    # real name, so the extension is gone by the time we see it -- emptiness is the
+    # only signal left. All three are absent together, so any one of them decides.
+    path = Path(p)
+    if (not path.exists()) or path.stat().st_size == 0:
+        return None
+    return path
+
+full_fov_file = _real('full_fov.nii.gz')
+full_fov_template_file = _real('full_fov_template.nii.gz')
+fov_box_file = _real('fov_box.nii.gz')
+
+# Generate QC. The full-FOV trio is staged under fixed names to avoid collisions
+# with the conformed image.
 result = qc_conform(
     conformed_file=Path('${conformed_file}'),
     template_file=template_file,
     output_path=Path(qc_output_filename),
     modality='anat',
-    config=config
+    config=config,
+    full_fov_file=full_fov_file,
+    full_fov_template_file=full_fov_template_file,
+    fov_box_file=fov_box_file,
+    full_fov_output_path=Path(qc_full_fov_filename),
 )
 
 # Save metadata
@@ -656,7 +682,7 @@ process QC_MOTION_CORRECTION {
         pattern: '*.png'
     
     input:
-    tuple val(subject_id), val(session_id), val(run_identifier), path(motion_params_file), path(input_file), val(bids_naming_template)
+    tuple val(subject_id), val(session_id), val(run_identifier), path(motion_params_file), path(input_file), val(bids_naming_template), path(confounds_tsv)
     path config_file
     
     output:
@@ -684,12 +710,20 @@ qc_output_filename = create_bids_output_filename(
     modality='bold'
 ).replace('.nii.gz', '.png')
 
+def _real(p):
+    # Treat dummy/empty sentinels as absent (mirrors TSNR's dummy-mask handling).
+    path = Path(p)
+    if (not path.exists()) or '.dummy' in str(path).lower() or path.stat().st_size == 0:
+        return None
+    return path
+
 # Generate QC
 result = qc_motion_correction(
     motion_params_file=Path('${motion_params_file}'),
     output_path=Path(qc_output_filename),
     input_file=Path('${input_file}'),
-    config=config
+    config=config,
+    confounds_file=_real('${confounds_tsv}')
 )
 
 # Save metadata

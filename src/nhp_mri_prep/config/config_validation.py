@@ -241,6 +241,30 @@ def validate_confounds_config(config: Dict[str, Any]) -> None:
                 f"Please fix this in your configuration file."
             )
 
+    # Outlier thresholds and the FD rotation radius. Without this check a string or a negative value
+    # passes validation and only fails later inside a Nextflow process, far from the cause.
+    for key in (
+        "fd_outlier_threshold_mm",
+        "std_dvars_outlier_threshold",
+        "fd_radius_mm",
+    ):
+        if key not in config:
+            continue
+        value = config[key]
+        # bool is a subclass of int, so check it first or `fd_radius_mm: true` reads as 1.0.
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(
+                f"Configuration error in func.confounds: "
+                f"{key} must be a number, got {type(value).__name__}. "
+                f"Please fix this in your configuration file."
+            )
+        if value <= 0:
+            raise ValueError(
+                f"Configuration error in func.confounds: "
+                f"{key} must be greater than 0, got {value}. "
+                f"Please fix this in your configuration file."
+            )
+
 
 def validate_skullstripping_config(config: Dict[str, Any]) -> None:
     """Validate skullstripping configuration.

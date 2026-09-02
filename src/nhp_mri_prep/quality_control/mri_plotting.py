@@ -15,6 +15,8 @@ handle image orientation and voxel dimensions from NIfTI headers.
 """
 
 # %%
+import re
+
 import numpy as np
 import matplotlib.pyplot as plt
 import nibabel as nib
@@ -382,6 +384,11 @@ def create_grid_mri_image(
     show_row_labels: bool = False,  # Show orientation names on left
     col_margin: int = 0,  # Extract extra slices on each side but only display middle num_cols
     contour_linewidth: float = 1.5,  # Line width for contour overlays
+    outline_data: Optional[
+        Union[np.ndarray, str, Path]
+    ] = None,  # Binary mask to outline
+    outline_color: str = "white",
+    outline_linewidth: float = 1.0,
 ) -> plt.Figure:
     """
     Create a flexible grid of MRI images with optional overlay and customizable perspectives.
@@ -408,6 +415,13 @@ def create_grid_mri_image(
         show_row_labels: Whether to show orientation names on left side
         col_margin: Extract extra slices on each side (total slices = num_cols + 2*col_margin),
                    but only display the middle num_cols slices
+        outline_data: Optional binary mask, on the same grid as the underlay, drawn as a
+                   plain single-level contour on top of everything else. Used to mark a
+                   region boundary (e.g. the cropped FOV inside a full-FOV image).
+                   Supplying it as an image rather than as coordinates means it goes
+                   through the same reorientation and slicing as the underlay.
+        outline_color: Colour of the outline contour
+        outline_linewidth: Line width of the outline contour
 
     Returns:
         Matplotlib figure object
@@ -444,6 +458,19 @@ def create_grid_mri_image(
             has_file_path = True
         else:
             overlay = overlay_data
+
+    # Handle outline mask (optional)
+    outline = None
+    if outline_data is not None:
+        if isinstance(outline_data, (str, Path)):
+            outline, _, _ = _load_image(outline_data)
+        else:
+            outline = outline_data
+        if outline is not None and outline.shape[:3] != underlay.shape[:3]:
+            raise ValueError(
+                f"outline_data shape {outline.shape[:3]} does not match underlay "
+                f"{underlay.shape[:3]}; the outline must be on the underlay's grid."
+            )
 
     # Create figure with dynamic size based on number of perspectives
     num_rows = len(perspectives)
@@ -647,6 +674,19 @@ def create_grid_mri_image(
                                             linewidths=contour_linewidth,
                                             alpha=alpha,
                                         )
+
+            # Outline mask: a plain boundary drawn on top of everything else
+            if outline is not None:
+                outline_slice = create_oriented_slice(
+                    outline, orient_info, slice_idx, rotation
+                )
+                if outline_slice.min() < 0.5 < outline_slice.max():
+                    ax.contour(
+                        outline_slice.astype(float),
+                        levels=[0.5],
+                        colors=[outline_color],
+                        linewidths=outline_linewidth,
+                    )
 
             ax.axis("off")
 
@@ -875,6 +915,126 @@ CONFOUNDS_QC_MARGINS = {
     "hspace": 0.08,
 }
 
+# Flagged-frame shading for the stacked timeseries QC figures (motion + confounds).
+# Non-steady-state (dummy) frames get a neutral gray band; motion outliers get a desaturated warm
+# tone so the two read as different kinds of flagged frame. Both are kept low-alpha and behind the
+# traces so they never compete with the saturated panel colors (#D4577A GS ... #9B4D96 FD) or
+# swallow the "lightgray" p95 reference line.
+QC_NONSTEADY_SHADE_COLOR = "0.45"
+QC_NONSTEADY_SHADE_ALPHA = 0.22
+QC_MOTION_OUTLIER_SHADE_COLOR = "#C1554E"
+QC_MOTION_OUTLIER_SHADE_ALPHA = 0.16
+QC_FRAME_SHADE_ZORDER = 0
+
+# One-hot outlier column prefixes written by ``operations.confounds`` into the confounds TSV.
+NONSTEADY_OUTLIER_PREFIX = "non_steady_state_outlier"
+MOTION_OUTLIER_PREFIX = "motion_outlier"
+
+
+def outlier_frame_indices(confounds_df, prefix: str) -> np.ndarray:
+    """Frame indices flagged by the ``<prefix>##`` one-hot confound columns.
+
+    ``operations.confounds`` writes one column per flagged frame (``motion_outlier00``,
+    ``non_steady_state_outlier00``, ...), each a one-hot vector. The union of their set bits is the
+    flagged-frame set. Returns an empty array when no such columns are present.
+    """
+    pattern = re.compile(rf"^{re.escape(prefix)}\d+$")
+    columns = [c for c in confounds_df.columns if pattern.match(str(c))]
+    if not columns:
+        return np.array([], dtype=int)
+
+    flags = np.zeros(len(confounds_df), dtype=bool)
+    for col in columns:
+        try:
+            values = confounds_df[col].to_numpy(dtype=float, na_value=np.nan)
+        except (TypeError, ValueError):
+            # A non-numeric column under this name is not an indicator column. Skip it rather than
+            # raising: create_confounds_plot has no inner guard, so an exception here would cost the
+            # whole figure via qc_confounds' outer except.
+            continue
+        flags |= np.nan_to_num(values, nan=0.0) != 0.0
+    return np.flatnonzero(flags).astype(int)
+
+
+def _contiguous_frame_spans(indices) -> List[Tuple[int, int]]:
+    """Collapse sorted frame indices into inclusive ``(lo, hi)`` runs."""
+    indices = np.unique(np.asarray(indices, dtype=int))
+    if indices.size == 0:
+        return []
+    # Split wherever the step between consecutive indices is not 1.
+    breaks = np.flatnonzero(np.diff(indices) != 1)
+    starts = np.concatenate(([0], breaks + 1))
+    stops = np.concatenate((breaks, [indices.size - 1]))
+    return [(int(indices[s]), int(indices[e])) for s, e in zip(starts, stops)]
+
+
+def shade_frame_spans(
+    ax: plt.Axes,
+    indices,
+    n_frames: int,
+    *,
+    color: str,
+    alpha: float,
+) -> List[Tuple[float, float]]:
+    """Shade the given frame indices on ``ax`` as vertical bands; return the drawn spans.
+
+    Frames sit at integer x positions, so a run ``lo..hi`` covers ``[lo - 0.5, hi + 0.5]``, clamped
+    to the shared frame limits so a band on frame 0 or on the last frame does not overhang the axes.
+    Contiguous runs become one patch rather than one per frame.
+    """
+    if n_frames <= 0:
+        return []
+    lo_limit, hi_limit = frame_xlim(n_frames)
+    drawn: List[Tuple[float, float]] = []
+    for lo, hi in _contiguous_frame_spans(indices):
+        span_lo = max(lo_limit, lo - 0.5)
+        span_hi = min(hi_limit, hi + 0.5)
+        if span_hi <= span_lo:
+            continue
+        ax.axvspan(
+            span_lo,
+            span_hi,
+            color=color,
+            alpha=alpha,
+            linewidth=0,
+            zorder=QC_FRAME_SHADE_ZORDER,
+        )
+        drawn.append((span_lo, span_hi))
+    return drawn
+
+
+def shade_flagged_frames(
+    axes: Union[plt.Axes, List[plt.Axes], Tuple[plt.Axes, ...]],
+    n_frames: int,
+    *,
+    nonsteady_frames=None,
+    motion_outlier_frames=None,
+) -> None:
+    """Shade non-steady-state and motion-outlier frames on every axes of a timeseries QC figure.
+
+    Call before ``configure_frame_xaxis`` so the explicit limits set there stay the last word on the
+    x-axis (an ``axvspan`` participates in x autoscaling).
+    """
+    axes_list = list(axes) if not isinstance(axes, plt.Axes) else [axes]
+    for ax in axes_list:
+        if nonsteady_frames is not None and len(nonsteady_frames):
+            shade_frame_spans(
+                ax,
+                nonsteady_frames,
+                n_frames,
+                color=QC_NONSTEADY_SHADE_COLOR,
+                alpha=QC_NONSTEADY_SHADE_ALPHA,
+            )
+        if motion_outlier_frames is not None and len(motion_outlier_frames):
+            shade_frame_spans(
+                ax,
+                motion_outlier_frames,
+                n_frames,
+                color=QC_MOTION_OUTLIER_SHADE_COLOR,
+                alpha=QC_MOTION_OUTLIER_SHADE_ALPHA,
+            )
+
+
 # fMRIPrep-style confound panel order, labels, and colors (GS → FD).
 CONFOUND_PANEL_SPECS: List[Tuple[str, str, str]] = [
     ("global_signal", "GS", "#D4577A"),
@@ -897,6 +1057,19 @@ CONFOUND_P95_LABEL_SIZE = 9
 CONFOUND_LINEWIDTH = 1.8
 CONFOUND_P95_LINEWIDTH = 0.75
 CONFOUND_P95_LINE_ALPHA = 1
+# Outlier-threshold reference line: dashed and in the panel's own color, so it cannot be mistaken
+# for the solid lightgray p95 line. Labelled on the right; the p95 label sits on the left at x~2.
+CONFOUND_THRESHOLD_LINEWIDTH = 1.0
+CONFOUND_THRESHOLD_LINE_ALPHA = 0.75
+CONFOUND_THRESHOLD_LABEL_SIZE = 9
+CONFOUND_THRESHOLD_DASHES = (4, 3)
+
+# Which confound column each outlier criterion thresholds. A frame is flagged when EITHER crosses,
+# so both lines are drawn -- an FD-only line would leave DVARS-driven bands looking unexplained.
+CONFOUND_THRESHOLD_COLUMNS = {
+    "framewise_displacement": "fd_outlier_threshold_mm",
+    "std_dvars": "std_dvars_outlier_threshold",
+}
 
 
 def plot_confound_panel(
@@ -906,8 +1079,13 @@ def plot_confound_panel(
     color: str,
     *,
     units: Optional[str] = None,
+    threshold: Optional[float] = None,
 ) -> None:
-    """Style a single fMRIPrep-like confound time-series panel on ``ax``."""
+    """Style a single fMRIPrep-like confound time-series panel on ``ax``.
+
+    ``threshold``, when given, is drawn as a dashed reference line marking the value above which a
+    frame is flagged as a motion outlier -- but only if it falls inside the panel's data range.
+    """
     tseries = np.asarray(tseries, dtype=float)
     ntsteps = len(tseries)
 
@@ -997,6 +1175,32 @@ def plot_confound_panel(
         alpha=CONFOUND_P95_LINE_ALPHA,
     )
 
+    # Outlier threshold, drawn only when it lies within the panel's y-range. Forcing an off-range
+    # threshold into view would rescale a clean run's trace into a flat line at the bottom; and it
+    # is never needed there, because no frame reaching the threshold means no band to explain.
+    if threshold is not None:
+        ylo_lim, yhi_lim = ax.get_ylim()
+        if ylo_lim < float(threshold) < yhi_lim:
+            ax.plot(
+                [0, x_end],
+                [threshold, threshold],
+                linewidth=CONFOUND_THRESHOLD_LINEWIDTH,
+                color=color,
+                alpha=CONFOUND_THRESHOLD_LINE_ALPHA,
+                dashes=CONFOUND_THRESHOLD_DASHES,
+            )
+            ax.annotate(
+                f"thr {threshold:g}{units_suffix}",
+                xy=(x_end, threshold),
+                xytext=(-4, 3),
+                textcoords="offset points",
+                va="bottom",
+                ha="right",
+                color=color,
+                size=CONFOUND_THRESHOLD_LABEL_SIZE,
+                alpha=CONFOUND_THRESHOLD_LINE_ALPHA,
+            )
+
     ax.plot(
         np.arange(ntsteps),
         tseries,
@@ -1008,11 +1212,19 @@ def plot_confound_panel(
 def create_confounds_plot(
     confounds_df,
     figsize: Optional[Tuple[float, float]] = None,
+    *,
+    thresholds: Optional[dict] = None,
 ) -> plt.Figure:
     """
     Create an fMRIPrep-style confounds QC figure with one compact panel per regressor.
 
     Panels appear in fMRIPrep order when present: GS, CSF, WM, DVARS, FD.
+
+    Args:
+        confounds_df: The confounds table; its ``*_outlier##`` columns drive the frame shading.
+        figsize: Figure size.
+        thresholds: Optional ``{config key: value}`` outlier thresholds, keyed as in
+            ``CONFOUND_THRESHOLD_COLUMNS``, drawn as reference lines on the panels they apply to.
     """
     panels = [
         (col, lbl, color)
@@ -1030,14 +1242,28 @@ def create_confounds_plot(
     axes = axes[:, 0]
     n_frames = len(confounds_df)
 
+    thresholds = thresholds or {}
     for ax, (col, lbl, color) in zip(axes, panels):
+        threshold_key = CONFOUND_THRESHOLD_COLUMNS.get(col)
         plot_confound_panel(
             ax,
             confounds_df[col].to_numpy(),
             lbl,
             color,
             units=CONFOUND_PANEL_UNITS.get(col),
+            threshold=thresholds.get(threshold_key) if threshold_key else None,
         )
+
+    # Flagged frames, read straight off the one-hot outlier columns already in the TSV. Shaded
+    # before configure_frame_xaxis so the explicit limits set there win over axvspan autoscaling.
+    shade_flagged_frames(
+        axes,
+        n_frames,
+        nonsteady_frames=outlier_frame_indices(confounds_df, NONSTEADY_OUTLIER_PREFIX),
+        motion_outlier_frames=outlier_frame_indices(
+            confounds_df, MOTION_OUTLIER_PREFIX
+        ),
+    )
 
     # Same 0-based tight frame limits as motion QC.
     configure_frame_xaxis(axes, n_frames, show_xlabel=False, style_left_spine=False)
@@ -1055,6 +1281,9 @@ def create_motion_plot(
     motion_data: np.ndarray,
     title: str = "Head Motion Parameters",
     figsize: Tuple[int, int] = (TIMESERIES_QC_FIG_WIDTH, 6),
+    *,
+    nonsteady_frames=None,
+    motion_outlier_frames=None,
 ) -> plt.Figure:
     """
     Create motion parameter plots (6 rigid-body parameters).
@@ -1068,6 +1297,8 @@ def create_motion_plot(
                     Last 3 columns: translations (mm)
         title: Plot title
         figsize: Figure size
+        nonsteady_frames: Optional frame indices of non-steady-state (dummy) volumes to shade
+        motion_outlier_frames: Optional frame indices of motion outliers to shade
 
     Returns:
         Matplotlib figure object
@@ -1103,6 +1334,14 @@ def create_motion_plot(
         ncol=3,
         frameon=True,
     )
+    # Same flagged-frame bands as the confounds figure stacked below, on the shared frame axis.
+    shade_flagged_frames(
+        [ax1, ax2],
+        motion_data.shape[0],
+        nonsteady_frames=nonsteady_frames,
+        motion_outlier_frames=motion_outlier_frames,
+    )
+
     configure_frame_xaxis([ax1, ax2], motion_data.shape[0], show_xlabel=True)
 
     # add a horizontal line at 0 for the y-axis

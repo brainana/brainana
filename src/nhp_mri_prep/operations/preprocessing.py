@@ -26,10 +26,16 @@ from .registration import (
     flirt_config_for_modality,
 )
 from .sitk_rigid_registration import (
+    DEFAULT_FULL_FOV_MAX_VOXELS,
+    _sitk_tx_to_matrix,
+    fsl_mat_for_new_reference,
+    fsl_mat_to_world_affine,
+    reference_padding_to_cover,
     sitk_register,
     sitk_apply_transforms,
     sitk_config_for_modality,
     sitk_resample_to_spacing,
+    world_mat_to_vox2vox,
 )
 from ..utils import (
     run_command,
@@ -43,6 +49,7 @@ from ..utils.mri import (
     correct_affine_for_mismatch_orientation,
     ensure_3d,
     pad_image,
+    write_inner_box_mask,
 )
 
 from fastsurfer_nn.inference.segmentation import run_segmentation
@@ -182,6 +189,184 @@ def correct_orientation_mismatch(
         raise RuntimeError(f"Orientation mismatch correction failed: {e}") from e
 
 
+def _full_fov_output_name(output_name: str) -> str:
+    """``anat_conformed.nii.gz`` -> ``anat_conformed_fullfov.nii.gz``."""
+    name = str(output_name)
+    for ext in (".nii.gz", ".nii"):
+        if name.endswith(ext):
+            return f"{name[: -len(ext)]}_fullfov{ext}"
+    return f"{name}_fullfov"
+
+
+def _conform_full_fov(
+    image_path: Path,
+    conformed_f: Path,
+    template_f_for_xfm: Path,
+    work_dir: Path,
+    output_name: str,
+    rigid_method: str,
+    xfm_forward_f: Path,
+    sitk_transform_obj: Any,
+    logger: logging.Logger,
+    max_voxels: int = DEFAULT_FULL_FOV_MAX_VOXELS,
+) -> Dict[str, Any]:
+    """Conform the input onto an enlarged grid that crops nothing.
+
+    The standard conform reference is the template's box, sized for a brain. Anything
+    outside it — a recording chamber, head-post, the neck — is cropped from every
+    downstream product. This produces one extra image on the *same* grid (same
+    direction, same spacing, voxel-aligned) enlarged so that every voxel of the
+    scanner-space input is inside it. It is a leaf: nothing downstream reads it.
+
+    Because the padding is clamped at zero, the enlarged grid is a strict superset of
+    the standard one: the two differ by a whole number of voxels, which is what lets the
+    QC snapshot draw the cropped FOV as a plain axis-aligned box.
+
+    On the ``sitk`` path the overlap is bit-identical to the standard output — the same
+    transform object is applied and only the output grid changes. On the ``flirt`` path
+    it is not: FSL matrices live in the reference's own voxel frame, so the matrix must
+    be re-expressed for the enlarged grid, and FLIRT then redoes its arithmetic from
+    different (though mathematically equivalent) numbers. The alignment is exact; the
+    values differ at float level. Measured on a real 0-4193 subject: median |diff| 0.015,
+    0.03% of voxels above 1, plus a handful on the outer edge of the input's footprint
+    where a hair's-breadth sampling difference includes or excludes real data. Writing
+    the matrix at full double precision changes nothing, so this is inherent to FLIRT.
+
+    Returns a dict with ``imagef_conformed_full_fov``, ``template_f_full_fov``,
+    ``fov_box``, ``pad_left``, ``pad_right`` and ``status`` (``"expanded"``,
+    ``"no_expansion_needed"`` or ``"fallback"``).
+    """
+    ref_shape = np.asarray(nib.load(str(template_f_for_xfm)).shape[:3], dtype=int)
+    moving_shape = np.asarray(nib.load(str(image_path)).shape[:3], dtype=int)
+
+    # ---- Size the enlarged grid ------------------------------------------------
+    # Any failure here degrades to "no expansion" rather than losing the output:
+    # this is a diagnostic product and must not introduce a new way for a working
+    # pipeline to fail.
+    status = "expanded"
+    try:
+        if rigid_method == "sitk":
+            world_mat = _sitk_tx_to_matrix(sitk_transform_obj)
+        else:
+            # The matrix must be read against the grid FLIRT is actually *applied*
+            # with (template_for_xfm), not the one it was estimated on
+            # (template_f_for_reg) — we need where FLIRT really puts the voxels.
+            world_mat = fsl_mat_to_world_affine(
+                xfm_forward_f, template_f_for_xfm, image_path
+            )
+        vox2vox = world_mat_to_vox2vox(world_mat, template_f_for_xfm, image_path)
+        pad_left, pad_right = reference_padding_to_cover(
+            vox2vox, moving_shape, ref_shape
+        )
+
+        requested_shape = [int(v) for v in ref_shape + pad_left + pad_right]
+        n_voxels = int(np.prod(requested_shape))
+        if n_voxels > max_voxels:
+            raise ValueError(
+                f"Enlarged grid would be {requested_shape} = {n_voxels:.3g} voxels, "
+                f"over the {max_voxels:.3g} cap "
+                f"({n_voxels * 4 / 1e6:.0f} MB as float32)."
+            )
+    except Exception as e:
+        logger.warning(
+            f"Full-FOV conform: could not size the enlarged grid ({e}). "
+            f"Falling back to the standard FOV for this output."
+        )
+        pad_left = pad_right = np.zeros(3, dtype=int)
+        status = "fallback"
+
+    def _no_expansion():
+        """Emit the target-FOV image under the full-FOV name, so callers and the
+        Nextflow output declarations always find all three files."""
+        full_fov_f = work_dir / _full_fov_output_name(output_name)
+        shutil.copy2(str(conformed_f), str(full_fov_f))
+        return full_fov_f, Path(template_f_for_xfm)
+
+    if not np.any(pad_left) and not np.any(pad_right):
+        if status != "fallback":
+            status = "no_expansion_needed"
+            logger.info(
+                "Full-FOV conform: the input is already inside the target FOV; "
+                "the full-FOV output matches the standard conformed image."
+            )
+        full_fov_f, template_full_fov_f = _no_expansion()
+    else:
+        new_shape = [int(v) for v in ref_shape + pad_left + pad_right]
+        logger.info(
+            f"Full-FOV conform: enlarging the reference from "
+            f"{[int(v) for v in ref_shape]} to {new_shape} voxels "
+            f"(left={[int(v) for v in pad_left]}, right={[int(v) for v in pad_right]}, "
+            f"{int(np.prod(new_shape)) * 4 / 1e6:.0f} MB as float32)"
+        )
+        try:
+            # The enlarged reference is just the padded template, so it doubles as the
+            # contour overlay for the reworked conform QC snapshot.
+            template_full_fov_f = work_dir / "template_for_xfm_fullfov.nii.gz"
+            pad_image(
+                str(template_f_for_xfm),
+                str(template_full_fov_f),
+                pad_left,
+                pad_right,
+                logger=logger,
+                dtype=np.float32,
+            )
+
+            full_fov_name = _full_fov_output_name(output_name)
+            if rigid_method == "sitk":
+                # SimpleITK resamples in world space: the transform is grid-agnostic.
+                apply_result = sitk_apply_transforms(
+                    movingf=str(image_path),
+                    outputf_name=full_fov_name,
+                    reff=str(template_full_fov_f),
+                    work_dir=work_dir,
+                    transform_obj=sitk_transform_obj,
+                )
+            else:
+                # FSL matrices are expressed in the reference's own voxel frame, so the
+                # forward .mat is invalid against the padded grid and must be re-based.
+                mat_full_fov = fsl_mat_for_new_reference(
+                    xfm_forward_f, template_f_for_xfm, template_full_fov_f
+                )
+                mat_full_fov_f = work_dir / "conform_scanner2native_fullfov.mat"
+                np.savetxt(str(mat_full_fov_f), mat_full_fov, fmt="%.10f")
+                apply_result = flirt_apply_transforms(
+                    movingf=str(image_path),
+                    outputf_name=full_fov_name,
+                    reff=str(template_full_fov_f),
+                    working_dir=str(work_dir),
+                    transformf=str(mat_full_fov_f),
+                    logger=logger,
+                    interpolation="trilinear",
+                    generate_tmean=False,
+                )
+            full_fov_f = Path(apply_result["imagef_registered"])
+        except Exception as e:
+            # Same rule as the sizing step: degrade to the target FOV rather than
+            # leave the output missing and fail an otherwise healthy run.
+            logger.warning(
+                f"Full-FOV conform: resampling onto the enlarged grid failed ({e}). "
+                f"Falling back to the standard FOV for this output."
+            )
+            pad_left = pad_right = np.zeros(3, dtype=int)
+            status = "fallback"
+            full_fov_f, template_full_fov_f = _no_expansion()
+
+    # Box marking the standard (cropped) FOV inside the enlarged grid, for QC.
+    fov_box_f = work_dir / "conform_fov_box.nii.gz"
+    write_inner_box_mask(
+        str(template_full_fov_f), str(fov_box_f), pad_left, ref_shape, logger=logger
+    )
+
+    return {
+        "imagef_conformed_full_fov": str(full_fov_f),
+        "template_f_full_fov": str(template_full_fov_f),
+        "fov_box": str(fov_box_f),
+        "pad_left": [int(v) for v in pad_left],
+        "pad_right": [int(v) for v in pad_right],
+        "status": status,
+    }
+
+
 def conform_to_template(
     imagef: Union[str, Path],
     template_file: Union[str, Path],
@@ -191,6 +376,7 @@ def conform_to_template(
     modal: str = "anat",
     skip_skullstripping: bool = False,
     rigid_method: str = "flirt",
+    emit_full_fov: bool = False,
 ) -> Dict[str, str]:
     """Conform input image to template space using rigid registration.
 
@@ -212,6 +398,10 @@ def conform_to_template(
         rigid_method: Rigid registration backend, 'flirt' (FSL, default) or 'sitk'
             (SimpleITK, FSL-free). The 'sitk' path is a drop-in replacement that needs no
             FSL binary and writes the same .mat / _inverse.mat / .world.mat artifacts.
+        emit_full_fov: Additionally emit the conformed image on an enlarged grid that
+            contains every voxel of the input, so nothing outside the template's box
+            (recording chamber, head-post, neck) is cropped away. Anatomical only; the
+            extra image is a leaf output that no downstream step consumes.
 
     Returns:
         Dictionary with output file paths:
@@ -219,6 +409,12 @@ def conform_to_template(
         - 'template_f': Path to resampled template file (for QC)
         - 'forward_xfm': Path to forward transformation matrix (.mat file)
         - 'inverse_xfm': Path to inverse transformation matrix (.mat file, may be None if inverse computation failed)
+
+        When ``emit_full_fov`` is set, also:
+        - 'imagef_conformed_full_fov': Conformed image on the enlarged, uncropped grid
+        - 'template_f_full_fov': Resampled template on that same enlarged grid (for QC)
+        - 'fov_box': Binary mask of the standard FOV within the enlarged grid (for QC)
+        - 'full_fov_pad': ``{'left': [...], 'right': [...], 'status': ...}``
 
     Raises:
         FileNotFoundError: If input or template file doesn't exist
@@ -570,6 +766,27 @@ def conform_to_template(
                 f"If this issue persists, consider disabling conform by setting 'anat.conform.enabled: false' in your configuration."
             )
 
+        # ------------------------------------------------------------
+        # Step 5b: same conform on an enlarged grid that crops nothing (leaf output)
+        full_fov = {}
+        if emit_full_fov:
+            try:
+                full_fov = _conform_full_fov(
+                    image_path=Path(image_path),
+                    conformed_f=conformed_f,
+                    template_f_for_xfm=template_f_for_xfm,
+                    work_dir=work_dir,
+                    output_name=output_name,
+                    rigid_method=rigid_method,
+                    xfm_forward_f=xfm_forward_f,
+                    sitk_transform_obj=sitk_transform_obj,
+                    logger=logger,
+                )
+            except Exception as e:
+                # A diagnostic extra must never take the pipeline down with it.
+                logger.warning(f"Full-FOV conform output skipped: {e}")
+                full_fov = {}
+
         logger.info("Workflow: conform to template completed successfully")
 
         # Build return dictionary
@@ -580,6 +797,16 @@ def conform_to_template(
             # Rigid backend that produced the transform: 'flirt' (FSL) or 'sitk' (SimpleITK).
             "engine": rigid_method,
         }
+
+        if full_fov:
+            result["imagef_conformed_full_fov"] = full_fov["imagef_conformed_full_fov"]
+            result["template_f_full_fov"] = full_fov["template_f_full_fov"]
+            result["fov_box"] = full_fov["fov_box"]
+            result["full_fov_pad"] = {
+                "left": full_fov["pad_left"],
+                "right": full_fov["pad_right"],
+                "status": full_fov["status"],
+            }
 
         # Add inverse transform if available
         if xfm_inverse_f is not None and xfm_inverse_f.exists():

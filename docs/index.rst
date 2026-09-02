@@ -26,7 +26,7 @@ About
 |
 
 To explore a subject's outputs interactively, use the companion
-`Brainana Viewer <https://github.com/arcaro-lab/brainana_tools>`_.
+`Brainana Viewer <https://github.com/brainana/brainana-viewer>`_.
 
 License
 ^^^^^^^

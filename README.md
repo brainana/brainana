@@ -39,7 +39,7 @@ For the full multi-modality pipeline with surfaces and QC reports, use the insta
   <img src="docs/_static/brainana_viewer_big.png" alt="Brainana Viewer — macaque brain surfaces, atlas overlays, and functional maps" width="100%">
 </p>
 
-To visualize brainana's outputs interactively, use the companion **[Brainana Viewer](https://github.com/arcaro-lab/brainana_tools)** — a cross-platform viewer.
+To visualize brainana's outputs interactively, use the companion **[Brainana Viewer](https://github.com/brainana/brainana-viewer)** — a cross-platform viewer.
 
 ## Citation
 

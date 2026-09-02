@@ -1,17 +1,17 @@
 fs_license=/mnt/DataDrive3/xliu/prep_test/freesurfer_license.txt
-version=2.1.0
+version=2.1.1
 
-# # # ------------------------------------------------------------
-# # # # 1. devtest
-# bids_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/dataset_devtest
-# output_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/dataset_devtest_docker_v${version}
-# config_f=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/config_res-1.yaml
-
-# ------------------------------------------------------------
-# # # newcastle - sub-03
-bids_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/dataset_newcastle
-output_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/dataset_newcastle
+# # ------------------------------------------------------------
+# # # 1. devtest
+bids_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/dataset_devtest
+output_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/dataset_devtest_docker_v${version}
 config_f=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/config_res-1.yaml
+
+# # ------------------------------------------------------------
+# # # # newcastle - sub-03
+# bids_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/dataset_newcastle
+# output_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/dataset_newcastle
+# config_f=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/config_res-1.yaml
 
 # run docker without custom template
 docker run --rm -t --gpus all \

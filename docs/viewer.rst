@@ -39,6 +39,6 @@ Get the viewer
 
 Download installers for macOS (``.dmg``), Windows (``.exe``), and Linux
 (``.AppImage``/``.deb``) from the
-`Brainana Viewer repository <https://github.com/arcaro-lab/brainana_tools>`_, which also
+`Brainana Viewer repository <https://github.com/brainana/brainana-viewer>`_, which also
 hosts the documentation and full feature list. No account is required, and demo datasets
 are included for immediate exploration.

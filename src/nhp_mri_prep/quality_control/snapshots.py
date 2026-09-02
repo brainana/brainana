@@ -28,7 +28,10 @@ from .mri_plotting import (
     create_overlay_grid_3xN,
     create_motion_plot,
     create_grid_mri_image,
+    outlier_frame_indices,
     save_timeseries_qc_figure,
+    MOTION_OUTLIER_PREFIX,
+    NONSTEADY_OUTLIER_PREFIX,
     _crop_white_space,
     _create_colorbar,
     _create_label_image,
@@ -56,6 +59,13 @@ except (ImportError, ValueError, Exception):
     SURFPLOT_AVAILABLE = False
 
 
+# Outline colour for the processing-FOV box on the full-FOV conform snapshot.
+# Not white and not CSS "lavender" (#E6E6FA, ~95% lightness): against a gray colormap
+# both read as bright tissue. This is saturated enough to be unmistakably an annotation,
+# and far enough in hue from the green/yellow "summer" template contours.
+CONFORM_FOV_BOX_COLOR = "#B39DDB"
+
+
 # %%
 def create_conform_qc(
     conformed_file: str,
@@ -64,10 +74,24 @@ def create_conform_qc(
     modality: str = "anat",
     num_slices: int = 6,
     logger: Optional[logging.Logger] = None,
+    full_fov_file: Optional[Union[str, Path]] = None,
+    full_fov_template_file: Optional[Union[str, Path]] = None,
+    fov_box_file: Optional[Union[str, Path]] = None,
+    full_fov_save_f: Optional[Union[str, Path]] = None,
     **kwargs,
 ) -> Dict[str, str]:
     """
     Generate conform quality control overlays.
+
+    Renders one figure by default: the conformed image with the template as contours.
+
+    When the full-FOV conform outputs and ``full_fov_save_f`` are supplied (anatomical
+    only), a *second* figure is rendered first, on the uncropped grid, with the
+    processing FOV drawn as a lavender box. The two are the same conform at two zoom
+    levels — the standard figure is that box, enlarged. The pair is what makes the crop
+    legible: a recording chamber or head-post outside the box is otherwise invisible
+    here, because the cropped image is all this figure ever showed. With none of them
+    supplied only the standard figure is produced, which is what the functional path does.
 
     Args:
         conformed_file: Path to conformed image (underlay)
@@ -76,6 +100,11 @@ def create_conform_qc(
         modality: Imaging modality ("anat" or "func")
         num_slices: Number of slices per orientation
         logger: Logger instance
+        full_fov_file: Optional conformed image on the enlarged, uncropped grid
+        full_fov_template_file: Optional resampled template on that same grid
+        fov_box_file: Optional binary mask of the target FOV within that grid
+        full_fov_save_f: Output path for the extra full-FOV figure; without it only the
+            standard figure is rendered even when the three inputs above are present
 
     Returns:
         Dictionary with snapshot file paths
@@ -98,31 +127,85 @@ def create_conform_qc(
                 )
                 return {}
 
-        # Create conform overlay (conformed image as underlay, template as contours with 2 levels)
-        # Pass file paths directly - let visualization function handle loading and value scaling
-        # Only show axial slices
-        fig = create_grid_mri_image(
-            underlay_data=conformed_file,
-            overlay_data=template_file,
-            num_cols=num_slices,
-            perspectives=["axial"],
-            title="",
-            alpha=0.7,
-            underlay_cmap="gray",
-            overlay_cmap="summer",
-            num_contour_levels=3,
-            show_title=False,
+        # The full-FOV figure needs all three inputs plus its own output path; they
+        # stand or fall together rather than mixing grids.
+        full_fov_inputs = [full_fov_file, full_fov_template_file, fov_box_file]
+        use_full_fov = (
+            all(f is not None and os.path.exists(f) for f in full_fov_inputs)
+            and full_fov_save_f is not None
         )
+        if any(f is not None for f in full_fov_inputs) and not use_full_fov:
+            logger.warning(
+                "QC: incomplete full-FOV inputs for the conform overlay; "
+                "rendering only the processing-FOV figure"
+            )
 
-        # Ensure the parent directory exists
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(
-            output_path, dpi=PLOT_VOL_DPI, bbox_inches="tight", facecolor="black"
-        )
-        plt.close(fig)
+        # No-expansion and fallback both copy the conformed image under the full-FOV
+        # name, so the two grids are identical. The FOV box then covers the whole grid,
+        # no outline can be drawn, and figure 1 would be a pixel-for-pixel duplicate of
+        # figure 2 captioned "lavender box marks ...". Header read only, no voxel data.
+        if use_full_fov:
+            standard_shape = nib.load(str(conformed_file)).shape[:3]
+            if nib.load(str(full_fov_file)).shape[:3] == standard_shape:
+                logger.info(
+                    "QC: the full-FOV grid matches the processing FOV (no expansion was "
+                    "needed, or sizing fell back); rendering only the processing-FOV figure"
+                )
+                use_full_fov = False
+
+        def _render(underlay, overlay, outline, dest):
+            """Conformed image as underlay, template as contours, optional FOV box."""
+            fig = create_grid_mri_image(
+                underlay_data=underlay,
+                overlay_data=overlay,
+                num_cols=num_slices,
+                perspectives=["axial"],
+                title="",
+                alpha=0.7,
+                underlay_cmap="gray",
+                overlay_cmap="summer",
+                num_contour_levels=3,
+                show_title=False,
+                outline_data=outline,
+                outline_color=CONFORM_FOV_BOX_COLOR,
+                outline_linewidth=1.2,
+            )
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            fig.savefig(dest, dpi=PLOT_VOL_DPI, bbox_inches="tight", facecolor="black")
+            plt.close(fig)
+
+        outputs = {}
+
+        # Figure 1 (when available): the uncropped conform, with the processing FOV boxed.
+        # Guarded on its own: the enlarged grid is the memory-hungry one (get_fdata plus
+        # two full-volume percentile copies), and figure 2 is the figure the report and
+        # the recorded qc_files entry actually depend on, so it must not share the blast
+        # radius of an optional diagnostic.
+        if use_full_fov:
+            full_fov_path = Path(full_fov_save_f)
+            try:
+                _render(
+                    str(full_fov_file),
+                    str(full_fov_template_file),
+                    str(fov_box_file),
+                    full_fov_path,
+                )
+                outputs[f"{modality}_conform_fullfov_overlay"] = str(full_fov_path)
+                logger.info(
+                    f"QC: conform full-FOV overlay saved - {os.path.basename(full_fov_path)}"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"QC: full-FOV conform overlay failed ({e}); "
+                    f"rendering only the processing-FOV figure"
+                )
+
+        # Figure 2: the processing FOV itself — the boxed region of figure 1, enlarged.
+        _render(conformed_file, template_file, None, output_path)
+        outputs[f"{modality}_conform_overlay"] = str(output_path)
 
         logger.info(f"QC: conform overlay saved - {os.path.basename(output_path)}")
-        return {f"{modality}_conform_overlay": str(output_path)}
+        return outputs
 
     except Exception as e:
         logger.error(f"QC: failed to generate conform overlay - {e}")
@@ -133,6 +216,7 @@ def create_motion_correction_qc(
     motion_params: str,
     save_f: Union[str, Path],
     logger: Optional[logging.Logger] = None,
+    confounds_file: Optional[str] = None,
     **kwargs,
 ) -> Dict[str, str]:
     """
@@ -143,6 +227,9 @@ def create_motion_correction_qc(
         save_f: Full path for output file (e.g., 'figures/sub-01_desc-motion_bold.png')
         input_file: Path to input file for BIDS-compliant naming (used for fallback naming)
         logger: Logger instance
+        confounds_file: Optional ``*_desc-confounds_timeseries.tsv``; when given, its
+            non-steady-state and motion-outlier columns are shaded as frame bands, matching the
+            confounds QC figure stacked below this one in the report
         **kwargs: Additional arguments
 
     Returns:
@@ -184,9 +271,36 @@ def create_motion_correction_qc(
             logger.info("QC: skipping motion plot - all-zero params (pass-through)")
             return {}
 
+        # Flagged-frame shading is a nicety: a missing or malformed confounds TSV must cost the
+        # bands, never the figure.
+        nonsteady_frames = None
+        motion_outlier_frames = None
+        if confounds_file:
+            try:
+                confounds_df = pd.read_csv(str(confounds_file), sep="\t")
+                if len(confounds_df) != motion_data.shape[0]:
+                    logger.warning(
+                        f"QC: skipping motion frame shading - confounds has {len(confounds_df)} "
+                        f"frames but motion params have {motion_data.shape[0]}"
+                    )
+                else:
+                    nonsteady_frames = outlier_frame_indices(
+                        confounds_df, NONSTEADY_OUTLIER_PREFIX
+                    )
+                    motion_outlier_frames = outlier_frame_indices(
+                        confounds_df, MOTION_OUTLIER_PREFIX
+                    )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"QC: skipping motion frame shading - {e}")
+
         # Create motion plot (6 rigid-body params only; no Euclidean-norm twin axis —
         # framewise displacement now lives in the separate confounds snapshot).
-        fig = create_motion_plot(motion_data, title="")
+        fig = create_motion_plot(
+            motion_data,
+            title="",
+            nonsteady_frames=nonsteady_frames,
+            motion_outlier_frames=motion_outlier_frames,
+        )
 
         # Ensure the parent directory exists
         output_path.parent.mkdir(parents=True, exist_ok=True)

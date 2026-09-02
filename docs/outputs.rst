@@ -45,6 +45,22 @@ Subject directory (``sub-<id>/``)
 - ``<ses_prefix>_space-T1w_desc-preproc_T2w_brain.nii.gz`` — Skull-stripped T2w in T1w space.
 - ``<ses_prefix>_space-T1w_desc-preproc_T1wT2wCombined.nii.gz`` — T1w/T2w combined image (T2w-enhanced contrast; when T2w is available).
 
+*Uncropped conform — T1w space*
+
+- ``<ses_prefix>_space-T1w_desc-conformFullFOV_T1w.nii.gz`` — The conformed anatomical on a grid
+  enlarged to contain every voxel of the scanner-space input. The field of view used for
+  processing is sized from the template, so anything outside it — a recording chamber,
+  head-post, coil markers, the neck — is cropped from all the images above. This one keeps
+  it. Same conform, same orientation, same resolution, larger box: the two grids differ
+  only by a whole number of voxels, so cropping this image at that offset recovers the
+  processed one. The values there are identical with the ``sitk`` backend; with the default
+  ``flirt`` backend they agree to floating-point precision (FLIRT redoes its own arithmetic
+  from a matrix re-expressed for the larger grid — measured on a 0–4193 image: median
+  difference 0.015, and 0.03 % of voxels above 1). Reference only: no processing step uses
+  this image, and there is no template-space counterpart. The conform QC figure uses it as the underlay, with the
+  processing field of view drawn as a lavender box; the standard conform figure that
+  follows it is that box, enlarged.
+
 *Segmentation and masks — T1w space*
 
 - ``<ses_prefix>_space-T1w_desc-brain_mask.nii.gz`` — Binary brain mask.
@@ -140,6 +156,9 @@ Written in BIDS layout; nilearn-compatible for scrubbing via
   Confounds are **regressors only** — the BOLD image is never scrubbed by this stage; columns are only
   indicators for optional user-customized downstream use. The first sample of differenced columns
   (derivatives, FD, rmsd, DVARS) is ``n/a``.
+
+  Both outlier classes are shaded as vertical bands on the confounds and motion QC figures: gray for
+  ``non_steady_state_outlier##``, red for ``motion_outlier##``.
 
 - ``<run_prefix>_desc-confounds_timeseries.json`` — Per-column metadata sidecar (method, FD radius, FD/DVARS
   thresholds, and whether tissue regressors were produced).

@@ -1,305 +1,305 @@
-ID	hemi	name	name_full	level 0 / Lobe	level 1 / ROI	level 1 / ROI (abbr)	Modified Cytoarchitectonic
-1	lh	FP.d	frontal pole, dorsal part	Frontal Lobe	Frontal Pole	FP	10D/46D
-2	lh	FP.m	frontal pole,  medial part	Frontal Lobe	Frontal Pole	FP	10M/10V
-3	lh	FP.v	frontal pole,  ventral part	Frontal Lobe	Frontal Pole	FP	10V/46V
-4	lh	SFG.rm	superior frontal gyrus, rostromedial part	Frontal Lobe	Superior Frontal Gyrus	SFG	9M
-5	lh	SFG.cm	superior frontal gyrus, caudomedial part 	Frontal Lobe	Superior Frontal Gyrus	SFG	8Bm
-6	lh	SFG.r	superior frontal gyrus, rostral part	Frontal Lobe	Superior Frontal Gyrus	SFG	46D
-7	lh	SFG.ri	superior frontal gyrus, rostrointermediate part	Frontal Lobe	Superior Frontal Gyrus	SFG	9/46D, 9L
-8	lh	SFG.ci	superior frontal gyrus, caudointermediate part	Frontal Lobe	Superior Frontal Gyrus	SFG	8A/8B
-9	lh	SFG.c	superior frontal gyrus, caudal part	Frontal Lobe	Superior Frontal Gyrus	SFG	8AD
-10	lh	IFG.rd	inferior frontal gyrus, rostrodorsal part 	Frontal Lobe	Inferior Frontal Gyrus	IFG	46V/12L
-11	lh	IFG.cd	inferior frontal gyrus, caudodorsal part 	Frontal Lobe	Inferior Frontal Gyrus	IFG	46v/45B
-12	lh	IFG.cv	inferior frontal gyrus, caudoventral part	Frontal Lobe	Inferior Frontal Gyrus	IFG	8A/45B
-13	lh	IFG.iv	inferior frontal gyrus, intermedioventral part	Frontal Lobe	Inferior Frontal Gyrus	IFG	44
-14	lh	IFG.rv	inferior frontal gyrus, rostroventral part	Frontal Lobe	Inferior Frontal Gyrus	IFG	12L/45B
-15	lh	OrG.rm	orbital gyrus, rostromedial part	Frontal Lobe	Orbital Gyrus	OrG	14
-16	lh	OrG.cm	orbital gyrus, caudomedial part	Frontal Lobe	Orbital Gyrus	OrG	OPAI
-17	lh	OrG.ri	orbital gyrus, rostrointermediate part	Frontal Lobe	Orbital Gyrus	OrG	11
-18	lh	OrG.ci	orbital gyrus, caudointermediate part	Frontal Lobe	Orbital Gyrus	OrG	13
-19	lh	OrG.rl	orbital gyrus, rostrolateral part	Frontal Lobe	Orbital Gyrus	OrG	12O, rostral part
-20	lh	OrG.cl	orbital gyrus, caudolateral part	Frontal Lobe	Orbital Gyrus	OrG	12O, caudal part
-21	lh	M1.v	primary motor cortex, ventral part	Sensorimotor Cortex	Primary Motor Cortex	M1	4(face)
-22	lh	M1.i	primary motor cortex, intermediate part 	Sensorimotor Cortex	Primary Motor Cortex	M1	4(arm)
-23	lh	M1.d	primary motor cortex, dorsal part	Sensorimotor Cortex	Primary Motor Cortex	M1	4(foot)
-24	lh	M1.m	primary motor cortex, medial  part 	Sensorimotor Cortex	Primary Motor Cortex	M1	4, medial part
-25	lh	PM.rd	premotor cortex, rostrodorsal part	Sensorimotor Cortex	Premotor Cortex	PM	6DR
-26	lh	PM.cd	premotor cortex, caudodorsal part	Sensorimotor Cortex	Premotor Cortex	PM	6DC
-27	lh	PM.i	premotor cortex, intermediate part	Sensorimotor Cortex	Premotor Cortex	PM	6DC, ventral part
-28	lh	PM.cv	premotor cortex, caudoventral part	Sensorimotor Cortex	Premotor Cortex	PM	6VC
-29	lh	PM.rv	premotor cortex, rostroventral part	Sensorimotor Cortex	Premotor Cortex	PM	6VR
-30	lh	PM.rm	premotor cortex, rostromedial part	Sensorimotor Cortex	Premotor Cortex	PM	6M, rostral part
-31	lh	PM.cm	premotor cortex, caudomedial part	Sensorimotor Cortex	Premotor Cortex	PM	6M, caudal part
-32	lh	PoCG.dm	postcentral gyrus, dorsomedial part 	Sensorimotor Cortex	Postcentral Gyrus	PoCG	1/2/3 (foot)
-33	lh	PoCG.d	postcentral gyrus, dorsal part	Sensorimotor Cortex	Postcentral Gyrus	PoCG	1/2/3 (trunk)
-34	lh	PoCG.i	postcentral gyrus, intermediate part	Sensorimotor Cortex	Postcentral Gyrus	PoCG	1/2/3 (hand)
-35	lh	PoCG.v	postcentral gyrus, ventral part 	Sensorimotor Cortex	Postcentral Gyrus	PoCG	1/2/3 (face)
-36	lh	FPO.r	frontal parietal operculum, rostral part	Sensorimotor Cortex	Frontal and Parietal Operculum	FPO	ProM/Gu
-37	lh	FPO.ri	frontal parietal operculum, rostrointermediate part	Sensorimotor Cortex	Frontal and Parietal Operculum	FPO	S2/PFop
-38	lh	FPO.ci	frontal parietal operculum, caudointermediate part	Sensorimotor Cortex	Frontal and Parietal Operculum	FPO	S2/S2I
-39	lh	FPO.c	frontal parietal operculum, caudal part	Sensorimotor Cortex	Frontal and Parietal Operculum	FPO	PGop
-40	lh	SPL.rv	superior parital lobule, rostroventral part	Parietal Lobe	Superior Parietal Lobe	SPL	PEa, rostral part
-41	lh	SPL.iv	superior parital lobule, intermedioventral part	Parietal Lobe	Superior Parietal Lobe	SPL	PEa, caudal part
-42	lh	SPL.cv	superior parital lobule, caudoventral part	Parietal Lobe	Superior Parietal Lobe	SPL	PO
-43	lh	SPL.rd	superior parital lobule, rostrodorsal part 	Parietal Lobe	Superior Parietal Lobe	SPL	PE
-44	lh	SPL.cd	superior parital lobule, caudodorsal part 	Parietal Lobe	Superior Parietal Lobe	SPL	PE/PEC
-45	lh	SPL.m	superior parital lobule, medial part	Parietal Lobe	Superior Parietal Lobe	SPL	PECg, dorsal part
-46	lh	IPL.sr	inferior parietal lobe, sulcal rostral part	Parietal Lobe	Inferior Parietal Lobe	IPL	AIP, rostral part
-47	lh	IPL.sri	inferior parietal lobe, sulcal rostrointermediate part 	Parietal Lobe	Inferior Parietal Lobe	IPL	AIP, caudal part
-48	lh	IPL.sci	inferior parietal lobe, sulcal caudointermediate part	Parietal Lobe	Inferior Parietal Lobe	IPL	LIP, rostral part
-49	lh	IPL.sc	inferior parietal lobe, sulcal caudal part	Parietal Lobe	Inferior Parietal Lobe	IPL	LIP, caudal part
-50	lh	IPL.gr	inferior parietal lobule, gyral rostral part	Parietal Lobe	Inferior Parietal Lobe	IPL	PF
-51	lh	IPL.gri	inferior parietal lobule, gyral rostrointermediate part 	Parietal Lobe	Inferior Parietal Lobe	IPL	PFG
-52	lh	IPL.gci	inferior parietal loule, gyral caudointermediate part	Parietal Lobe	Inferior Parietal Lobe	IPL	PG
-53	lh	IPL.gc	inferior parietal lobule, gyral caudal part	Parietal Lobe	Inferior Parietal Lobe	IPL	Opt
-54	lh	PrCu.vr	precuneus, ventrorostral part	Parietal Lobe	Precueus	PrCu	31, rostral part
-55	lh	PrCu.dr	precuneus, dorsorostral part	Parietal Lobe	Precueus	PrCu	PECg, ventral part
-56	lh	PrCu.dc	precuneus, dorsocaudal part	Parietal Lobe	Precueus	PrCu	PGM/PO
-57	lh	PrCu.di	precuneus, dorsointermediate part	Parietal Lobe	Precueus	PrCu	PGM/PEC
-58	lh	PrCu.vi	precuneus, ventrointermediate part	Parietal Lobe	Precueus	PrCu	PGM/31, ventral part
-59	lh	PrCu.vc	precuneus, ventrocaudal part	Parietal Lobe	Precueus	PrCu	23x
-60	lh	PrL.d	prelunate cortex,dorsal part 	Parietal Lobe	Prelunate Cortex	PrL	V3A/V3D/V4A
-61	lh	PrL.i	prelunate cortex, intermediate part 	Parietal Lobe	Prelunate Cortex	PrL	V4D, dorsal part
-62	lh	PrL.STS	prelunate cortex, superior temporal sulcal part	Parietal Lobe	Prelunate Cortex	PrL	Dpt/MT
-63	lh	PrL.v	prelunate cortex, ventral part	Parietal Lobe	Prelunate Cortex	PrL	V4D, ventral part
-64	lh	SFL.r	superior temporal gyrus, Sylivian fissure lower bank, rostral part	Temporal Lobe	Superior Temporal Gyrus	STG	ProK
-65	lh	SFL.i	superior temporal gyrus, Sylivian fissure lower bank, caudal part	Temporal Lobe	Superior Temporal Gyrus	STG	AK
-66	lh	STG.gc	superior temporal gyrus, gyral caudal part	Temporal Lobe	Superior Temporal Gyrus	STG	PaAC/Tpt
-67	lh	STG.gr	superior temporal gyrus, gyral rostral part	Temporal Lobe	Superior Temporal Gyrus	STG	ST1/ ST2/TAa
-68	lh	STG.gri	superior temporal gyrus, gyral rostrointermediate part	Temporal Lobe	Superior Temporal Gyrus	STG	ST3/PaAL/
-69	lh	STG.gci	superior temporal gyrus, gyral caudointermediate part	Temporal Lobe	Superior Temporal Gyrus	STG	Tpt
-70	lh	STSU.rEx	superior temporal gyrus, superior temporal sulcus upper bank, rostroexternal part	Temporal Lobe	Superior Temporal Gyrus	STG	TAa, rostral part
-71	lh	STSU.cEx	superior temporal gyrus, superior temporal sulcus upper bank, caudoexternal part	Temporal Lobe	Superior Temporal Gyrus	STG	TAa, caudal part
-72	lh	STSU.r	superior temporal gyrus, superior temporal sulcus upper bank, rostral part	Temporal Lobe	Superior Temporal Gyrus	STG	TPO, rostral part
-73	lh	STSU.ri	superior temporal gyrus, superior temporal sulcus upper bank, rostrointermediate part	Temporal Lobe	Superior Temporal Gyrus	STG	TPO, caudal part
-74	lh	STSU.ci	superior temporal gyrus, superior temporal sulcus upper bank, caudointermediate part 	Temporal Lobe	Superior Temporal Gyrus	STG	MT
-75	lh	STSU.c	superior temporal gyrus, superior temporal sulcus upper bank, caudal part 	Temporal Lobe	Superior Temporal Gyrus	STG	MST
-76	lh	STSL.r	inferior temporal gyrus, superior temporal sulcus lower bank, rostral  part 	Temporal Lobe	Inferior Temporal Gyrus	ITG	TEa
-77	lh	STSL.cIn	inferior temporal gyrus, superior temporal sulcus lower bank, caudointernal part	Temporal Lobe	Inferior Temporal Gyrus	ITG	FST
-78	lh	STSL.cEx	inferior temporal gyrus, superior temporal sulcus lower bank, caudoexternal part	Temporal Lobe	Inferior Temporal Gyrus	ITG	TEOm
-79	lh	ITG.gr	inferior temporal gyrus,  gyral rostral part 	Temporal Lobe	Inferior Temporal Gyrus	ITG	TE1/TE2
-80	lh	ITG.gdc	inferior temporal gyrus,  gyral dorsocaudal part 	Temporal Lobe	Inferior Temporal Gyrus	ITG	TEO/TE3
-81	lh	ITG.gvc	inferior temporal gyrus, gyral ventrocaudal part	Temporal Lobe	Inferior Temporal Gyrus	ITG	TEO/TF
-82	lh	PHG.r	parahippocampal gyrus, rostral part	Temporal Lobe	Parahippocampal Gyrus	PHG	36R
-83	lh	PHG.mi	parahippocampal gyrus, mediointermediate part	Temporal Lobe	Parahippocampal Gyrus	PHG	EC
-84	lh	PHG.li	parahippocampal gyrus, laterointermediate part	Temporal Lobe	Parahippocampal Gyrus	PHG	TF
-85	lh	PHG.cm	parahippocampal gyrus, caudomedial part	Temporal Lobe	Parahippocampal Gyrus	PHG	TH
-86	lh	PHG.cl	parahippocampal gyrus, caudolateral part	Temporal Lobe	Parahippocampal Gyrus	PHG	36O
-87	lh	TP.vr	temporal pole, ventrorostral part	Temporal Lobe	Temporal Pole	TP	TP
-88	lh	TP.mr	temporal pole, mediorostral part	Temporal Lobe	Temporal Pole	TP	TP
-89	lh	TP.lr	temporal pole, laterorostral part	Temporal Lobe	Temporal Pole	TP	TP
-90	lh	TP.dr	temporal pole, dorsorostral part 	Temporal Lobe	Temporal Pole	TP	TP
-91	lh	TP.cEx	temporal pole, caudoexternal  part	Temporal Lobe	Temporal Pole	TP	TP
-92	lh	TP.cIn	temporal pole, caudointernal  part	Temporal Lobe	Temporal Pole	TP	TP
-93	lh	V1.cm	V1, caudomedial part	Occipital Lobe	V1	V1	V1
-94	lh	V1.dl	V1, dorsolateral part	Occipital Lobe	V1	V1	V1
-95	lh	V1.vl	V1,  ventrolateral part	Occipital Lobe	V1	V1	V1
-96	lh	V1.mvi	V1, medial ventrointermediate part	Occipital Lobe	V1	V1	V1
-97	lh	V1.mdi	V1, medial dorsointermediate part	Occipital Lobe	V1	V1	V1
-98	lh	V1.rm	V1, rostromedial part	Occipital Lobe	V1	V1	V1
-99	lh	V2.l	V2, lateral part	Occipital Lobe	V2	V2	V2
-100	lh	V2.d	V2, dorsal part	Occipital Lobe	V2	V2	V2
-101	lh	V2.v	V2, ventral part	Occipital Lobe	V2	V2	V2
-102	lh	V2.dm	V2, dorsomedial part	Occipital Lobe	V2	V2	V2
-103	lh	V2.vm	V2, ventromedial part	Occipital Lobe	V2	V2	V2
-104	lh	VMO.l	ventromedial occipital cortex, lateral part	Occipital Lobe	Ventromedial Occipital Cortex	VMO	V3V/V4V,  dorsal part
-105	lh	VMO.i	ventromedial occipital cortex, intermediate part	Occipital Lobe	Ventromedial Occipital Cortex	VMO	V3V/V4V,  ventral part
-106	lh	VMO.m	ventromedial occipital cortex, medial part	Occipital Lobe	Ventromedial Occipital Cortex	VMO	V3V/V4V,  medial part
-107	lh	INS.vr	insula cortex, ventrorostral part	Insula Cortex	Insula Cortex	INS	Ipa
-108	lh	INS.dr	insula cortex, dorsorostral part	Insula Cortex	Insula Cortex	INS	Ia
-109	lh	INS.ri	insula cortex, rostrointermediate part	Insula Cortex	Insula Cortex	INS	Id
-110	lh	INS.v	insula cortex, ventral part	Insula Cortex	Insula Cortex	INS	Ip/Id
-111	lh	INS.ci	insula cortex, caudointermediate  part	Insula Cortex	Insula Cortex	INS	Ig, rostral part
-112	lh	INS.c	insula cortex, caudal part	Insula Cortex	Insula Cortex	INS	Ig, caudal part
-113	lh	CG.vr	cingulate cortex, ventrorostral  part	Limbic Lobe	Cingulate Cortex	CG	25
-114	lh	CG.ir	cingulate cortex,  intermediorostral part	Limbic Lobe	Cingulate Cortex	CG	32
-115	lh	CG.dr	cingulate cortex, dorsorostral part	Limbic Lobe	Cingulate Cortex	CG	24c, rostral part
-116	lh	CG.idr	cingulate cortex, intermediate dorsorostral part	Limbic Lobe	Cingulate Cortex	CG	24c
-117	lh	CG.idc	cingulate cortex, intermediate dorsocaudal part	Limbic Lobe	Cingulate Cortex	CG	23c/24d
-118	lh	CG.ivr	cingulate cortex, intermediate ventrorostral part	Limbic Lobe	Cingulate Cortex	CG	24a/24b
-119	lh	CG.ivc	cingulate cortex, intermediate ventrocaudal part	Limbic Lobe	Cingulate Cortex	CG	23a/23b, rostral part
-120	lh	CG.dc	cingulate cortex,  dorsocaudal part	Limbic Lobe	Cingulate Cortex	CG	23a/23b, caudal part
-121	lh	CG.vc	cingulate cortex, ventrocaudal part	Limbic Lobe	Cingulate Cortex	CG	23
-122	lh	CG.RSr	cingulate cortex, retrosplenial rostral part	Limbic Lobe	Cingulate Cortex	CG	29/30, rostral part
-123	lh	CG.RSi	cingulate cortex, retrosplenial intermediate part	Limbic Lobe	Cingulate Cortex	CG	29/30, intermediate part
-124	lh	CG.RSc	cingulate cortex, retrosplenial, caudal part	Limbic Lobe	Cingulate Cortex	CG	29/30, caudal part
-125	lh	Acb.C	accumbens nucleus, core part	Subcortex Nucleus	Accumbens nucleus	Acb 	AcbC
-126	lh	Acb.Sh	accumbens nucleus, shell part	Subcortex Nucleus	Accumbens nucleus	Acb 	AcbSh
-127	lh	Amyg.cl	amygdaloid nucleus, caudolateral part	Subcortex Nucleus	Amygdaloid nucleus	Amyg	Amyg
-128	lh	Amyg.rl	amygdaloid nucleus, rostrolateral part	Subcortex Nucleus	Amygdaloid nucleus	Amyg	Amyg
-129	lh	Amyg.m	amygdaloid nucleus, medial part	Subcortex Nucleus	Amygdaloid nucleus	Amyg	Amyg
-130	lh	Cd.Hv	caudate nucleus, head ventral part	Subcortex Nucleus	Caudate nucleus	Cd	Cd
-131	lh	Cd.B	caudate nucleus, body part	Subcortex Nucleus	Caudate nucleus	Cd	Cd
-132	lh	Cd.Hi	caudate nucleus, head intermediate part	Subcortex Nucleus	Caudate nucleus	Cd	Cd
-133	lh	Cd.Hd	caudate nucleus,  head  dorsal part	Subcortex Nucleus	Caudate nucleus	Cd	Cd
-134	lh	Cd.T	caudate nucleus, tail part	Subcortex Nucleus	Caudate nucleus	Cd	Cd
-135	lh	HF.c	hippocampal formation, caudal part	Subcortex Nucleus	Hippocampus formation	HF	HF
-136	lh	HF.i	hippocampal formation, intermediate part	Subcortex Nucleus	Hippocampus formation	HF	HF
-137	lh	HF.r	hippocampal formation, rostral part	Subcortex Nucleus	Hippocampus formation	HF	HF
-138	lh	Hy.cl	hypothalamus, caudolateral part	Subcortex Nucleus	Hypothalamus	Hy	Hy
-139	lh	Hy.rl	hypothalamus, rostrolateral part	Subcortex Nucleus	Hypothalamus	Hy	Hy
-140	lh	Hy.m	hypothalamus, medial part	Subcortex Nucleus	Hypothalamus	Hy	Hy
-141	lh	GP.v	globus pallidus, ventral part	Subcortex Nucleus	globus pallidus	GP	GP
-142	lh	GP.d	globus pallidus, dorsal part	Subcortex Nucleus	globus pallidus	GP	GP
-143	lh	Pu.r	putamen, rostral part	Subcortex Nucleus	Putamen	Pu	Pu
-144	lh	Pu.v	putamen, ventral part	Subcortex Nucleus	Putamen	Pu	Pu
-145	lh	Pu.c	putamen, caudal part	Subcortex Nucleus	Putamen	Pu	Pu
-146	lh	Tha.rv	thalamus, rostroventral part	Subcortex Nucleus	thalamus	Tha	Tha
-147	lh	Tha.c	thalamus, caudal part	Subcortex Nucleus	thalamus	Tha	Tha
-148	lh	Tha.ld	thalamus, laterodorsal part	Subcortex Nucleus	thalamus	Tha	Tha
-149	lh	Tha.l	thalamus, lateral part	Subcortex Nucleus	thalamus	Tha	Tha
-150	lh	Tha.m	thalamus, medial part	Subcortex Nucleus	thalamus	Tha	Tha
-151	lh	Tha.Sh	thalamus, shell part	Subcortex Nucleus	thalamus	Tha	Tha
-152	lh	Tha.cv	thalamus, caudoventral part	Subcortex Nucleus	thalamus	Tha	Tha
-153	rh	FP.d	frontal pole, dorsal part	Frontal Lobe	Frontal Pole	FP	10D/46D
-154	rh	FP.m	frontal pole,  medial part	Frontal Lobe	Frontal Pole	FP	10M/10V
-155	rh	FP.v	frontal pole,  ventral part	Frontal Lobe	Frontal Pole	FP	10V/46V
-156	rh	SFG.rm	superior frontal gyrus, rostromedial part	Frontal Lobe	Superior Frontal Gyrus	SFG	9M
-157	rh	SFG.cm	superior frontal gyrus, caudomedial part 	Frontal Lobe	Superior Frontal Gyrus	SFG	8Bm
-158	rh	SFG.r	superior frontal gyrus, rostral part	Frontal Lobe	Superior Frontal Gyrus	SFG	46D
-159	rh	SFG.ri	superior frontal gyrus, rostrointermediate part	Frontal Lobe	Superior Frontal Gyrus	SFG	9/46D, 9L
-160	rh	SFG.ci	superior frontal gyrus, caudointermediate part	Frontal Lobe	Superior Frontal Gyrus	SFG	8A/8B
-161	rh	SFG.c	superior frontal gyrus, caudal part	Frontal Lobe	Superior Frontal Gyrus	SFG	8AD
-162	rh	IFG.rd	inferior frontal gyrus, rostrodorsal part 	Frontal Lobe	Inferior Frontal Gyrus	IFG	46V/12L
-163	rh	IFG.cd	inferior frontal gyrus, caudodorsal part 	Frontal Lobe	Inferior Frontal Gyrus	IFG	46v/45B
-164	rh	IFG.cv	inferior frontal gyrus, caudoventral part	Frontal Lobe	Inferior Frontal Gyrus	IFG	8A/45B
-165	rh	IFG.iv	inferior frontal gyrus, intermedioventral part	Frontal Lobe	Inferior Frontal Gyrus	IFG	44
-166	rh	IFG.rv	inferior frontal gyrus, rostroventral part	Frontal Lobe	Inferior Frontal Gyrus	IFG	12L/45B
-167	rh	OrG.rm	orbital gyrus, rostromedial part	Frontal Lobe	Orbital Gyrus	OrG	14
-168	rh	OrG.cm	orbital gyrus, caudomedial part	Frontal Lobe	Orbital Gyrus	OrG	OPAI
-169	rh	OrG.ri	orbital gyrus, rostrointermediate part	Frontal Lobe	Orbital Gyrus	OrG	11
-170	rh	OrG.ci	orbital gyrus, caudointermediate part	Frontal Lobe	Orbital Gyrus	OrG	13
-171	rh	OrG.rl	orbital gyrus, rostrolateral part	Frontal Lobe	Orbital Gyrus	OrG	12O, rostral part
-172	rh	OrG.cl	orbital gyrus, caudolateral part	Frontal Lobe	Orbital Gyrus	OrG	12O, caudal part
-173	rh	M1.v	primary motor cortex, ventral part	Sensorimotor Cortex	Primary Motor Cortex	M1	4(face)
-174	rh	M1.i	primary motor cortex, intermediate part 	Sensorimotor Cortex	Primary Motor Cortex	M1	4(arm)
-175	rh	M1.d	primary motor cortex, dorsal part	Sensorimotor Cortex	Primary Motor Cortex	M1	4(foot)
-176	rh	M1.m	primary motor cortex, medial  part 	Sensorimotor Cortex	Primary Motor Cortex	M1	4, medial part
-177	rh	PM.rd	premotor cortex, rostrodorsal part	Sensorimotor Cortex	Premotor Cortex	PM	6DR
-178	rh	PM.cd	premotor cortex, caudodorsal part	Sensorimotor Cortex	Premotor Cortex	PM	6DC
-179	rh	PM.i	premotor cortex, intermediate part	Sensorimotor Cortex	Premotor Cortex	PM	6DC, ventral part
-180	rh	PM.cv	premotor cortex, caudoventral part	Sensorimotor Cortex	Premotor Cortex	PM	6VC
-181	rh	PM.rv	premotor cortex, rostroventral part	Sensorimotor Cortex	Premotor Cortex	PM	6VR
-182	rh	PM.rm	premotor cortex, rostromedial part	Sensorimotor Cortex	Premotor Cortex	PM	6M, rostral part
-183	rh	PM.cm	premotor cortex, caudomedial part	Sensorimotor Cortex	Premotor Cortex	PM	6M, caudal part
-184	rh	PoCG.dm	postcentral gyrus, dorsomedial part 	Sensorimotor Cortex	Postcentral Gyrus	PoCG	1/2/3 (foot)
-185	rh	PoCG.d	postcentral gyrus, dorsal part	Sensorimotor Cortex	Postcentral Gyrus	PoCG	1/2/3 (trunk)
-186	rh	PoCG.i	postcentral gyrus, intermediate part	Sensorimotor Cortex	Postcentral Gyrus	PoCG	1/2/3 (hand)
-187	rh	PoCG.v	postcentral gyrus, ventral part 	Sensorimotor Cortex	Postcentral Gyrus	PoCG	1/2/3 (face)
-188	rh	FPO.r	frontal parietal operculum, rostral part	Sensorimotor Cortex	Frontal and Parietal Operculum	FPO	ProM/Gu
-189	rh	FPO.ri	frontal parietal operculum, rostrointermediate part	Sensorimotor Cortex	Frontal and Parietal Operculum	FPO	S2/PFop
-190	rh	FPO.ci	frontal parietal operculum, caudointermediate part	Sensorimotor Cortex	Frontal and Parietal Operculum	FPO	S2/S2I
-191	rh	FPO.c	frontal parietal operculum, caudal part	Sensorimotor Cortex	Frontal and Parietal Operculum	FPO	PGop
-192	rh	SPL.rv	superior parital lobule, rostroventral part	Parietal Lobe	Superior Parietal Lobe	SPL	PEa, rostral part
-193	rh	SPL.iv	superior parital lobule, intermedioventral part	Parietal Lobe	Superior Parietal Lobe	SPL	PEa, caudal part
-194	rh	SPL.cv	superior parital lobule, caudoventral part	Parietal Lobe	Superior Parietal Lobe	SPL	PO
-195	rh	SPL.rd	superior parital lobule, rostrodorsal part 	Parietal Lobe	Superior Parietal Lobe	SPL	PE
-196	rh	SPL.cd	superior parital lobule, caudodorsal part 	Parietal Lobe	Superior Parietal Lobe	SPL	PE/PEC
-197	rh	SPL.m	superior parital lobule, medial part	Parietal Lobe	Superior Parietal Lobe	SPL	PECg, dorsal part
-198	rh	IPL.sr	inferior parietal lobe, sulcal rostral part	Parietal Lobe	Inferior Parietal Lobe	IPL	AIP, rostral part
-199	rh	IPL.sri	inferior parietal lobe, sulcal rostrointermediate part 	Parietal Lobe	Inferior Parietal Lobe	IPL	AIP, caudal part
-200	rh	IPL.sci	inferior parietal lobe, sulcal caudointermediate part	Parietal Lobe	Inferior Parietal Lobe	IPL	LIP, rostral part
-201	rh	IPL.sc	inferior parietal lobe, sulcal caudal part	Parietal Lobe	Inferior Parietal Lobe	IPL	LIP, caudal part
-202	rh	IPL.gr	inferior parietal lobule, gyral rostral part	Parietal Lobe	Inferior Parietal Lobe	IPL	PF
-203	rh	IPL.gri	inferior parietal lobule, gyral rostrointermediate part 	Parietal Lobe	Inferior Parietal Lobe	IPL	PFG
-204	rh	IPL.gci	inferior parietal loule, gyral caudointermediate part	Parietal Lobe	Inferior Parietal Lobe	IPL	PG
-205	rh	IPL.gc	inferior parietal lobule, gyral caudal part	Parietal Lobe	Inferior Parietal Lobe	IPL	Opt
-206	rh	PrCu.vr	precuneus, ventrorostral part	Parietal Lobe	Precueus	PrCu	31, rostral part
-207	rh	PrCu.dr	precuneus, dorsorostral part	Parietal Lobe	Precueus	PrCu	PECg, ventral part
-208	rh	PrCu.dc	precuneus, dorsocaudal part	Parietal Lobe	Precueus	PrCu	PGM/PO
-209	rh	PrCu.di	precuneus, dorsointermediate part	Parietal Lobe	Precueus	PrCu	PGM/PEC
-210	rh	PrCu.vi	precuneus, ventrointermediate part	Parietal Lobe	Precueus	PrCu	PGM/31, ventral part
-211	rh	PrCu.vc	precuneus, ventrocaudal part	Parietal Lobe	Precueus	PrCu	23x
-212	rh	PrL.d	prelunate cortex,dorsal part 	Parietal Lobe	Prelunate Cortex	PrL	V3A/V3D/V4A
-213	rh	PrL.i	prelunate cortex, intermediate part 	Parietal Lobe	Prelunate Cortex	PrL	V4D, dorsal part
-214	rh	PrL.STS	prelunate cortex, superior temporal sulcal part	Parietal Lobe	Prelunate Cortex	PrL	Dpt/MT
-215	rh	PrL.v	prelunate cortex, ventral part	Parietal Lobe	Prelunate Cortex	PrL	V4D, ventral part
-216	rh	SFL.r	superior temporal gyrus, Sylivian fissure lower bank, rostral part	Temporal Lobe	Superior Temporal Gyrus	STG	ProK
-217	rh	SFL.i	superior temporal gyrus, Sylivian fissure lower bank, caudal part	Temporal Lobe	Superior Temporal Gyrus	STG	AK
-218	rh	STG.gc	superior temporal gyrus, gyral caudal part	Temporal Lobe	Superior Temporal Gyrus	STG	PaAC/Tpt
-219	rh	STG.gr	superior temporal gyrus, gyral rostral part	Temporal Lobe	Superior Temporal Gyrus	STG	ST1/ ST2/TAa
-220	rh	STG.gri	superior temporal gyrus, gyral rostrointermediate part	Temporal Lobe	Superior Temporal Gyrus	STG	ST3/PaAL/
-221	rh	STG.gci	superior temporal gyrus, gyral caudointermediate part	Temporal Lobe	Superior Temporal Gyrus	STG	Tpt
-222	rh	STSU.rEx	superior temporal gyrus, superior temporal sulcus upper bank, rostroexternal part	Temporal Lobe	Superior Temporal Gyrus	STG	TAa, rostral part
-223	rh	STSU.cEx	superior temporal gyrus, superior temporal sulcus upper bank, caudoexternal part	Temporal Lobe	Superior Temporal Gyrus	STG	TAa, caudal part
-224	rh	STSU.r	superior temporal gyrus, superior temporal sulcus upper bank, rostral part	Temporal Lobe	Superior Temporal Gyrus	STG	TPO, rostral part
-225	rh	STSU.ri	superior temporal gyrus, superior temporal sulcus upper bank, rostrointermediate part	Temporal Lobe	Superior Temporal Gyrus	STG	TPO, caudal part
-226	rh	STSU.ci	superior temporal gyrus, superior temporal sulcus upper bank, caudointermediate part 	Temporal Lobe	Superior Temporal Gyrus	STG	MT
-227	rh	STSU.c	superior temporal gyrus, superior temporal sulcus upper bank, caudal part 	Temporal Lobe	Superior Temporal Gyrus	STG	MST
-228	rh	STSL.r	inferior temporal gyrus, superior temporal sulcus lower bank, rostral  part 	Temporal Lobe	Inferior Temporal Gyrus	ITG	TEa
-229	rh	STSL.cIn	inferior temporal gyrus, superior temporal sulcus lower bank, caudointernal part	Temporal Lobe	Inferior Temporal Gyrus	ITG	FST
-230	rh	STSL.cEx	inferior temporal gyrus, superior temporal sulcus lower bank, caudoexternal part	Temporal Lobe	Inferior Temporal Gyrus	ITG	TEOm
-231	rh	ITG.gr	inferior temporal gyrus,  gyral rostral part 	Temporal Lobe	Inferior Temporal Gyrus	ITG	TE1/TE2
-232	rh	ITG.gdc	inferior temporal gyrus,  gyral dorsocaudal part 	Temporal Lobe	Inferior Temporal Gyrus	ITG	TEO/TE3
-233	rh	ITG.gvc	inferior temporal gyrus, gyral ventrocaudal part	Temporal Lobe	Inferior Temporal Gyrus	ITG	TEO/TF
-234	rh	PHG.r	parahippocampal gyrus, rostral part	Temporal Lobe	Parahippocampal Gyrus	PHG	36R
-235	rh	PHG.mi	parahippocampal gyrus, mediointermediate part	Temporal Lobe	Parahippocampal Gyrus	PHG	EC
-236	rh	PHG.li	parahippocampal gyrus, laterointermediate part	Temporal Lobe	Parahippocampal Gyrus	PHG	TF
-237	rh	PHG.cm	parahippocampal gyrus, caudomedial part	Temporal Lobe	Parahippocampal Gyrus	PHG	TH
-238	rh	PHG.cl	parahippocampal gyrus, caudolateral part	Temporal Lobe	Parahippocampal Gyrus	PHG	36O
-239	rh	TP.vr	temporal pole, ventrorostral part	Temporal Lobe	Temporal Pole	TP	TP
-240	rh	TP.mr	temporal pole, mediorostral part	Temporal Lobe	Temporal Pole	TP	TP
-241	rh	TP.lr	temporal pole, laterorostral part	Temporal Lobe	Temporal Pole	TP	TP
-242	rh	TP.dr	temporal pole, dorsorostral part 	Temporal Lobe	Temporal Pole	TP	TP
-243	rh	TP.cEx	temporal pole, caudoexternal  part	Temporal Lobe	Temporal Pole	TP	TP
-244	rh	TP.cIn	temporal pole, caudointernal  part	Temporal Lobe	Temporal Pole	TP	TP
-245	rh	V1.cm	V1, caudomedial part	Occipital Lobe	V1	V1	V1
-246	rh	V1.dl	V1, dorsolateral part	Occipital Lobe	V1	V1	V1
-247	rh	V1.vl	V1,  ventrolateral part	Occipital Lobe	V1	V1	V1
-248	rh	V1.mvi	V1, medial ventrointermediate part	Occipital Lobe	V1	V1	V1
-249	rh	V1.mdi	V1, medial dorsointermediate part	Occipital Lobe	V1	V1	V1
-250	rh	V1.rm	V1, rostromedial part	Occipital Lobe	V1	V1	V1
-251	rh	V2.l	V2, lateral part	Occipital Lobe	V2	V2	V2
-252	rh	V2.d	V2, dorsal part	Occipital Lobe	V2	V2	V2
-253	rh	V2.v	V2, ventral part	Occipital Lobe	V2	V2	V2
-254	rh	V2.dm	V2, dorsomedial part	Occipital Lobe	V2	V2	V2
-255	rh	V2.vm	V2, ventromedial part	Occipital Lobe	V2	V2	V2
-256	rh	VMO.l	ventromedial occipital cortex, lateral part	Occipital Lobe	Ventromedial Occipital Cortex	VMO	V3V/V4V,  dorsal part
-257	rh	VMO.i	ventromedial occipital cortex, intermediate part	Occipital Lobe	Ventromedial Occipital Cortex	VMO	V3V/V4V,  ventral part
-258	rh	VMO.m	ventromedial occipital cortex, medial part	Occipital Lobe	Ventromedial Occipital Cortex	VMO	V3V/V4V,  medial part
-259	rh	INS.vr	insula cortex, ventrorostral part	Insula Cortex	Insula Cortex	INS	Ipa
-260	rh	INS.dr	insula cortex, dorsorostral part	Insula Cortex	Insula Cortex	INS	Ia
-261	rh	INS.ri	insula cortex, rostrointermediate part	Insula Cortex	Insula Cortex	INS	Id
-262	rh	INS.v	insula cortex, ventral part	Insula Cortex	Insula Cortex	INS	Ip/Id
-263	rh	INS.ci	insula cortex, caudointermediate  part	Insula Cortex	Insula Cortex	INS	Ig, rostral part
-264	rh	INS.c	insula cortex, caudal part	Insula Cortex	Insula Cortex	INS	Ig, caudal part
-265	rh	CG.vr	cingulate cortex, ventrorostral  part	Limbic Lobe	Cingulate Cortex	CG	25
-266	rh	CG.ir	cingulate cortex,  intermediorostral part	Limbic Lobe	Cingulate Cortex	CG	32
-267	rh	CG.dr	cingulate cortex, dorsorostral part	Limbic Lobe	Cingulate Cortex	CG	24c, rostral part
-268	rh	CG.idr	cingulate cortex, intermediate dorsorostral part	Limbic Lobe	Cingulate Cortex	CG	24c
-269	rh	CG.idc	cingulate cortex, intermediate dorsocaudal part	Limbic Lobe	Cingulate Cortex	CG	23c/24d
-270	rh	CG.ivr	cingulate cortex, intermediate ventrorostral part	Limbic Lobe	Cingulate Cortex	CG	24a/24b
-271	rh	CG.ivc	cingulate cortex, intermediate ventrocaudal part	Limbic Lobe	Cingulate Cortex	CG	23a/23b, rostral part
-272	rh	CG.dc	cingulate cortex,  dorsocaudal part	Limbic Lobe	Cingulate Cortex	CG	23a/23b, caudal part
-273	rh	CG.vc	cingulate cortex, ventrocaudal part	Limbic Lobe	Cingulate Cortex	CG	23
-274	rh	CG.RSr	cingulate cortex, retrosplenial rostral part	Limbic Lobe	Cingulate Cortex	CG	29/30, rostral part
-275	rh	CG.RSi	cingulate cortex, retrosplenial intermediate part	Limbic Lobe	Cingulate Cortex	CG	29/30, intermediate part
-276	rh	CG.RSc	cingulate cortex, retrosplenial, caudal part	Limbic Lobe	Cingulate Cortex	CG	29/30, caudal part
-277	rh	Acb.C	accumbens nucleus, core part	Subcortex Nucleus	Accumbens nucleus	Acb 	AcbC
-278	rh	Acb.Sh	accumbens nucleus, shell part	Subcortex Nucleus	Accumbens nucleus	Acb 	AcbSh
-279	rh	Amyg.cl	amygdaloid nucleus, caudolateral part	Subcortex Nucleus	Amygdaloid nucleus	Amyg	Amyg
-280	rh	Amyg.rl	amygdaloid nucleus, rostrolateral part	Subcortex Nucleus	Amygdaloid nucleus	Amyg	Amyg
-281	rh	Amyg.m	amygdaloid nucleus, medial part	Subcortex Nucleus	Amygdaloid nucleus	Amyg	Amyg
-282	rh	Cd.Hv	caudate nucleus, head ventral part	Subcortex Nucleus	Caudate nucleus	Cd	Cd
-283	rh	Cd.B	caudate nucleus, body part	Subcortex Nucleus	Caudate nucleus	Cd	Cd
-284	rh	Cd.Hi	caudate nucleus, head intermediate part	Subcortex Nucleus	Caudate nucleus	Cd	Cd
-285	rh	Cd.Hd	caudate nucleus,  head  dorsal part	Subcortex Nucleus	Caudate nucleus	Cd	Cd
-286	rh	Cd.T	caudate nucleus, tail part	Subcortex Nucleus	Caudate nucleus	Cd	Cd
-287	rh	HF.c	hippocampal formation, caudal part	Subcortex Nucleus	Hippocampus formation	HF	HF
-288	rh	HF.i	hippocampal formation, intermediate part	Subcortex Nucleus	Hippocampus formation	HF	HF
-289	rh	HF.r	hippocampal formation, rostral part	Subcortex Nucleus	Hippocampus formation	HF	HF
-290	rh	Hy.cl	hypothalamus, caudolateral part	Subcortex Nucleus	Hypothalamus	Hy	Hy
-291	rh	Hy.rl	hypothalamus, rostrolateral part	Subcortex Nucleus	Hypothalamus	Hy	Hy
-292	rh	Hy.m	hypothalamus, medial part	Subcortex Nucleus	Hypothalamus	Hy	Hy
-293	rh	GP.v	globus pallidus, ventral part	Subcortex Nucleus	globus pallidus	GP	GP
-294	rh	GP.d	globus pallidus, dorsal part	Subcortex Nucleus	globus pallidus	GP	GP
-295	rh	Pu.r	putamen, rostral part	Subcortex Nucleus	Putamen	Pu	Pu
-296	rh	Pu.v	putamen, ventral part	Subcortex Nucleus	Putamen	Pu	Pu
-297	rh	Pu.c	putamen, caudal part	Subcortex Nucleus	Putamen	Pu	Pu
-298	rh	Tha.rv	thalamus, rostroventral part	Subcortex Nucleus	thalamus	Tha	Tha
-299	rh	Tha.c	thalamus, caudal part	Subcortex Nucleus	thalamus	Tha	Tha
-300	rh	Tha.ld	thalamus, laterodorsal part	Subcortex Nucleus	thalamus	Tha	Tha
-301	rh	Tha.l	thalamus, lateral part	Subcortex Nucleus	thalamus	Tha	Tha
-302	rh	Tha.m	thalamus, medial part	Subcortex Nucleus	thalamus	Tha	Tha
-303	rh	Tha.Sh	thalamus, shell part	Subcortex Nucleus	thalamus	Tha	Tha
-304	rh	Tha.cv	thalamus, caudoventral part	Subcortex Nucleus	thalamus	Tha	Tha
+ID	ID_nohemi	hemi	name	name_full	level 0 / Lobe	level 1 / ROI	level 1 / ROI (abbr)	Modified Cytoarchitectonic
+1	1	lh	FP.d	frontal pole, dorsal part	Frontal Lobe	Frontal Pole	FP	10D/46D
+2	2	lh	FP.m	frontal pole,  medial part	Frontal Lobe	Frontal Pole	FP	10M/10V
+3	3	lh	FP.v	frontal pole,  ventral part	Frontal Lobe	Frontal Pole	FP	10V/46V
+4	4	lh	SFG.rm	superior frontal gyrus, rostromedial part	Frontal Lobe	Superior Frontal Gyrus	SFG	9M
+5	5	lh	SFG.cm	superior frontal gyrus, caudomedial part 	Frontal Lobe	Superior Frontal Gyrus	SFG	8Bm
+6	6	lh	SFG.r	superior frontal gyrus, rostral part	Frontal Lobe	Superior Frontal Gyrus	SFG	46D
+7	7	lh	SFG.ri	superior frontal gyrus, rostrointermediate part	Frontal Lobe	Superior Frontal Gyrus	SFG	9/46D, 9L
+8	8	lh	SFG.ci	superior frontal gyrus, caudointermediate part	Frontal Lobe	Superior Frontal Gyrus	SFG	8A/8B
+9	9	lh	SFG.c	superior frontal gyrus, caudal part	Frontal Lobe	Superior Frontal Gyrus	SFG	8AD
+10	10	lh	IFG.rd	inferior frontal gyrus, rostrodorsal part 	Frontal Lobe	Inferior Frontal Gyrus	IFG	46V/12L
+11	11	lh	IFG.cd	inferior frontal gyrus, caudodorsal part 	Frontal Lobe	Inferior Frontal Gyrus	IFG	46v/45B
+12	12	lh	IFG.cv	inferior frontal gyrus, caudoventral part	Frontal Lobe	Inferior Frontal Gyrus	IFG	8A/45B
+13	13	lh	IFG.iv	inferior frontal gyrus, intermedioventral part	Frontal Lobe	Inferior Frontal Gyrus	IFG	44
+14	14	lh	IFG.rv	inferior frontal gyrus, rostroventral part	Frontal Lobe	Inferior Frontal Gyrus	IFG	12L/45B
+15	15	lh	OrG.rm	orbital gyrus, rostromedial part	Frontal Lobe	Orbital Gyrus	OrG	14
+16	16	lh	OrG.cm	orbital gyrus, caudomedial part	Frontal Lobe	Orbital Gyrus	OrG	OPAI
+17	17	lh	OrG.ri	orbital gyrus, rostrointermediate part	Frontal Lobe	Orbital Gyrus	OrG	11
+18	18	lh	OrG.ci	orbital gyrus, caudointermediate part	Frontal Lobe	Orbital Gyrus	OrG	13
+19	19	lh	OrG.rl	orbital gyrus, rostrolateral part	Frontal Lobe	Orbital Gyrus	OrG	12O, rostral part
+20	20	lh	OrG.cl	orbital gyrus, caudolateral part	Frontal Lobe	Orbital Gyrus	OrG	12O, caudal part
+21	21	lh	M1.v	primary motor cortex, ventral part	Sensorimotor Cortex	Primary Motor Cortex	M1	4(face)
+22	22	lh	M1.i	primary motor cortex, intermediate part 	Sensorimotor Cortex	Primary Motor Cortex	M1	4(arm)
+23	23	lh	M1.d	primary motor cortex, dorsal part	Sensorimotor Cortex	Primary Motor Cortex	M1	4(foot)
+24	24	lh	M1.m	primary motor cortex, medial  part 	Sensorimotor Cortex	Primary Motor Cortex	M1	4, medial part
+25	25	lh	PM.rd	premotor cortex, rostrodorsal part	Sensorimotor Cortex	Premotor Cortex	PM	6DR
+26	26	lh	PM.cd	premotor cortex, caudodorsal part	Sensorimotor Cortex	Premotor Cortex	PM	6DC
+27	27	lh	PM.i	premotor cortex, intermediate part	Sensorimotor Cortex	Premotor Cortex	PM	6DC, ventral part
+28	28	lh	PM.cv	premotor cortex, caudoventral part	Sensorimotor Cortex	Premotor Cortex	PM	6VC
+29	29	lh	PM.rv	premotor cortex, rostroventral part	Sensorimotor Cortex	Premotor Cortex	PM	6VR
+30	30	lh	PM.rm	premotor cortex, rostromedial part	Sensorimotor Cortex	Premotor Cortex	PM	6M, rostral part
+31	31	lh	PM.cm	premotor cortex, caudomedial part	Sensorimotor Cortex	Premotor Cortex	PM	6M, caudal part
+32	32	lh	PoCG.dm	postcentral gyrus, dorsomedial part 	Sensorimotor Cortex	Postcentral Gyrus	PoCG	1/2/3 (foot)
+33	33	lh	PoCG.d	postcentral gyrus, dorsal part	Sensorimotor Cortex	Postcentral Gyrus	PoCG	1/2/3 (trunk)
+34	34	lh	PoCG.i	postcentral gyrus, intermediate part	Sensorimotor Cortex	Postcentral Gyrus	PoCG	1/2/3 (hand)
+35	35	lh	PoCG.v	postcentral gyrus, ventral part 	Sensorimotor Cortex	Postcentral Gyrus	PoCG	1/2/3 (face)
+36	36	lh	FPO.r	frontal parietal operculum, rostral part	Sensorimotor Cortex	Frontal and Parietal Operculum	FPO	ProM/Gu
+37	37	lh	FPO.ri	frontal parietal operculum, rostrointermediate part	Sensorimotor Cortex	Frontal and Parietal Operculum	FPO	S2/PFop
+38	38	lh	FPO.ci	frontal parietal operculum, caudointermediate part	Sensorimotor Cortex	Frontal and Parietal Operculum	FPO	S2/S2I
+39	39	lh	FPO.c	frontal parietal operculum, caudal part	Sensorimotor Cortex	Frontal and Parietal Operculum	FPO	PGop
+40	40	lh	SPL.rv	superior parital lobule, rostroventral part	Parietal Lobe	Superior Parietal Lobe	SPL	PEa, rostral part
+41	41	lh	SPL.iv	superior parital lobule, intermedioventral part	Parietal Lobe	Superior Parietal Lobe	SPL	PEa, caudal part
+42	42	lh	SPL.cv	superior parital lobule, caudoventral part	Parietal Lobe	Superior Parietal Lobe	SPL	PO
+43	43	lh	SPL.rd	superior parital lobule, rostrodorsal part 	Parietal Lobe	Superior Parietal Lobe	SPL	PE
+44	44	lh	SPL.cd	superior parital lobule, caudodorsal part 	Parietal Lobe	Superior Parietal Lobe	SPL	PE/PEC
+45	45	lh	SPL.m	superior parital lobule, medial part	Parietal Lobe	Superior Parietal Lobe	SPL	PECg, dorsal part
+46	46	lh	IPL.sr	inferior parietal lobe, sulcal rostral part	Parietal Lobe	Inferior Parietal Lobe	IPL	AIP, rostral part
+47	47	lh	IPL.sri	inferior parietal lobe, sulcal rostrointermediate part 	Parietal Lobe	Inferior Parietal Lobe	IPL	AIP, caudal part
+48	48	lh	IPL.sci	inferior parietal lobe, sulcal caudointermediate part	Parietal Lobe	Inferior Parietal Lobe	IPL	LIP, rostral part
+49	49	lh	IPL.sc	inferior parietal lobe, sulcal caudal part	Parietal Lobe	Inferior Parietal Lobe	IPL	LIP, caudal part
+50	50	lh	IPL.gr	inferior parietal lobule, gyral rostral part	Parietal Lobe	Inferior Parietal Lobe	IPL	PF
+51	51	lh	IPL.gri	inferior parietal lobule, gyral rostrointermediate part 	Parietal Lobe	Inferior Parietal Lobe	IPL	PFG
+52	52	lh	IPL.gci	inferior parietal loule, gyral caudointermediate part	Parietal Lobe	Inferior Parietal Lobe	IPL	PG
+53	53	lh	IPL.gc	inferior parietal lobule, gyral caudal part	Parietal Lobe	Inferior Parietal Lobe	IPL	Opt
+54	54	lh	PrCu.vr	precuneus, ventrorostral part	Parietal Lobe	Precueus	PrCu	31, rostral part
+55	55	lh	PrCu.dr	precuneus, dorsorostral part	Parietal Lobe	Precueus	PrCu	PECg, ventral part
+56	56	lh	PrCu.dc	precuneus, dorsocaudal part	Parietal Lobe	Precueus	PrCu	PGM/PO
+57	57	lh	PrCu.di	precuneus, dorsointermediate part	Parietal Lobe	Precueus	PrCu	PGM/PEC
+58	58	lh	PrCu.vi	precuneus, ventrointermediate part	Parietal Lobe	Precueus	PrCu	PGM/31, ventral part
+59	59	lh	PrCu.vc	precuneus, ventrocaudal part	Parietal Lobe	Precueus	PrCu	23x
+60	60	lh	PrL.d	prelunate cortex,dorsal part 	Parietal Lobe	Prelunate Cortex	PrL	V3A/V3D/V4A
+61	61	lh	PrL.i	prelunate cortex, intermediate part 	Parietal Lobe	Prelunate Cortex	PrL	V4D, dorsal part
+62	62	lh	PrL.STS	prelunate cortex, superior temporal sulcal part	Parietal Lobe	Prelunate Cortex	PrL	Dpt/MT
+63	63	lh	PrL.v	prelunate cortex, ventral part	Parietal Lobe	Prelunate Cortex	PrL	V4D, ventral part
+64	64	lh	SFL.r	superior temporal gyrus, Sylivian fissure lower bank, rostral part	Temporal Lobe	Superior Temporal Gyrus	STG	ProK
+65	65	lh	SFL.i	superior temporal gyrus, Sylivian fissure lower bank, caudal part	Temporal Lobe	Superior Temporal Gyrus	STG	AK
+66	66	lh	STG.gc	superior temporal gyrus, gyral caudal part	Temporal Lobe	Superior Temporal Gyrus	STG	PaAC/Tpt
+67	67	lh	STG.gr	superior temporal gyrus, gyral rostral part	Temporal Lobe	Superior Temporal Gyrus	STG	ST1/ ST2/TAa
+68	68	lh	STG.gri	superior temporal gyrus, gyral rostrointermediate part	Temporal Lobe	Superior Temporal Gyrus	STG	ST3/PaAL/
+69	69	lh	STG.gci	superior temporal gyrus, gyral caudointermediate part	Temporal Lobe	Superior Temporal Gyrus	STG	Tpt
+70	70	lh	STSU.rEx	superior temporal gyrus, superior temporal sulcus upper bank, rostroexternal part	Temporal Lobe	Superior Temporal Gyrus	STG	TAa, rostral part
+71	71	lh	STSU.cEx	superior temporal gyrus, superior temporal sulcus upper bank, caudoexternal part	Temporal Lobe	Superior Temporal Gyrus	STG	TAa, caudal part
+72	72	lh	STSU.r	superior temporal gyrus, superior temporal sulcus upper bank, rostral part	Temporal Lobe	Superior Temporal Gyrus	STG	TPO, rostral part
+73	73	lh	STSU.ri	superior temporal gyrus, superior temporal sulcus upper bank, rostrointermediate part	Temporal Lobe	Superior Temporal Gyrus	STG	TPO, caudal part
+74	74	lh	STSU.ci	superior temporal gyrus, superior temporal sulcus upper bank, caudointermediate part 	Temporal Lobe	Superior Temporal Gyrus	STG	MT
+75	75	lh	STSU.c	superior temporal gyrus, superior temporal sulcus upper bank, caudal part 	Temporal Lobe	Superior Temporal Gyrus	STG	MST
+76	76	lh	STSL.r	inferior temporal gyrus, superior temporal sulcus lower bank, rostral  part 	Temporal Lobe	Inferior Temporal Gyrus	ITG	TEa
+77	77	lh	STSL.cIn	inferior temporal gyrus, superior temporal sulcus lower bank, caudointernal part	Temporal Lobe	Inferior Temporal Gyrus	ITG	FST
+78	78	lh	STSL.cEx	inferior temporal gyrus, superior temporal sulcus lower bank, caudoexternal part	Temporal Lobe	Inferior Temporal Gyrus	ITG	TEOm
+79	79	lh	ITG.gr	inferior temporal gyrus,  gyral rostral part 	Temporal Lobe	Inferior Temporal Gyrus	ITG	TE1/TE2
+80	80	lh	ITG.gdc	inferior temporal gyrus,  gyral dorsocaudal part 	Temporal Lobe	Inferior Temporal Gyrus	ITG	TEO/TE3
+81	81	lh	ITG.gvc	inferior temporal gyrus, gyral ventrocaudal part	Temporal Lobe	Inferior Temporal Gyrus	ITG	TEO/TF
+82	82	lh	PHG.r	parahippocampal gyrus, rostral part	Temporal Lobe	Parahippocampal Gyrus	PHG	36R
+83	83	lh	PHG.mi	parahippocampal gyrus, mediointermediate part	Temporal Lobe	Parahippocampal Gyrus	PHG	EC
+84	84	lh	PHG.li	parahippocampal gyrus, laterointermediate part	Temporal Lobe	Parahippocampal Gyrus	PHG	TF
+85	85	lh	PHG.cm	parahippocampal gyrus, caudomedial part	Temporal Lobe	Parahippocampal Gyrus	PHG	TH
+86	86	lh	PHG.cl	parahippocampal gyrus, caudolateral part	Temporal Lobe	Parahippocampal Gyrus	PHG	36O
+87	87	lh	TP.vr	temporal pole, ventrorostral part	Temporal Lobe	Temporal Pole	TP	TP
+88	88	lh	TP.mr	temporal pole, mediorostral part	Temporal Lobe	Temporal Pole	TP	TP
+89	89	lh	TP.lr	temporal pole, laterorostral part	Temporal Lobe	Temporal Pole	TP	TP
+90	90	lh	TP.dr	temporal pole, dorsorostral part 	Temporal Lobe	Temporal Pole	TP	TP
+91	91	lh	TP.cEx	temporal pole, caudoexternal  part	Temporal Lobe	Temporal Pole	TP	TP
+92	92	lh	TP.cIn	temporal pole, caudointernal  part	Temporal Lobe	Temporal Pole	TP	TP
+93	93	lh	V1.cm	V1, caudomedial part	Occipital Lobe	V1	V1	V1
+94	94	lh	V1.dl	V1, dorsolateral part	Occipital Lobe	V1	V1	V1
+95	95	lh	V1.vl	V1,  ventrolateral part	Occipital Lobe	V1	V1	V1
+96	96	lh	V1.mvi	V1, medial ventrointermediate part	Occipital Lobe	V1	V1	V1
+97	97	lh	V1.mdi	V1, medial dorsointermediate part	Occipital Lobe	V1	V1	V1
+98	98	lh	V1.rm	V1, rostromedial part	Occipital Lobe	V1	V1	V1
+99	99	lh	V2.l	V2, lateral part	Occipital Lobe	V2	V2	V2
+100	100	lh	V2.d	V2, dorsal part	Occipital Lobe	V2	V2	V2
+101	101	lh	V2.v	V2, ventral part	Occipital Lobe	V2	V2	V2
+102	102	lh	V2.dm	V2, dorsomedial part	Occipital Lobe	V2	V2	V2
+103	103	lh	V2.vm	V2, ventromedial part	Occipital Lobe	V2	V2	V2
+104	104	lh	VMO.l	ventromedial occipital cortex, lateral part	Occipital Lobe	Ventromedial Occipital Cortex	VMO	V3V/V4V,  dorsal part
+105	105	lh	VMO.i	ventromedial occipital cortex, intermediate part	Occipital Lobe	Ventromedial Occipital Cortex	VMO	V3V/V4V,  ventral part
+106	106	lh	VMO.m	ventromedial occipital cortex, medial part	Occipital Lobe	Ventromedial Occipital Cortex	VMO	V3V/V4V,  medial part
+107	107	lh	INS.vr	insula cortex, ventrorostral part	Insula Cortex	Insula Cortex	INS	Ipa
+108	108	lh	INS.dr	insula cortex, dorsorostral part	Insula Cortex	Insula Cortex	INS	Ia
+109	109	lh	INS.ri	insula cortex, rostrointermediate part	Insula Cortex	Insula Cortex	INS	Id
+110	110	lh	INS.v	insula cortex, ventral part	Insula Cortex	Insula Cortex	INS	Ip/Id
+111	111	lh	INS.ci	insula cortex, caudointermediate  part	Insula Cortex	Insula Cortex	INS	Ig, rostral part
+112	112	lh	INS.c	insula cortex, caudal part	Insula Cortex	Insula Cortex	INS	Ig, caudal part
+113	113	lh	CG.vr	cingulate cortex, ventrorostral  part	Limbic Lobe	Cingulate Cortex	CG	25
+114	114	lh	CG.ir	cingulate cortex,  intermediorostral part	Limbic Lobe	Cingulate Cortex	CG	32
+115	115	lh	CG.dr	cingulate cortex, dorsorostral part	Limbic Lobe	Cingulate Cortex	CG	24c, rostral part
+116	116	lh	CG.idr	cingulate cortex, intermediate dorsorostral part	Limbic Lobe	Cingulate Cortex	CG	24c
+117	117	lh	CG.idc	cingulate cortex, intermediate dorsocaudal part	Limbic Lobe	Cingulate Cortex	CG	23c/24d
+118	118	lh	CG.ivr	cingulate cortex, intermediate ventrorostral part	Limbic Lobe	Cingulate Cortex	CG	24a/24b
+119	119	lh	CG.ivc	cingulate cortex, intermediate ventrocaudal part	Limbic Lobe	Cingulate Cortex	CG	23a/23b, rostral part
+120	120	lh	CG.dc	cingulate cortex,  dorsocaudal part	Limbic Lobe	Cingulate Cortex	CG	23a/23b, caudal part
+121	121	lh	CG.vc	cingulate cortex, ventrocaudal part	Limbic Lobe	Cingulate Cortex	CG	23
+122	122	lh	CG.RSr	cingulate cortex, retrosplenial rostral part	Limbic Lobe	Cingulate Cortex	CG	29/30, rostral part
+123	123	lh	CG.RSi	cingulate cortex, retrosplenial intermediate part	Limbic Lobe	Cingulate Cortex	CG	29/30, intermediate part
+124	124	lh	CG.RSc	cingulate cortex, retrosplenial, caudal part	Limbic Lobe	Cingulate Cortex	CG	29/30, caudal part
+125	125	lh	Acb.C	accumbens nucleus, core part	Subcortex Nucleus	Accumbens nucleus	Acb 	AcbC
+126	126	lh	Acb.Sh	accumbens nucleus, shell part	Subcortex Nucleus	Accumbens nucleus	Acb 	AcbSh
+127	127	lh	Amyg.cl	amygdaloid nucleus, caudolateral part	Subcortex Nucleus	Amygdaloid nucleus	Amyg	Amyg
+128	128	lh	Amyg.rl	amygdaloid nucleus, rostrolateral part	Subcortex Nucleus	Amygdaloid nucleus	Amyg	Amyg
+129	129	lh	Amyg.m	amygdaloid nucleus, medial part	Subcortex Nucleus	Amygdaloid nucleus	Amyg	Amyg
+130	130	lh	Cd.Hv	caudate nucleus, head ventral part	Subcortex Nucleus	Caudate nucleus	Cd	Cd
+131	131	lh	Cd.B	caudate nucleus, body part	Subcortex Nucleus	Caudate nucleus	Cd	Cd
+132	132	lh	Cd.Hi	caudate nucleus, head intermediate part	Subcortex Nucleus	Caudate nucleus	Cd	Cd
+133	133	lh	Cd.Hd	caudate nucleus,  head  dorsal part	Subcortex Nucleus	Caudate nucleus	Cd	Cd
+134	134	lh	Cd.T	caudate nucleus, tail part	Subcortex Nucleus	Caudate nucleus	Cd	Cd
+135	135	lh	HF.c	hippocampal formation, caudal part	Subcortex Nucleus	Hippocampus formation	HF	HF
+136	136	lh	HF.i	hippocampal formation, intermediate part	Subcortex Nucleus	Hippocampus formation	HF	HF
+137	137	lh	HF.r	hippocampal formation, rostral part	Subcortex Nucleus	Hippocampus formation	HF	HF
+138	138	lh	Hy.cl	hypothalamus, caudolateral part	Subcortex Nucleus	Hypothalamus	Hy	Hy
+139	139	lh	Hy.rl	hypothalamus, rostrolateral part	Subcortex Nucleus	Hypothalamus	Hy	Hy
+140	140	lh	Hy.m	hypothalamus, medial part	Subcortex Nucleus	Hypothalamus	Hy	Hy
+141	141	lh	GP.v	globus pallidus, ventral part	Subcortex Nucleus	globus pallidus	GP	GP
+142	142	lh	GP.d	globus pallidus, dorsal part	Subcortex Nucleus	globus pallidus	GP	GP
+143	143	lh	Pu.r	putamen, rostral part	Subcortex Nucleus	Putamen	Pu	Pu
+144	144	lh	Pu.v	putamen, ventral part	Subcortex Nucleus	Putamen	Pu	Pu
+145	145	lh	Pu.c	putamen, caudal part	Subcortex Nucleus	Putamen	Pu	Pu
+146	146	lh	Tha.rv	thalamus, rostroventral part	Subcortex Nucleus	thalamus	Tha	Tha
+147	147	lh	Tha.c	thalamus, caudal part	Subcortex Nucleus	thalamus	Tha	Tha
+148	148	lh	Tha.ld	thalamus, laterodorsal part	Subcortex Nucleus	thalamus	Tha	Tha
+149	149	lh	Tha.l	thalamus, lateral part	Subcortex Nucleus	thalamus	Tha	Tha
+150	150	lh	Tha.m	thalamus, medial part	Subcortex Nucleus	thalamus	Tha	Tha
+151	151	lh	Tha.Sh	thalamus, shell part	Subcortex Nucleus	thalamus	Tha	Tha
+152	152	lh	Tha.cv	thalamus, caudoventral part	Subcortex Nucleus	thalamus	Tha	Tha
+153	1	rh	FP.d	frontal pole, dorsal part	Frontal Lobe	Frontal Pole	FP	10D/46D
+154	2	rh	FP.m	frontal pole,  medial part	Frontal Lobe	Frontal Pole	FP	10M/10V
+155	3	rh	FP.v	frontal pole,  ventral part	Frontal Lobe	Frontal Pole	FP	10V/46V
+156	4	rh	SFG.rm	superior frontal gyrus, rostromedial part	Frontal Lobe	Superior Frontal Gyrus	SFG	9M
+157	5	rh	SFG.cm	superior frontal gyrus, caudomedial part 	Frontal Lobe	Superior Frontal Gyrus	SFG	8Bm
+158	6	rh	SFG.r	superior frontal gyrus, rostral part	Frontal Lobe	Superior Frontal Gyrus	SFG	46D
+159	7	rh	SFG.ri	superior frontal gyrus, rostrointermediate part	Frontal Lobe	Superior Frontal Gyrus	SFG	9/46D, 9L
+160	8	rh	SFG.ci	superior frontal gyrus, caudointermediate part	Frontal Lobe	Superior Frontal Gyrus	SFG	8A/8B
+161	9	rh	SFG.c	superior frontal gyrus, caudal part	Frontal Lobe	Superior Frontal Gyrus	SFG	8AD
+162	10	rh	IFG.rd	inferior frontal gyrus, rostrodorsal part 	Frontal Lobe	Inferior Frontal Gyrus	IFG	46V/12L
+163	11	rh	IFG.cd	inferior frontal gyrus, caudodorsal part 	Frontal Lobe	Inferior Frontal Gyrus	IFG	46v/45B
+164	12	rh	IFG.cv	inferior frontal gyrus, caudoventral part	Frontal Lobe	Inferior Frontal Gyrus	IFG	8A/45B
+165	13	rh	IFG.iv	inferior frontal gyrus, intermedioventral part	Frontal Lobe	Inferior Frontal Gyrus	IFG	44
+166	14	rh	IFG.rv	inferior frontal gyrus, rostroventral part	Frontal Lobe	Inferior Frontal Gyrus	IFG	12L/45B
+167	15	rh	OrG.rm	orbital gyrus, rostromedial part	Frontal Lobe	Orbital Gyrus	OrG	14
+168	16	rh	OrG.cm	orbital gyrus, caudomedial part	Frontal Lobe	Orbital Gyrus	OrG	OPAI
+169	17	rh	OrG.ri	orbital gyrus, rostrointermediate part	Frontal Lobe	Orbital Gyrus	OrG	11
+170	18	rh	OrG.ci	orbital gyrus, caudointermediate part	Frontal Lobe	Orbital Gyrus	OrG	13
+171	19	rh	OrG.rl	orbital gyrus, rostrolateral part	Frontal Lobe	Orbital Gyrus	OrG	12O, rostral part
+172	20	rh	OrG.cl	orbital gyrus, caudolateral part	Frontal Lobe	Orbital Gyrus	OrG	12O, caudal part
+173	21	rh	M1.v	primary motor cortex, ventral part	Sensorimotor Cortex	Primary Motor Cortex	M1	4(face)
+174	22	rh	M1.i	primary motor cortex, intermediate part 	Sensorimotor Cortex	Primary Motor Cortex	M1	4(arm)
+175	23	rh	M1.d	primary motor cortex, dorsal part	Sensorimotor Cortex	Primary Motor Cortex	M1	4(foot)
+176	24	rh	M1.m	primary motor cortex, medial  part 	Sensorimotor Cortex	Primary Motor Cortex	M1	4, medial part
+177	25	rh	PM.rd	premotor cortex, rostrodorsal part	Sensorimotor Cortex	Premotor Cortex	PM	6DR
+178	26	rh	PM.cd	premotor cortex, caudodorsal part	Sensorimotor Cortex	Premotor Cortex	PM	6DC
+179	27	rh	PM.i	premotor cortex, intermediate part	Sensorimotor Cortex	Premotor Cortex	PM	6DC, ventral part
+180	28	rh	PM.cv	premotor cortex, caudoventral part	Sensorimotor Cortex	Premotor Cortex	PM	6VC
+181	29	rh	PM.rv	premotor cortex, rostroventral part	Sensorimotor Cortex	Premotor Cortex	PM	6VR
+182	30	rh	PM.rm	premotor cortex, rostromedial part	Sensorimotor Cortex	Premotor Cortex	PM	6M, rostral part
+183	31	rh	PM.cm	premotor cortex, caudomedial part	Sensorimotor Cortex	Premotor Cortex	PM	6M, caudal part
+184	32	rh	PoCG.dm	postcentral gyrus, dorsomedial part 	Sensorimotor Cortex	Postcentral Gyrus	PoCG	1/2/3 (foot)
+185	33	rh	PoCG.d	postcentral gyrus, dorsal part	Sensorimotor Cortex	Postcentral Gyrus	PoCG	1/2/3 (trunk)
+186	34	rh	PoCG.i	postcentral gyrus, intermediate part	Sensorimotor Cortex	Postcentral Gyrus	PoCG	1/2/3 (hand)
+187	35	rh	PoCG.v	postcentral gyrus, ventral part 	Sensorimotor Cortex	Postcentral Gyrus	PoCG	1/2/3 (face)
+188	36	rh	FPO.r	frontal parietal operculum, rostral part	Sensorimotor Cortex	Frontal and Parietal Operculum	FPO	ProM/Gu
+189	37	rh	FPO.ri	frontal parietal operculum, rostrointermediate part	Sensorimotor Cortex	Frontal and Parietal Operculum	FPO	S2/PFop
+190	38	rh	FPO.ci	frontal parietal operculum, caudointermediate part	Sensorimotor Cortex	Frontal and Parietal Operculum	FPO	S2/S2I
+191	39	rh	FPO.c	frontal parietal operculum, caudal part	Sensorimotor Cortex	Frontal and Parietal Operculum	FPO	PGop
+192	40	rh	SPL.rv	superior parital lobule, rostroventral part	Parietal Lobe	Superior Parietal Lobe	SPL	PEa, rostral part
+193	41	rh	SPL.iv	superior parital lobule, intermedioventral part	Parietal Lobe	Superior Parietal Lobe	SPL	PEa, caudal part
+194	42	rh	SPL.cv	superior parital lobule, caudoventral part	Parietal Lobe	Superior Parietal Lobe	SPL	PO
+195	43	rh	SPL.rd	superior parital lobule, rostrodorsal part 	Parietal Lobe	Superior Parietal Lobe	SPL	PE
+196	44	rh	SPL.cd	superior parital lobule, caudodorsal part 	Parietal Lobe	Superior Parietal Lobe	SPL	PE/PEC
+197	45	rh	SPL.m	superior parital lobule, medial part	Parietal Lobe	Superior Parietal Lobe	SPL	PECg, dorsal part
+198	46	rh	IPL.sr	inferior parietal lobe, sulcal rostral part	Parietal Lobe	Inferior Parietal Lobe	IPL	AIP, rostral part
+199	47	rh	IPL.sri	inferior parietal lobe, sulcal rostrointermediate part 	Parietal Lobe	Inferior Parietal Lobe	IPL	AIP, caudal part
+200	48	rh	IPL.sci	inferior parietal lobe, sulcal caudointermediate part	Parietal Lobe	Inferior Parietal Lobe	IPL	LIP, rostral part
+201	49	rh	IPL.sc	inferior parietal lobe, sulcal caudal part	Parietal Lobe	Inferior Parietal Lobe	IPL	LIP, caudal part
+202	50	rh	IPL.gr	inferior parietal lobule, gyral rostral part	Parietal Lobe	Inferior Parietal Lobe	IPL	PF
+203	51	rh	IPL.gri	inferior parietal lobule, gyral rostrointermediate part 	Parietal Lobe	Inferior Parietal Lobe	IPL	PFG
+204	52	rh	IPL.gci	inferior parietal loule, gyral caudointermediate part	Parietal Lobe	Inferior Parietal Lobe	IPL	PG
+205	53	rh	IPL.gc	inferior parietal lobule, gyral caudal part	Parietal Lobe	Inferior Parietal Lobe	IPL	Opt
+206	54	rh	PrCu.vr	precuneus, ventrorostral part	Parietal Lobe	Precueus	PrCu	31, rostral part
+207	55	rh	PrCu.dr	precuneus, dorsorostral part	Parietal Lobe	Precueus	PrCu	PECg, ventral part
+208	56	rh	PrCu.dc	precuneus, dorsocaudal part	Parietal Lobe	Precueus	PrCu	PGM/PO
+209	57	rh	PrCu.di	precuneus, dorsointermediate part	Parietal Lobe	Precueus	PrCu	PGM/PEC
+210	58	rh	PrCu.vi	precuneus, ventrointermediate part	Parietal Lobe	Precueus	PrCu	PGM/31, ventral part
+211	59	rh	PrCu.vc	precuneus, ventrocaudal part	Parietal Lobe	Precueus	PrCu	23x
+212	60	rh	PrL.d	prelunate cortex,dorsal part 	Parietal Lobe	Prelunate Cortex	PrL	V3A/V3D/V4A
+213	61	rh	PrL.i	prelunate cortex, intermediate part 	Parietal Lobe	Prelunate Cortex	PrL	V4D, dorsal part
+214	62	rh	PrL.STS	prelunate cortex, superior temporal sulcal part	Parietal Lobe	Prelunate Cortex	PrL	Dpt/MT
+215	63	rh	PrL.v	prelunate cortex, ventral part	Parietal Lobe	Prelunate Cortex	PrL	V4D, ventral part
+216	64	rh	SFL.r	superior temporal gyrus, Sylivian fissure lower bank, rostral part	Temporal Lobe	Superior Temporal Gyrus	STG	ProK
+217	65	rh	SFL.i	superior temporal gyrus, Sylivian fissure lower bank, caudal part	Temporal Lobe	Superior Temporal Gyrus	STG	AK
+218	66	rh	STG.gc	superior temporal gyrus, gyral caudal part	Temporal Lobe	Superior Temporal Gyrus	STG	PaAC/Tpt
+219	67	rh	STG.gr	superior temporal gyrus, gyral rostral part	Temporal Lobe	Superior Temporal Gyrus	STG	ST1/ ST2/TAa
+220	68	rh	STG.gri	superior temporal gyrus, gyral rostrointermediate part	Temporal Lobe	Superior Temporal Gyrus	STG	ST3/PaAL/
+221	69	rh	STG.gci	superior temporal gyrus, gyral caudointermediate part	Temporal Lobe	Superior Temporal Gyrus	STG	Tpt
+222	70	rh	STSU.rEx	superior temporal gyrus, superior temporal sulcus upper bank, rostroexternal part	Temporal Lobe	Superior Temporal Gyrus	STG	TAa, rostral part
+223	71	rh	STSU.cEx	superior temporal gyrus, superior temporal sulcus upper bank, caudoexternal part	Temporal Lobe	Superior Temporal Gyrus	STG	TAa, caudal part
+224	72	rh	STSU.r	superior temporal gyrus, superior temporal sulcus upper bank, rostral part	Temporal Lobe	Superior Temporal Gyrus	STG	TPO, rostral part
+225	73	rh	STSU.ri	superior temporal gyrus, superior temporal sulcus upper bank, rostrointermediate part	Temporal Lobe	Superior Temporal Gyrus	STG	TPO, caudal part
+226	74	rh	STSU.ci	superior temporal gyrus, superior temporal sulcus upper bank, caudointermediate part 	Temporal Lobe	Superior Temporal Gyrus	STG	MT
+227	75	rh	STSU.c	superior temporal gyrus, superior temporal sulcus upper bank, caudal part 	Temporal Lobe	Superior Temporal Gyrus	STG	MST
+228	76	rh	STSL.r	inferior temporal gyrus, superior temporal sulcus lower bank, rostral  part 	Temporal Lobe	Inferior Temporal Gyrus	ITG	TEa
+229	77	rh	STSL.cIn	inferior temporal gyrus, superior temporal sulcus lower bank, caudointernal part	Temporal Lobe	Inferior Temporal Gyrus	ITG	FST
+230	78	rh	STSL.cEx	inferior temporal gyrus, superior temporal sulcus lower bank, caudoexternal part	Temporal Lobe	Inferior Temporal Gyrus	ITG	TEOm
+231	79	rh	ITG.gr	inferior temporal gyrus,  gyral rostral part 	Temporal Lobe	Inferior Temporal Gyrus	ITG	TE1/TE2
+232	80	rh	ITG.gdc	inferior temporal gyrus,  gyral dorsocaudal part 	Temporal Lobe	Inferior Temporal Gyrus	ITG	TEO/TE3
+233	81	rh	ITG.gvc	inferior temporal gyrus, gyral ventrocaudal part	Temporal Lobe	Inferior Temporal Gyrus	ITG	TEO/TF
+234	82	rh	PHG.r	parahippocampal gyrus, rostral part	Temporal Lobe	Parahippocampal Gyrus	PHG	36R
+235	83	rh	PHG.mi	parahippocampal gyrus, mediointermediate part	Temporal Lobe	Parahippocampal Gyrus	PHG	EC
+236	84	rh	PHG.li	parahippocampal gyrus, laterointermediate part	Temporal Lobe	Parahippocampal Gyrus	PHG	TF
+237	85	rh	PHG.cm	parahippocampal gyrus, caudomedial part	Temporal Lobe	Parahippocampal Gyrus	PHG	TH
+238	86	rh	PHG.cl	parahippocampal gyrus, caudolateral part	Temporal Lobe	Parahippocampal Gyrus	PHG	36O
+239	87	rh	TP.vr	temporal pole, ventrorostral part	Temporal Lobe	Temporal Pole	TP	TP
+240	88	rh	TP.mr	temporal pole, mediorostral part	Temporal Lobe	Temporal Pole	TP	TP
+241	89	rh	TP.lr	temporal pole, laterorostral part	Temporal Lobe	Temporal Pole	TP	TP
+242	90	rh	TP.dr	temporal pole, dorsorostral part 	Temporal Lobe	Temporal Pole	TP	TP
+243	91	rh	TP.cEx	temporal pole, caudoexternal  part	Temporal Lobe	Temporal Pole	TP	TP
+244	92	rh	TP.cIn	temporal pole, caudointernal  part	Temporal Lobe	Temporal Pole	TP	TP
+245	93	rh	V1.cm	V1, caudomedial part	Occipital Lobe	V1	V1	V1
+246	94	rh	V1.dl	V1, dorsolateral part	Occipital Lobe	V1	V1	V1
+247	95	rh	V1.vl	V1,  ventrolateral part	Occipital Lobe	V1	V1	V1
+248	96	rh	V1.mvi	V1, medial ventrointermediate part	Occipital Lobe	V1	V1	V1
+249	97	rh	V1.mdi	V1, medial dorsointermediate part	Occipital Lobe	V1	V1	V1
+250	98	rh	V1.rm	V1, rostromedial part	Occipital Lobe	V1	V1	V1
+251	99	rh	V2.l	V2, lateral part	Occipital Lobe	V2	V2	V2
+252	100	rh	V2.d	V2, dorsal part	Occipital Lobe	V2	V2	V2
+253	101	rh	V2.v	V2, ventral part	Occipital Lobe	V2	V2	V2
+254	102	rh	V2.dm	V2, dorsomedial part	Occipital Lobe	V2	V2	V2
+255	103	rh	V2.vm	V2, ventromedial part	Occipital Lobe	V2	V2	V2
+256	104	rh	VMO.l	ventromedial occipital cortex, lateral part	Occipital Lobe	Ventromedial Occipital Cortex	VMO	V3V/V4V,  dorsal part
+257	105	rh	VMO.i	ventromedial occipital cortex, intermediate part	Occipital Lobe	Ventromedial Occipital Cortex	VMO	V3V/V4V,  ventral part
+258	106	rh	VMO.m	ventromedial occipital cortex, medial part	Occipital Lobe	Ventromedial Occipital Cortex	VMO	V3V/V4V,  medial part
+259	107	rh	INS.vr	insula cortex, ventrorostral part	Insula Cortex	Insula Cortex	INS	Ipa
+260	108	rh	INS.dr	insula cortex, dorsorostral part	Insula Cortex	Insula Cortex	INS	Ia
+261	109	rh	INS.ri	insula cortex, rostrointermediate part	Insula Cortex	Insula Cortex	INS	Id
+262	110	rh	INS.v	insula cortex, ventral part	Insula Cortex	Insula Cortex	INS	Ip/Id
+263	111	rh	INS.ci	insula cortex, caudointermediate  part	Insula Cortex	Insula Cortex	INS	Ig, rostral part
+264	112	rh	INS.c	insula cortex, caudal part	Insula Cortex	Insula Cortex	INS	Ig, caudal part
+265	113	rh	CG.vr	cingulate cortex, ventrorostral  part	Limbic Lobe	Cingulate Cortex	CG	25
+266	114	rh	CG.ir	cingulate cortex,  intermediorostral part	Limbic Lobe	Cingulate Cortex	CG	32
+267	115	rh	CG.dr	cingulate cortex, dorsorostral part	Limbic Lobe	Cingulate Cortex	CG	24c, rostral part
+268	116	rh	CG.idr	cingulate cortex, intermediate dorsorostral part	Limbic Lobe	Cingulate Cortex	CG	24c
+269	117	rh	CG.idc	cingulate cortex, intermediate dorsocaudal part	Limbic Lobe	Cingulate Cortex	CG	23c/24d
+270	118	rh	CG.ivr	cingulate cortex, intermediate ventrorostral part	Limbic Lobe	Cingulate Cortex	CG	24a/24b
+271	119	rh	CG.ivc	cingulate cortex, intermediate ventrocaudal part	Limbic Lobe	Cingulate Cortex	CG	23a/23b, rostral part
+272	120	rh	CG.dc	cingulate cortex,  dorsocaudal part	Limbic Lobe	Cingulate Cortex	CG	23a/23b, caudal part
+273	121	rh	CG.vc	cingulate cortex, ventrocaudal part	Limbic Lobe	Cingulate Cortex	CG	23
+274	122	rh	CG.RSr	cingulate cortex, retrosplenial rostral part	Limbic Lobe	Cingulate Cortex	CG	29/30, rostral part
+275	123	rh	CG.RSi	cingulate cortex, retrosplenial intermediate part	Limbic Lobe	Cingulate Cortex	CG	29/30, intermediate part
+276	124	rh	CG.RSc	cingulate cortex, retrosplenial, caudal part	Limbic Lobe	Cingulate Cortex	CG	29/30, caudal part
+277	125	rh	Acb.C	accumbens nucleus, core part	Subcortex Nucleus	Accumbens nucleus	Acb 	AcbC
+278	126	rh	Acb.Sh	accumbens nucleus, shell part	Subcortex Nucleus	Accumbens nucleus	Acb 	AcbSh
+279	127	rh	Amyg.cl	amygdaloid nucleus, caudolateral part	Subcortex Nucleus	Amygdaloid nucleus	Amyg	Amyg
+280	128	rh	Amyg.rl	amygdaloid nucleus, rostrolateral part	Subcortex Nucleus	Amygdaloid nucleus	Amyg	Amyg
+281	129	rh	Amyg.m	amygdaloid nucleus, medial part	Subcortex Nucleus	Amygdaloid nucleus	Amyg	Amyg
+282	130	rh	Cd.Hv	caudate nucleus, head ventral part	Subcortex Nucleus	Caudate nucleus	Cd	Cd
+283	131	rh	Cd.B	caudate nucleus, body part	Subcortex Nucleus	Caudate nucleus	Cd	Cd
+284	132	rh	Cd.Hi	caudate nucleus, head intermediate part	Subcortex Nucleus	Caudate nucleus	Cd	Cd
+285	133	rh	Cd.Hd	caudate nucleus,  head  dorsal part	Subcortex Nucleus	Caudate nucleus	Cd	Cd
+286	134	rh	Cd.T	caudate nucleus, tail part	Subcortex Nucleus	Caudate nucleus	Cd	Cd
+287	135	rh	HF.c	hippocampal formation, caudal part	Subcortex Nucleus	Hippocampus formation	HF	HF
+288	136	rh	HF.i	hippocampal formation, intermediate part	Subcortex Nucleus	Hippocampus formation	HF	HF
+289	137	rh	HF.r	hippocampal formation, rostral part	Subcortex Nucleus	Hippocampus formation	HF	HF
+290	138	rh	Hy.cl	hypothalamus, caudolateral part	Subcortex Nucleus	Hypothalamus	Hy	Hy
+291	139	rh	Hy.rl	hypothalamus, rostrolateral part	Subcortex Nucleus	Hypothalamus	Hy	Hy
+292	140	rh	Hy.m	hypothalamus, medial part	Subcortex Nucleus	Hypothalamus	Hy	Hy
+293	141	rh	GP.v	globus pallidus, ventral part	Subcortex Nucleus	globus pallidus	GP	GP
+294	142	rh	GP.d	globus pallidus, dorsal part	Subcortex Nucleus	globus pallidus	GP	GP
+295	143	rh	Pu.r	putamen, rostral part	Subcortex Nucleus	Putamen	Pu	Pu
+296	144	rh	Pu.v	putamen, ventral part	Subcortex Nucleus	Putamen	Pu	Pu
+297	145	rh	Pu.c	putamen, caudal part	Subcortex Nucleus	Putamen	Pu	Pu
+298	146	rh	Tha.rv	thalamus, rostroventral part	Subcortex Nucleus	thalamus	Tha	Tha
+299	147	rh	Tha.c	thalamus, caudal part	Subcortex Nucleus	thalamus	Tha	Tha
+300	148	rh	Tha.ld	thalamus, laterodorsal part	Subcortex Nucleus	thalamus	Tha	Tha
+301	149	rh	Tha.l	thalamus, lateral part	Subcortex Nucleus	thalamus	Tha	Tha
+302	150	rh	Tha.m	thalamus, medial part	Subcortex Nucleus	thalamus	Tha	Tha
+303	151	rh	Tha.Sh	thalamus, shell part	Subcortex Nucleus	thalamus	Tha	Tha
+304	152	rh	Tha.cv	thalamus, caudoventral part	Subcortex Nucleus	thalamus	Tha	Tha

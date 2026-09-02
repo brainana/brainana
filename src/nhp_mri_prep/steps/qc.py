@@ -188,6 +188,10 @@ def qc_conform(
     output_path: Path,
     modality: str = "anat",
     config: Optional[Dict[str, Any]] = None,
+    full_fov_file: Optional[Path] = None,
+    full_fov_template_file: Optional[Path] = None,
+    fov_box_file: Optional[Path] = None,
+    full_fov_output_path: Optional[Path] = None,
 ) -> StepOutput:
     """
     Generate conform QC snapshot.
@@ -198,6 +202,12 @@ def qc_conform(
         output_path: Output path for QC snapshot
         modality: Modality ('anat' or 'func')
         config: Configuration dictionary (optional)
+        full_fov_file: Optional conformed image on the enlarged, uncropped grid. Given
+            with the three below, an extra figure is rendered on that grid with the
+            processing FOV drawn as a lavender box, so cropped-away hardware is visible.
+        full_fov_template_file: Optional resampled template on that same enlarged grid
+        fov_box_file: Optional binary mask of the target FOV within that grid
+        full_fov_output_path: Output path for that extra figure
 
     Returns:
         StepOutput with QC file
@@ -215,14 +225,23 @@ def qc_conform(
             save_f=str(output_path),
             modality=modality,
             logger=logger,
+            full_fov_file=full_fov_file,
+            full_fov_template_file=full_fov_template_file,
+            fov_box_file=fov_box_file,
+            full_fov_save_f=full_fov_output_path,
         )
 
         qc_file = Path(result.get(f"{modality}_conform_overlay", output_path))
+        qc_files = [qc_file]
+        full_fov_qc = result.get(f"{modality}_conform_fullfov_overlay")
+        if full_fov_qc:
+            # Ordered full-FOV first: the standard figure is that box, enlarged.
+            qc_files.insert(0, Path(full_fov_qc))
 
         return StepOutput(
             output_file=qc_file,
             metadata={"step": "qc_conform", "modality": modality},
-            qc_files=[qc_file],
+            qc_files=qc_files,
         )
     except Exception as e:
         logger.warning(f"QC: conform QC failed - {e}")
@@ -289,6 +308,7 @@ def qc_motion_correction(
     output_path: Path,
     input_file: Optional[Path] = None,
     config: Optional[Dict[str, Any]] = None,
+    confounds_file: Optional[Path] = None,
 ) -> StepOutput:
     """
     Generate motion correction QC plot.
@@ -298,6 +318,8 @@ def qc_motion_correction(
         output_path: Output path for QC plot
         input_file: Optional input functional file (for metadata)
         config: Configuration dictionary (optional)
+        confounds_file: Optional confounds TSV; its non-steady-state and motion-outlier columns
+            are shaded as frame bands, matching the confounds QC figure
 
     Returns:
         StepOutput with QC file
@@ -315,9 +337,10 @@ def qc_motion_correction(
             save_f=str(output_path),
             input_file=str(input_file) if input_file else None,
             logger=logger,
+            confounds_file=str(confounds_file) if confounds_file else None,
         )
 
-        qc_file = Path(result.get("snapshot_file", output_path))
+        qc_file = Path(result.get("motion_plot", output_path))
 
         return StepOutput(
             output_file=qc_file,
@@ -364,6 +387,10 @@ def qc_confounds(
         import matplotlib.pyplot as plt
         import pandas as pd
 
+        from ..operations.confounds import (
+            FD_OUTLIER_THRESHOLD_MM,
+            STD_DVARS_OUTLIER_THRESHOLD,
+        )
         from ..quality_control.mri_plotting import (
             CONFOUND_PANEL_SPECS,
             CONFOUNDS_QC_MARGINS,
@@ -376,7 +403,19 @@ def qc_confounds(
         if not panels:
             raise ValueError("no recognized confound columns to plot")
 
-        fig = create_confounds_plot(df)
+        # Threshold reference lines come from the same effective config that produced this TSV in
+        # this run. The JSON sidecar also records them, but QC_CONFOUNDS stages only the TSV.
+        conf_cfg = (config or {}).get("func", {}).get("confounds", {}) or {}
+        thresholds = {
+            "fd_outlier_threshold_mm": conf_cfg.get(
+                "fd_outlier_threshold_mm", FD_OUTLIER_THRESHOLD_MM
+            ),
+            "std_dvars_outlier_threshold": conf_cfg.get(
+                "std_dvars_outlier_threshold", STD_DVARS_OUTLIER_THRESHOLD
+            ),
+        }
+
+        fig = create_confounds_plot(df, thresholds=thresholds)
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         save_timeseries_qc_figure(fig, output_path, margins=CONFOUNDS_QC_MARGINS)
@@ -384,7 +423,11 @@ def qc_confounds(
 
         return StepOutput(
             output_file=output_path,
-            metadata={"step": "qc_confounds", "panels": panels},
+            metadata={
+                "step": "qc_confounds",
+                "panels": panels,
+                "thresholds": thresholds,
+            },
             qc_files=[output_path],
         )
     except Exception as e:  # noqa: BLE001

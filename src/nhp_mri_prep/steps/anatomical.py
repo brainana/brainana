@@ -202,6 +202,9 @@ def anat_conform(input: StepInput, template_file: Path) -> StepOutput:
         modal="anat",
         skip_skullstripping=skip_skullstripping,
         rigid_method=rigid_method,
+        # Anatomical only: also emit the conform on a grid large enough to keep every
+        # scanner-space voxel (recording chamber, head-post, neck). Leaf output.
+        emit_full_fov=True,
     )
 
     output_file = (
@@ -219,6 +222,16 @@ def anat_conform(input: StepInput, template_file: Path) -> StepOutput:
         additional_files["template_resampled"] = Path(
             result["template_f"]
         )  # template_f is already the resampled template
+    if result.get("imagef_conformed_full_fov"):
+        additional_files["conformed_full_fov"] = Path(
+            result["imagef_conformed_full_fov"]
+        )
+    if result.get("template_f_full_fov"):
+        additional_files["template_resampled_full_fov"] = Path(
+            result["template_f_full_fov"]
+        )
+    if result.get("fov_box"):
+        additional_files["fov_box"] = Path(result["fov_box"])
 
     return StepOutput(
         output_file=output_file,
@@ -229,6 +242,8 @@ def anat_conform(input: StepInput, template_file: Path) -> StepOutput:
             "rigid_method": rigid_method,
             # Real backend that produced the transform (for the xfm sidecar GeneratedBy).
             "engine": result.get("engine", rigid_method),
+            # Padding that turned the target FOV into the uncropped one (QC + sidecar).
+            "full_fov_pad": result.get("full_fov_pad"),
         },
         additional_files=additional_files,
     )
