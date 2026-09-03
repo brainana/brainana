@@ -863,6 +863,16 @@ button#generate:hover{filter:brightness(.95);}
                         </div>
                         <span class="help-text">(standardized DVARS above this flags a motion outlier)</span>
                     </div>
+                    <div class="param-block">
+                        <div class="param-row">
+                            <span class="param-check"></span>
+                            <label for="func_confounds_fd_radius_mm">fd_radius_mm</label>
+                            <span class="param-control">
+                                <input type="number" id="func_confounds_fd_radius_mm" name="func_confounds_fd_radius_mm" value="27.0" step="0.5" min="0">
+                            </span>
+                        </div>
+                        <span class="help-text">(sphere radius converting rotations to mm for FD and rmsd; 27 mm macaque head. Change only for another species &mdash; FD values are comparable only at a fixed radius)</span>
+                    </div>
                 </div>
             </div>
             <div class="step">
@@ -1105,7 +1115,8 @@ button#generate:hover{filter:brightness(.95);}
                 confounds: {
                     enabled: true,
                     fd_outlier_threshold_mm: 0.25,
-                    std_dvars_outlier_threshold: 1.5
+                    std_dvars_outlier_threshold: 1.5,
+                    fd_radius_mm: 27.0
                 },
                 bias_correction: {
                     enabled: true,
@@ -1514,6 +1525,7 @@ button#generate:hover{filter:brightness(.95);}
             config.func.confounds.enabled = document.getElementById('func_confounds_enabled').checked;
             config.func.confounds.fd_outlier_threshold_mm = parseFloat(document.getElementById('func_confounds_fd_outlier_threshold_mm').value);
             config.func.confounds.std_dvars_outlier_threshold = parseFloat(document.getElementById('func_confounds_std_dvars_outlier_threshold').value);
+            config.func.confounds.fd_radius_mm = parseFloat(document.getElementById('func_confounds_fd_radius_mm').value);
 
             config.func.skullstripping.enabled = document.getElementById('func_skullstripping_enabled').checked;
             // func.skullstripping only has 'enabled', no method or fastSurferCNN options

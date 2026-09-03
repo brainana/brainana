@@ -18,7 +18,10 @@ from pathlib import Path
 import pytest
 
 from nhp_mri_prep.config.config_io import load_yaml_config
-from nhp_mri_prep.config.config_validation import validate_config
+from nhp_mri_prep.config.config_validation import (
+    validate_config,
+    validate_confounds_config,
+)
 
 REPO = Path(__file__).resolve().parent.parent
 DEFAULTS = REPO / "src" / "nhp_mri_prep" / "config" / "defaults.yaml"
@@ -81,3 +84,39 @@ def test_validators_reject_bad_values(bad_config):
     """Parameters that are enum-like or typed in defaults.yaml must be validated."""
     with pytest.raises((ValueError, TypeError)):
         validate_config(bad_config)
+
+
+# -------------------------------------------------------------------------------------------------
+# func.confounds numeric validation
+# -------------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "key", ["fd_outlier_threshold_mm", "std_dvars_outlier_threshold", "fd_radius_mm"]
+)
+def test_confounds_numeric_keys_accept_valid_values(key):
+    validate_confounds_config({key: 0.5})
+    validate_confounds_config({key: 3})  # ints are fine
+
+
+@pytest.mark.parametrize(
+    "key", ["fd_outlier_threshold_mm", "std_dvars_outlier_threshold", "fd_radius_mm"]
+)
+@pytest.mark.parametrize("bad", ["loose", None, [0.25], -1, 0])
+def test_confounds_numeric_keys_reject_bad_values(key, bad):
+    with pytest.raises(ValueError, match=key):
+        validate_confounds_config({key: bad})
+
+
+@pytest.mark.parametrize(
+    "key", ["fd_outlier_threshold_mm", "std_dvars_outlier_threshold", "fd_radius_mm"]
+)
+def test_confounds_numeric_keys_reject_bool(key):
+    """``bool`` is a subclass of ``int``: without an explicit check ``true`` would read as 1.0."""
+    with pytest.raises(ValueError, match="must be a number"):
+        validate_confounds_config({key: True})
+
+
+def test_confounds_validation_ignores_absent_keys():
+    validate_confounds_config({})
+    validate_confounds_config({"enabled": True})

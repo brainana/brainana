@@ -30,13 +30,21 @@ import nibabel as nib
 # Reuse the macaque head radius already defined for motion correction.
 from .preprocessing import MACAQUE_HEAD_RADIUS_MM
 
-# --- Fixed defaults (not exposed as config knobs, per design) ------------------------------------
-# Radius (mm) converting rotational deltas to mm-equivalent displacement for macaque brains.
+# --- Defaults (each overridable under func.confounds, except where noted) ------------------------
+# Radius (mm) converting rotational deltas to mm-equivalent displacement, defaulting to the macaque
+# head. Overridable via config (func.confounds.fd_radius_mm) for other NHP species; FD and rmsd
+# values are only comparable across runs computed at the same radius, which is why the radius used
+# is recorded per column in the JSON sidecar.
 FD_RADIUS_MM: float = MACAQUE_HEAD_RADIUS_MM  # 27.0
 # Threshold (mm) above which a volume is FLAGGED in motion_outlier## (no data removed).
 # Macaque-scaled from the human Power-2012 default (0.5 mm): FD's rotation->mm conversion uses a
 # 50 mm sphere for humans vs FD_RADIUS_MM (27 mm) here, so the threshold scales by the radius ratio
 # 0.5 * (27 / 50) ~= 0.27 -> 0.25 mm. Overridable via config (func.confounds.fd_outlier_threshold_mm).
+# Independently confirmed against PRIME-DE: pooled over the anesthetized sites (515 runs / 247,746
+# frames), which carry no real head motion and so measure this estimator's noise floor, FD has
+# median 0.034 mm and p99 0.258 mm. 0.25 mm therefore sits at the 98.9th percentile of motionless
+# data (~1.1% false positives) and separates the regimes by ~50x: 1.1% of anesthetized frames
+# flagged vs 55.9% of awake ones. Do not retune without redoing that comparison.
 FD_OUTLIER_THRESHOLD_MM: float = 0.25
 # Standardized-DVARS threshold above which a volume is FLAGGED in motion_outlier## (no data removed).
 STD_DVARS_OUTLIER_THRESHOLD: float = 1.5
@@ -545,6 +553,7 @@ def _build_json_sidecar(
     mask_note: Optional[str] = None,
     fd_outlier_threshold: float = FD_OUTLIER_THRESHOLD_MM,
     std_dvars_outlier_threshold: float = STD_DVARS_OUTLIER_THRESHOLD,
+    radius_mm: float = FD_RADIUS_MM,
 ) -> Dict[str, Any]:
     """Per-column metadata sidecar (fMRIPrep-style, minimal)."""
     meta: Dict[str, Any] = {}
@@ -552,13 +561,13 @@ def _build_json_sidecar(
         if name == "framewise_displacement":
             meta[name] = {
                 "Method": "Power et al., 2012 (sum of absolute differences)",
-                "RotationRadiusMM": FD_RADIUS_MM,
+                "RotationRadiusMM": radius_mm,
                 "Units": "mm",
             }
         elif name == "rmsd":
             meta[name] = {
                 "Method": "Relative RMS head displacement (Jenkinson, 1999 sphere formula)",
-                "RotationRadiusMM": FD_RADIUS_MM,
+                "RotationRadiusMM": radius_mm,
                 "Units": "mm",
             }
         elif name == "dvars":
@@ -734,6 +743,7 @@ def compute_confounds(
                 mask_note,
                 fd_outlier_threshold=fd_outlier_threshold,
                 std_dvars_outlier_threshold=std_dvars_outlier_threshold,
+                radius_mm=radius_mm,
             ),
             fh,
             indent=2,

@@ -224,6 +224,7 @@ def func_compute_confounds(
     from ..operations.confounds import (
         compute_confounds,
         FD_OUTLIER_THRESHOLD_MM,
+        FD_RADIUS_MM,
         STD_DVARS_OUTLIER_THRESHOLD,
     )
 
@@ -236,10 +237,14 @@ def func_compute_confounds(
         or 0
     )
 
-    # Outlier thresholds are configurable (func.confounds); defaults are macaque-scaled.
+    # Outlier thresholds and the FD rotation radius are configurable (func.confounds); defaults are
+    # macaque-scaled. The radius must be forwarded explicitly -- FD and rmsd are only interpretable
+    # against the radius they were computed with, so leaving it to the operation default would pin
+    # every non-macaque NHP to a 27 mm head.
     conf = input.config.get("func", {}).get("confounds", {}) or {}
     fd_thresh = conf.get("fd_outlier_threshold_mm", FD_OUTLIER_THRESHOLD_MM)
     dvars_thresh = conf.get("std_dvars_outlier_threshold", STD_DVARS_OUTLIER_THRESHOLD)
+    fd_radius = conf.get("fd_radius_mm", FD_RADIUS_MM)
 
     result = compute_confounds(
         bold_file=str(input.input_file),
@@ -252,6 +257,7 @@ def func_compute_confounds(
         n_dummy_min=int(n_dummy_min),
         fd_outlier_threshold=float(fd_thresh),
         std_dvars_outlier_threshold=float(dvars_thresh),
+        radius_mm=float(fd_radius),
         logger=logger,
     )
 

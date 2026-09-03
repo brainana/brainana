@@ -496,6 +496,10 @@ workflow FUNC_WF {
     // Output: func_apply_reg: [sub, ses, run_id, registered_bold, registered_boldref, bids_name]
     def func_apply_reg = func_apply_conform_output
     def func_apply_reg_reference = Channel.empty()
+    // Confounds TSV per run, for the motion QC figure's flagged-frame shading. Declared out here
+    // because `def` inside the blocks below is not visible at the QUALITY CONTROL section, and it
+    // stays empty when registration or confounds are disabled.
+    def confounds_for_qc = Channel.empty()
     if (registration_enabled) {
         // PREPARE ANATOMICAL REGISTRATION DATA
         // Extract forward transform and join with reference
@@ -923,6 +927,9 @@ workflow FUNC_WF {
             // QC: fMRIPrep-style confound line panels (reads only the confounds TSV).
             // FUNC_COMPUTE_CONFOUNDS.out.output = [sub, ses, run_id, confounds_tsv, bids_name]
             QC_CONFOUNDS(FUNC_COMPUTE_CONFOUNDS.out.output, config_file)
+
+            // Same TSV feeds the motion QC figure so both stacked plots shade the same frames.
+            confounds_for_qc = FUNC_COMPUTE_CONFOUNDS.out.output
         }
     }
 
@@ -936,6 +943,26 @@ workflow FUNC_WF {
             .map { sub, ses, run_identifier, bold_file, tmean_file, bids_name, motion_file ->
                 [sub, ses, run_identifier, motion_file, tmean_file, bids_name]
             }
+            .set { motion_qc_base }
+
+        // Make the confounds TSV total over the motion-QC run keys: drive a remainder join from
+        // those keys so runs with no confounds (registration/confounds disabled, single-volume runs
+        // skipped by FUNC_COMPUTE_CONFOUNDS, or a run that errored out) get a .dummy sentinel that
+        // QC_MOTION_CORRECTION's _real() maps back to None. Keeping it run-key-driven means the
+        // join below never drops a run from motion QC. (Same idiom as motion_for_runs above.)
+        def dummy_motion_qc_confounds = file("${workDir}/dummy_motion_qc_confounds.dummy").tap { it.toFile().text = "" }
+        def confounds_for_motion_qc = motion_qc_base
+            .map { sub, ses, run_id, motion_file, tmean_file, bids_name -> [sub, ses, run_id] }
+            .unique()
+            .join(
+                confounds_for_qc.map { sub, ses, run_id, confounds_tsv, bids_name -> [sub, ses, run_id, confounds_tsv] },
+                by: [0, 1, 2],
+                remainder: true
+            )
+            .map { row -> [row[0], row[1], row[2], (row.size() > 3 && row[3]) ? row[3] : dummy_motion_qc_confounds] }
+
+        motion_qc_base
+            .join(confounds_for_motion_qc, by: [0, 1, 2])
             .set { motion_qc_input }
         QC_MOTION_CORRECTION(motion_qc_input, config_file)
     }

@@ -24,7 +24,7 @@ To get a feel for the pipeline, [try the demo](https://brainana.readthedocs.io/e
 
 ## Brainana Lite
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/xingyu-liu/brainana/blob/main/examples/BrainanaLite.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/brainana/brainana/blob/main/examples/BrainanaLite.ipynb)
 
 Lightweight volumetric T1w preprocessing for a single subject (no functional MRI, no surfaces). Run interactively in Jupyter or Google Colab—no Docker required.
 
@@ -39,7 +39,7 @@ For the full multi-modality pipeline with surfaces and QC reports, use the insta
   <img src="docs/_static/brainana_viewer_big.png" alt="Brainana Viewer — macaque brain surfaces, atlas overlays, and functional maps" width="100%">
 </p>
 
-To visualize brainana's outputs interactively, use the companion **[Brainana Viewer](https://github.com/arcaro-lab/brainana_tools)** — a cross-platform viewer.
+To visualize brainana's outputs interactively, use the companion **[Brainana Viewer](https://github.com/brainana/brainana-viewer)** — a cross-platform viewer.
 
 ## Citation
 

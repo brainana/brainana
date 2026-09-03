@@ -76,6 +76,7 @@ func:
     enabled: true  # bool: compute the confounds regressor TSV (motion-derived columns require func.motion_correction)
     fd_outlier_threshold_mm: 0.25  # float: FD above this flags motion_outlier## (macaque-scaled: human 0.5mm x 27/50 brain-radius ratio)
     std_dvars_outlier_threshold: 1.5  # float: standardized DVARS above this flags motion_outlier## (dimensionless / species-independent)
+    fd_radius_mm: 27.0  # float: sphere radius converting rotations to mm for framewise_displacement and rmsd (macaque head; > 0). FD values and fd_outlier_threshold_mm are only comparable at a fixed radius
   bias_correction:  # only done on tmean image for better registration, not on the functional images directly
     enabled: true  # bool: perform bias field correction
     algorithm: "N4BiasFieldCorrection"  # str: bias correction algorithm (currently only "N4BiasFieldCorrection")

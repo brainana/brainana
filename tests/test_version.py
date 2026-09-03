@@ -40,7 +40,9 @@ def _notebook_ref() -> str:
         for line in cell["source"]
         if (match := _REF_ASSIGN.match(line.strip()))
     ]
-    detail = f"expected exactly one BRAINANA_REF assignment in {NOTEBOOK.name}, got {refs}"
+    detail = (
+        f"expected exactly one BRAINANA_REF assignment in {NOTEBOOK.name}, got {refs}"
+    )
     assert len(refs) == 1, detail
     return refs[0]
 
@@ -79,7 +81,9 @@ def test_notebook_ref_matches_pyproject():
     """
     ref = _notebook_ref()
     if not _PINNED_TAG.match(ref):
-        pytest.skip(f"BRAINANA_REF is {ref!r} (unpinned pre-tag state), not a release tag")
+        pytest.skip(
+            f"BRAINANA_REF is {ref!r} (unpinned pre-tag state), not a release tag"
+        )
 
     expected = f"v{_pyproject_version()}"
     detail = (

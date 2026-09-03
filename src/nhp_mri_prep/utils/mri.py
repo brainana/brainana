@@ -1060,6 +1060,7 @@ def pad_image(
     pad_left: Union[np.ndarray, list],
     pad_right: Optional[Union[np.ndarray, list]] = None,
     logger: Optional[logging.Logger] = None,
+    dtype: Optional[np.dtype] = None,
 ) -> None:
     """Zero-pad a NIfTI image and update the affine to keep physical coords consistent.
 
@@ -1074,6 +1075,10 @@ def pad_image(
         pad_right: Per-dimension right-side padding, shape ``(3,)``.
             If *None*, symmetric padding is used (same as *pad_left*).
         logger: Optional logger instance.
+        dtype: Optional dtype to cast to *before* padding.  ``get_fdata()`` always
+            returns float64, so a large padded grid costs 8 bytes/voxel by default;
+            passing e.g. ``np.float32`` halves the peak allocation.  *None* keeps the
+            historical float64 behaviour.
     """
     if logger is None:
         logger = logging.getLogger(__name__)
@@ -1093,6 +1098,9 @@ def pad_image(
     for _ in range(len(data.shape) - 3):
         pad_width.append((0, 0))
 
+    if dtype is not None:
+        data = data.astype(dtype, copy=False)
+
     padded_data = np.pad(data, pad_width, mode="constant", constant_values=0)
 
     # Shift the affine origin so that the original voxels keep the same world coords
@@ -1100,12 +1108,14 @@ def pad_image(
     new_affine = affine.copy()
     new_affine[:3, 3] = affine[:3, 3] + pad_shift_world
 
-    new_img = nib.Nifti1Image(padded_data.astype(data.dtype), new_affine, header)
+    new_img = nib.Nifti1Image(padded_data, new_affine, header)
+    if dtype is not None:
+        new_img.header.set_data_dtype(dtype)
     nib.save(new_img, str(outputf))
 
     logger.info(
         f"Padded image from {list(data.shape[:3])} to {list(padded_data.shape[:3])} "
-        f"(left={list(pad_left)}, right={list(pad_right)})"
+        f"(left={[int(v) for v in pad_left]}, right={[int(v) for v in pad_right]})"
     )
 
 
@@ -1201,4 +1211,54 @@ def crop_image_to_original(
 
     logger.info(
         f"Cropped image from {list(data.shape[:3])} back to {list(cropped_data.shape[:3])}"
+    )
+
+
+def write_inner_box_mask(
+    grid_imagef: Union[str, Path],
+    outputf: Union[str, Path],
+    pad_left: Union[np.ndarray, list],
+    inner_shape: Union[np.ndarray, list, tuple],
+    logger: Optional[logging.Logger] = None,
+) -> None:
+    """Write a binary mask marking a sub-box of an enlarged grid.
+
+    Used by the conform QC snapshot to outline the cropped (target-FOV) region on
+    top of the full-FOV underlay.  Shipping the box as a *mask image on the same
+    grid* rather than as voxel coordinates means it travels through the same
+    reorientation and slicing as the underlay, so the plotting layer needs no
+    coordinate maths of its own.
+
+    Args:
+        grid_imagef: Image defining the output grid (the enlarged reference).
+        outputf: Output path for the uint8 mask.
+        pad_left: Per-dimension left padding that produced the enlarged grid — the
+            lower corner of the box, shape ``(3,)``.
+        inner_shape: Spatial shape of the box (the original, unpadded grid).
+        logger: Optional logger instance.
+    """
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
+    grid = nib.load(str(grid_imagef))
+    shape = tuple(int(v) for v in grid.shape[:3])
+    pad_left = np.asarray(pad_left, dtype=int)
+    inner_shape = np.asarray(inner_shape, dtype=int)
+
+    mask = np.zeros(shape, dtype=np.uint8)
+    slices = tuple(
+        slice(int(p), min(int(p) + int(n), int(s)))
+        for p, n, s in zip(pad_left, inner_shape, shape)
+    )
+    mask[slices] = 1
+
+    mask_img = nib.Nifti1Image(mask, grid.affine)
+    mask_img.header.set_data_dtype(np.uint8)
+    mask_img.header.set_xyzt_units("mm", "sec")
+    nib.save(mask_img, str(outputf))
+
+    logger.info(
+        f"FOV box mask written: box {[int(v) for v in inner_shape]} at offset "
+        f"{[int(v) for v in pad_left]} "
+        f"within grid {list(shape)}"
     )

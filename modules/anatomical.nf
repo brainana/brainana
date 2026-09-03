@@ -133,10 +133,12 @@ process ANAT_CONFORM {
         mode: 'copy',
         pattern: '*.{mat,nii.gz,json}',
         saveAs: { filename ->
-            // Exclude template_resampled.nii.gz (QC reference), desc-conform files (intermediate,
-            // not for publication) and the generic per-step metadata.json (sidecars are published,
-            // metadata.json is not).
-            if (filename == 'template_resampled.nii.gz' || filename.contains('desc-conform') || filename == 'metadata.json') {
+            // Exclude the QC-only references (template_resampled.nii.gz, its full-FOV
+            // counterpart and the FOV box mask), the _desc-conform_ intermediate (not for
+            // publication) and the generic per-step metadata.json (sidecars are published,
+            // metadata.json is not). The desc token is matched exactly: _desc-conformFullFOV_
+            // IS published, and a substring test would silently swallow it.
+            if (filename in ['template_resampled.nii.gz', 'template_for_xfm_fullfov.nii.gz', 'conform_fov_box.nii.gz', 'metadata.json'] || filename.contains('_desc-conform_')) {
                 return null
             }
             return filename
@@ -147,11 +149,21 @@ process ANAT_CONFORM {
     path config_file
     
     output:
-    tuple val(subject_id), val(session_id), path("*desc-conform*.nii.gz"), val(bids_name), emit: output
+    // Exact token: must not also capture *_desc-conformFullFOV_*, or downstream steps
+    // get a two-element list where they expect one file.
+    tuple val(subject_id), val(session_id), path("*_desc-conform_*.nii.gz"), val(bids_name), emit: output
     // Transforms: [sub, ses, forward_transform, inverse_transform]
     tuple val(subject_id), val(session_id), path("*from-scanner_to-*_mode-image_xfm.{h5,mat,nii.gz}"), path("*from-*_to-scanner_mode-image_xfm.{h5,mat,nii.gz}"), emit: transforms
     // Reference: [sub, ses, reference]
     tuple val(subject_id), val(session_id), path("template_resampled.nii.gz"), emit: reference
+    // Full FOV: [sub, ses, uncropped_image, uncropped_template, fov_box] - QC only.
+    // optional: true because this is a leaf diagnostic. _conform_full_fov degrades to the
+    // target FOV on its own two inner failures, but a raise outside them (the nib.load
+    // header reads, shutil.copy2 on the no-expansion path, write_inner_box_mask) would
+    // otherwise leave these three declared-but-absent and fail ANAT_CONFORM -- and with it
+    // the whole anatomical workflow, since this process has no errorStrategy. All three
+    // stand or fall together: a partial trio would mix grids in the QC figure.
+    tuple val(subject_id), val(session_id), path("*_desc-conformFullFOV_*.nii.gz"), path("template_for_xfm_fullfov.nii.gz"), path("conform_fov_box.nii.gz"), emit: full_fov, optional: true
     path "*.json", emit: metadata
     
     script:
@@ -209,6 +221,34 @@ bids_output_filename = create_bids_output_filename(
 
 # Use symlink to avoid duplication - Nextflow publishDir will handle final copy
 create_output_link(result.output_file, bids_output_filename)
+
+# Full-FOV conform: the same conform on a grid enlarged so no scanner-space voxel is
+# cropped (recording chamber, head-post, neck). Leaf output - nothing downstream reads it.
+if "conformed_full_fov" in result.additional_files:
+    # space-{modality}: this image is on the conform grid, i.e. the same space as
+    # space-T1w_desc-preproc_T1w (identical direction/spacing, an integer voxel offset
+    # away) — NOT the scanner space of the input. Passing the space in the suffix also
+    # makes create_bids_output_filename drop the input's own space-scanner entity.
+    full_fov_filename = create_bids_output_filename(
+        original_file_path=bids_name,
+        suffix=f'space-{modality}_desc-conformFullFOV',
+        modality=modality
+    )
+    create_output_link(result.additional_files["conformed_full_fov"], full_fov_filename)
+    write_derivative_sidecar(
+        full_fov_filename,
+        sources=[str(Path('${input_file}'))],
+        extra={'FullFOVPadding': result.metadata.get('full_fov_pad')},
+    )
+
+# QC-only references for the conform snapshot (staged at root, never published)
+for _key, _link_name in [
+    ("template_resampled_full_fov", 'template_for_xfm_fullfov.nii.gz'),
+    ("fov_box", 'conform_fov_box.nii.gz'),
+]:
+    _src = result.additional_files.get(_key)
+    if _src is not None and Path(_src).exists():
+        create_output_link(_src, _link_name)
 
 # Generate BIDS prefix (filename stem without modality)
 original_stem = get_filename_stem(bids_name)
@@ -1121,7 +1161,9 @@ process ANAT_CONFORM_PASSTHROUGH {
     path config_file  // Effective config file with all resolved parameters
     
     output:
-    tuple val(subject_id), val(session_id), path("*desc-conform*.nii.gz"), val(bids_name), emit: output
+    // Exact token: must not also capture *_desc-conformFullFOV_*, or downstream steps
+    // get a two-element list where they expect one file.
+    tuple val(subject_id), val(session_id), path("*_desc-conform_*.nii.gz"), val(bids_name), emit: output
     // Transforms: [sub, ses, forward_transform, inverse_transform]
     tuple val(subject_id), val(session_id), path("*from-scanner_to-*_mode-image_xfm.{h5,mat,nii.gz}"), path("*from-*_to-scanner_mode-image_xfm.{h5,mat,nii.gz}"), emit: transforms
     // Reference: [sub, ses, reference]

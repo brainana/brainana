@@ -117,6 +117,16 @@ findings**; section omitted if empty):
      consistent grid.
   5. Apply the FLIRT transform back to the full-head anatomical.
 
+- **Field of view:** The output grid is the template's box, so it is
+  sized for a brain rather than a head, and anything outside it is
+  cropped. All downstream steps use that cropped image. Alongside it,
+  the step also writes ``desc-conformFullFOV`` — the same conform on a
+  grid enlarged just enough to contain every voxel of the input — for
+  users who need what falls outside, such as a recording chamber or
+  head-post. Nothing downstream reads it. The QC report shows both
+  fields of view: the uncropped one with the processing box drawn on
+  it, and that box enlarged.
+
 
 2.3 Skullstripping and segmentation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -362,9 +372,11 @@ never scrubbed or modified.
   ``func.motion_correction.enabled`` is also true; with motion correction
   off, those columns are omitted and the remaining regressors
   (``dvars``/``std_dvars``, ``global_signal``, tissue, DVARS-based
-  outliers) are still computed. Two thresholds are configurable:
-  ``func.confounds.fd_outlier_threshold_mm`` (default 0.25) and
-  ``func.confounds.std_dvars_outlier_threshold`` (default 1.5).
+  outliers) are still computed. Three settings are configurable:
+  ``func.confounds.fd_outlier_threshold_mm`` (default 0.25),
+  ``func.confounds.std_dvars_outlier_threshold`` (default 1.5) and
+  ``func.confounds.fd_radius_mm`` (default 27.0), the head radius used to
+  convert rotations to millimetres.
 - **Inputs:** Preprocessed 4D fMRI (T1w space preferred), motion
   parameters (when motion correction is enabled), and a brain mask
   (required for DVARS and global signal). Tissue regressors additionally
@@ -379,15 +391,22 @@ never scrubbed or modified.
   - 24-parameter motion: ``trans_x/y/z`` and ``rot_x/y/z`` with their
     derivatives and squared terms.
   - ``framewise_displacement`` (Power et al. 2012) and ``rmsd``
-    (Jenkinson 1999), using the macaque head radius of 27 mm.
+    (Jenkinson 1999). Both convert rotations to millimetres on a sphere of
+    radius ``func.confounds.fd_radius_mm``, which defaults to the macaque
+    27 mm; set it to the species' own head radius for other primates. FD
+    values — and therefore ``fd_outlier_threshold_mm`` — are only comparable
+    between runs computed at the same radius, so the radius actually used is
+    recorded in the JSON sidecar.
   - ``dvars`` and ``std_dvars``.
   - ``global_signal`` (with expansions); ``csf``, ``white_matter`` and
     ``csf_wm`` are added **only when a T1w segmentation is available**.
   - Outlier indicators: ``non_steady_state_outlier##`` and
     ``motion_outlier##``.
 - **Outputs:** BIDS ``*_desc-confounds_timeseries.tsv`` plus a JSON
-  sidecar, and an fMRIPrep-style confounds panel in the QC report. See
-  :doc:`outputs` for the full column list.
+  sidecar, and an fMRIPrep-style confounds panel in the QC report. The
+  confounds and motion QC figures shade the outlier frames as vertical
+  bands — gray for ``non_steady_state_outlier##``, red for
+  ``motion_outlier##``. See :doc:`outputs` for the full column list.
 
 
 5. Summary table

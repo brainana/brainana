@@ -26,6 +26,10 @@ from .data_findings import (
 
 # Configuration constants
 SNAPSHOT_MAPPINGS = {
+    "conformFullFOV": {
+        "key": "conform_fullfov_overlay",
+        "description": "Conform to template space — full field of view",
+    },
     "conform": {"key": "conform_overlay", "description": "Conform to template space"},
     "biascorrect": {
         "key": "bias_correction_comparison",
@@ -80,13 +84,34 @@ SNAPSHOT_MAPPINGS = {
     "skullstrip": {"key": "skullstrip_overlay", "description": "Skullstripping"},
 }
 
+# The motion and confounds figures are stacked on the same frame axis and shade the same frames, so
+# they share this sentence verbatim rather than keeping two copies that could drift apart.
+_FRAME_SHADING_CAPTION = (
+    "Gray bands mark non-steady-state (dummy) volumes at the start of the run; red bands mark "
+    "frames flagged as motion outliers by the FD / standardized-DVARS thresholds. Both are "
+    "indicator regressors only, NO volumes are removed from the BOLD data."
+)
+
 # Figure descriptions shown above the figure (same font style as "Get figure file"); first letter auto-capitalized.
 # Key by desc; for 'conform' use (desc, modality) because anatomical vs functional differ.
+# A "<br>" starts a new line in the rendered caption; these strings are injected as HTML.
 FIGURE_DESCRIPTIONS = {
+    "conformFullFOV": (
+        "rigid registered T1w at its full field of view (underlaid); template space (contour)."
+        "<br>Lavender box marks the field of view every downstream step actually uses."
+    ),
     "conform": {
-        "anatomical": "rigid registered T1w (underlaid); template space (contour)",
+        "anatomical": (
+            "lavender box of the above full-field-of-view figure, enlarged. "
+            "Every downstream step is built from this."
+        ),
         "functional": "rigid registered BOLD (underlaid); target space (contour)",
     },
+    # The anatomical caption above is written as the second half of a pair. When the
+    # full-FOV figure is not in the report -- no expansion was needed, its inputs were
+    # missing, or rendering it failed -- the back-reference would cite a figure that is
+    # not there, so the conform figure describes itself instead.
+    "conformStandalone": "rigid registered T1w (underlaid); template space (contour)",
     "anat2template": "registered T1w (underlaid); template space (contour)",
     "atlasSegmentation": "ARM2: CHARM level 2 parcellation in cortex and SARM level 2 parcellation in subcortex",
     "surfReconTissueSeg": "White surface (blue contour); pial surface (red contour)",
@@ -96,10 +121,31 @@ FIGURE_DESCRIPTIONS = {
     "func2target": "registered BOLD (underlaid); target space (contour)",
     "sescoreg": "within-session func run coregistration",
     "tSNR": "session-average temporal SNR map (volume; surface projection if available)",
-    "confounds": "Confound regressors: global signal (GS), CSF, white matter (WM), DVARS, and framewise displacement (FD). Note: CSF and WM are included only when T1w is available; DVARS and FD are undefined at frame 0.",
+    "motion": (
+        "Rigid-body head motion estimated by motion correction: rotations (degrees) and "
+        "translations (mm) about the x, y, and z axes."
+        f"<br>{_FRAME_SHADING_CAPTION}"
+    ),
+    "confounds": (
+        "Confound regressors: global signal (GS), CSF, white matter (WM), DVARS, and framewise "
+        "displacement (FD). CSF and WM are included only when T1w is available; DVARS and FD are "
+        "undefined at frame 0."
+        f"<br>{_FRAME_SHADING_CAPTION}"
+    ),
+}
+
+# Consecutive figure pairs that are two views of a SINGLE processing step. The second figure of a
+# pair is rendered without the divider rule that normally separates steps. Keyed by snapshot_type,
+# and matched only when the two are actually adjacent, so a pair broken up by a missing figure
+# still gets its normal separator.
+SAME_STEP_FIGURE_PAIRS = {
+    # Full-FOV conform and the cropped conform are one conform step: the second is the first's
+    # lavender box, enlarged.
+    ("conform_fullfov_overlay", "conform_overlay"),
 }
 
 SNAPSHOT_ORDER = [
+    "conform_fullfov_overlay",
     "conform_overlay",
     "skullstrip_overlay",
     "atlas_segmentation_overlay",
@@ -339,6 +385,13 @@ class SnapshotProcessor:
         snapshots = {}
         available_entities = {key: set() for key in BIDS_ENTITY_ORDER if key != "sub"}
 
+        # Decided over the whole set before captioning any single figure: the anatomical
+        # conform caption points at the full-FOV figure, which is optional.
+        has_full_fov_figure = any(
+            parse_bids_entities(path.name).get("desc") == "conformFullFOV"
+            for path in snapshot_files.values()
+        )
+
         for name, path in snapshot_files.items():
             entities = parse_bids_entities(path.name)
 
@@ -367,6 +420,12 @@ class SnapshotProcessor:
                 figure_description = (
                     figure_desc_entry if isinstance(figure_desc_entry, str) else ""
                 )
+            if (
+                desc == "conform"
+                and modality == "anatomical"
+                and not has_full_fov_figure
+            ):
+                figure_description = FIGURE_DESCRIPTIONS["conformStandalone"]
 
             # Store the filename separately for reliable path construction
             snapshots[name] = {
@@ -799,6 +858,7 @@ class HtmlGenerator:
         )
 
         def render_snapshot_blocks(snapshots: List[Dict[str, Any]]) -> None:
+            previous_type = ""
             for snapshot_data in snapshots:
                 snapshot_id = (
                     f"{section_prefix}-{snapshot_data['filename'].replace('.', '-')}"
@@ -809,8 +869,17 @@ class HtmlGenerator:
                 if fig_desc:
                     fig_desc = fig_desc[0].upper() + fig_desc[1:]
                 cap = f'<div class="cap">{fig_desc}</div>' if fig_desc else ""
+                # Two views of one processing step run without a rule between them, so the report
+                # does not read as two separate steps.
+                snapshot_type = snapshot_data.get("snapshot_type", "")
+                fig_class = (
+                    "fig fig-same-step"
+                    if (previous_type, snapshot_type) in SAME_STEP_FIGURE_PAIRS
+                    else "fig"
+                )
+                previous_type = snapshot_type
                 html_parts.append(
-                    f"""<div class="fig" id="{snapshot_id}">
+                    f"""<div class="{fig_class}" id="{snapshot_id}">
 <p class="ftitle"><a href="{path}" target="_blank">{title}</a></p>{cap}
 <a href="{path}" target="_blank"><img class="svg-reportlet" src="{path}" /></a>
 </div>"""
@@ -1620,6 +1689,8 @@ h1.section + .group-head{border-top:none;padding-top:0;margin-top:20px}
 .eyebrow{font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--bn-link);margin:24px 0 0}
 .fig{padding:22px 0 20px;border-top:1px solid var(--bn-border);scroll-margin-top:calc(var(--bar-h) + 16px)}
 .group-head + .fig,.eyebrow + .fig{border-top:none}
+/* Second view of a single step: no rule, and tucked closer to the figure it belongs with. */
+.fig.fig-same-step{border-top:none;padding-top:6px}
 .fig .ftitle{font-size:1.05em;font-weight:600;margin:0;line-height:var(--bn-lh-heading)}.fig .ftitle a{color:var(--bn-ink)}
 .fig .cap{color:var(--bn-muted);font-size:.9em;margin:4px 0 0}
 .fig img{display:block;width:100%;max-width:960px;height:auto;margin-top:14px;border:none;border-radius:var(--bn-r-inset);background:#0c0c0c}

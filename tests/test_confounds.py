@@ -432,3 +432,91 @@ def test_compute_confounds_configurable_fd_threshold(tmp_path):
     # JSON reports the configured threshold, not the module default.
     mo_meta = next(v for k, v in meta_tight.items() if k.startswith("motion_outlier"))
     assert mo_meta["FDThresholdMM"] == 0.001
+
+
+# -------------------------------------------------------------------------------------------------
+# FD rotation radius: configurable, and reported truthfully
+# -------------------------------------------------------------------------------------------------
+
+
+def _synthetic_run(tmp_path: Path, n: int = 20):
+    """Write a synthetic .par + BOLD + mask and return their paths."""
+    par = tmp_path / "mc.par"
+    _write_par(par, n=n)
+    rng = np.random.RandomState(21)
+    nib.save(
+        nib.Nifti1Image(
+            rng.normal(100, 5, size=(5, 5, 5, n)).astype(np.float32), np.eye(4)
+        ),
+        str(tmp_path / "bold.nii.gz"),
+    )
+    nib.save(
+        nib.Nifti1Image(np.ones((5, 5, 5), dtype=np.uint8), np.eye(4)),
+        str(tmp_path / "mask.nii.gz"),
+    )
+    return par, tmp_path / "bold.nii.gz", tmp_path / "mask.nii.gz"
+
+
+def test_sidecar_reports_the_radius_actually_used(tmp_path):
+    """The sidecar must echo the radius passed in, not the module constant.
+
+    It previously hardcoded ``FD_RADIUS_MM``, so an override produced a sidecar that disagreed with
+    the FD values in the very TSV it described.
+    """
+    par, bold, mask = _synthetic_run(tmp_path)
+    override = 50.0
+    assert override != C.FD_RADIUS_MM
+
+    out = C.compute_confounds(
+        bold_file=bold,
+        motion_par_file=par,
+        working_dir=tmp_path / "work",
+        output_prefix=str(tmp_path / "sub-x_desc-confounds_timeseries"),
+        brain_mask_file=mask,
+        radius_mm=override,
+    )
+    meta = json.loads(Path(out["confounds_json"]).read_text())
+    assert meta["framewise_displacement"]["RotationRadiusMM"] == override
+    assert meta["rmsd"]["RotationRadiusMM"] == override
+
+    # And the radius genuinely scaled the values it describes.
+    df = pd.read_csv(out["confounds_tsv"], sep="\t")
+    motion = pd.read_csv(par, sep=r"\s+", header=None)
+    motion.columns = ["rot_x", "rot_y", "rot_z", "trans_x", "trans_y", "trans_z"]
+    expected = C.compute_framewise_displacement(motion, radius_mm=override)
+    assert np.allclose(
+        df["framewise_displacement"].to_numpy()[1:], expected[1:], atol=1e-9
+    )
+
+
+def test_func_compute_confounds_forwards_config_radius(tmp_path):
+    """func.confounds.fd_radius_mm must reach the FD values.
+
+    Guards the config -> step -> operation path: nothing else covers it, so a dropped ``.get()``
+    would silently pin every run back to the 27 mm macaque default.
+    """
+    from nhp_mri_prep.steps.functional import func_compute_confounds
+    from nhp_mri_prep.steps.types import StepInput
+
+    par, bold, mask = _synthetic_run(tmp_path)
+
+    def _run(radius, tag):
+        result = func_compute_confounds(
+            StepInput(
+                input_file=bold,
+                working_dir=tmp_path / f"work_{tag}",
+                config={"func": {"confounds": {"fd_radius_mm": radius}}},
+                output_name="confounds",
+                metadata={},
+            ),
+            motion_par_file=par,
+            brain_mask_file=mask,
+        )
+        df = pd.read_csv(result.output_file, sep="\t")
+        return df["framewise_displacement"].to_numpy()[1:]
+
+    fd_27 = _run(27.0, "r27")
+    fd_54 = _run(54.0, "r54")
+    # Doubling the radius doubles only the rotational term, so FD must grow but not exactly 2x.
+    assert np.all(fd_54 > fd_27)
+    assert not np.allclose(fd_54, 2 * fd_27)

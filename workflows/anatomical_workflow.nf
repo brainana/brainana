@@ -265,11 +265,15 @@ workflow ANAT_WF {
     anat_after_conform = anat_preconform
     anat_conform_transforms = Channel.empty()
     anat_conform_reference = Channel.empty()
+    // Full-FOV conform: [sub, ses, uncropped_image, uncropped_template, fov_box].
+    // Leaf product - QC underlay only, no processing step reads it.
+    anat_conform_full_fov = Channel.empty()
     if (anat_conform_enabled) {
         ANAT_CONFORM(anat_preconform, config_file)
         anat_after_conform = ANAT_CONFORM.out.output
         anat_conform_transforms = ANAT_CONFORM.out.transforms
         anat_conform_reference = ANAT_CONFORM.out.reference
+        anat_conform_full_fov = ANAT_CONFORM.out.full_fov
     } else {
         ANAT_CONFORM_PASSTHROUGH(anat_preconform, config_file)
         anat_after_conform = ANAT_CONFORM_PASSTHROUGH.out.output
@@ -604,10 +608,27 @@ workflow ANAT_WF {
     // Generate QC reports for anatomical processing steps
     // ============================================
     if (anat_conform_enabled) {
+        // ANAT_CONFORM emits full_fov as `optional: true`, so a subject whose full-FOV
+        // helper raised produces nothing on that channel. A plain inner join would then
+        // drop that subject from conform QC entirely, losing the figure that actually
+        // matters. remainder: true keeps the row and pads it with nulls, which are
+        // replaced by empty .dummy sentinels that QC_CONFORM's _real() maps back to None
+        // -- Python then renders the standard figure alone. Kept as a remainder join on
+        // the existing chain rather than a key-driven one so the pairwise semantics are
+        // untouched when a session carries more than one conformed anatomical. No
+        // right-only rows are possible: full_fov is emitted by the same process as
+        // `output`, so its keys are always a subset.
+        def dummy_full_fov = file("${workDir}/dummy_conform_full_fov.dummy").tap { it.toFile().text = "" }
         anat_after_conform
             .join(anat_conform_reference, by: [0, 1])
-            .map { sub, ses, anat_file, bids_name, reference ->
-                [sub, ses, anat_file, bids_name, reference]
+            .join(anat_conform_full_fov, by: [0, 1], remainder: true)
+            .map { row ->
+                [
+                    row[0], row[1], row[2], row[3], row[4],
+                    (row.size() > 5 && row[5]) ? row[5] : dummy_full_fov,
+                    (row.size() > 6 && row[6]) ? row[6] : dummy_full_fov,
+                    (row.size() > 7 && row[7]) ? row[7] : dummy_full_fov,
+                ]
             }
             .set { conform_qc_input }
         QC_CONFORM(conform_qc_input, config_file)
