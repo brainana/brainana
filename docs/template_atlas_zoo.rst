@@ -21,7 +21,7 @@ template and atlas options available in the pipeline.
 Template zoo
 ------------
 
-Download: `template_zoo/template <https://github.com/xingyu-liu/brainana/tree/main/template_zoo/template>`_
+Download: `template_zoo/template <https://github.com/brainana/brainana/tree/main/template_zoo/template>`_
 
 The following templates can be used as ``output_space`` (e.g. in
 :ref:`command-line-arguments` or in the configuration). Choose a
@@ -45,7 +45,7 @@ template and/or resolution (e.g. ``NMT2Sym:res-05``) via the
 Atlas zoo
 ---------
 
-Download: `template_zoo/atlas <https://github.com/xingyu-liu/brainana/tree/main/template_zoo/atlas>`_
+Download: `template_zoo/atlas <https://github.com/brainana/brainana/tree/main/template_zoo/atlas>`_
 
 - **ARM1–ARM6** (`ref <https://doi.org/10.1016/j.neuroimage.2021.117997>`_) — Combined hierarchical macaque brain atlas.
 

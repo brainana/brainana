@@ -17,12 +17,12 @@ Download just the demo dataset from the project repository:
 
 .. code-block:: bash
 
-   git clone --depth 1 --filter=blob:none --sparse https://github.com/xingyu-liu/brainana.git
+   git clone --depth 1 --filter=blob:none --sparse https://github.com/brainana/brainana.git
    cd brainana
    git sparse-checkout set examples/dataset_example
 
 This needs git ≥ 2.25; on older git, clone the whole repository instead with
-``git clone https://github.com/xingyu-liu/brainana.git``.
+``git clone https://github.com/brainana/brainana.git``.
 
 Run it
 ------
