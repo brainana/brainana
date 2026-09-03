@@ -24,7 +24,7 @@ To get a feel for the pipeline, [try the demo](https://brainana.readthedocs.io/e
 
 ## Brainana Lite
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/xingyu-liu/brainana/blob/main/examples/BrainanaLite.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/brainana/brainana/blob/main/examples/BrainanaLite.ipynb)
 
 Lightweight volumetric T1w preprocessing for a single subject (no functional MRI, no surfaces). Run interactively in Jupyter or Google Colab—no Docker required.
 
