@@ -276,6 +276,83 @@ def test_notebook_clone_url_matches_origin():
 # -------------------------------------------------------------------------------------------------
 
 
+def _notebook_names(names: set[str]) -> dict:
+    """Exec the named notebook functions and `_LITE_*` constants into a namespace."""
+    ns: dict = {}
+    for src in _code_cells():
+        tree = ast.parse(src)
+        picked = [
+            n
+            for n in tree.body
+            if (isinstance(n, ast.FunctionDef) and n.name in names)
+            or (
+                isinstance(n, ast.Assign)
+                and getattr(n.targets[0], "id", "").startswith("_LITE_")
+            )
+        ]
+        if any(isinstance(n, ast.FunctionDef) for n in picked):
+            exec(compile(ast.Module(body=picked, type_ignores=[]), "notebook", "exec"), ns)
+    missing = names - ns.keys()
+    assert not missing, f"notebook is missing helpers: {sorted(missing)}"
+    return ns
+
+
+def _tracked_files() -> list[str]:
+    out = subprocess.run(
+        ["git", "-C", str(REPO), "ls-files"], capture_output=True, text=True, check=True
+    ).stdout.splitlines()
+    return [p for p in out if p]
+
+
+def test_sparse_checkout_keeps_the_editable_install_inputs():
+    """The allowlist must retain everything the editable install and runtime read.
+
+    It is an allowlist, so anything newly required by the build or by the packages Lite
+    imports is silently dropped rather than erroring -- the failure would surface only as a
+    broken Colab run.
+    """
+    ns = _notebook_names({"_lite_code_paths"})
+    ns.setdefault("DEMO_NIFTI", "exam_T1w_ple.nii.gz")
+    kept = set(ns["_lite_code_paths"](_tracked_files()))
+
+    import tomllib
+
+    with open(REPO / "pyproject.toml", "rb") as fh:
+        pyproject = tomllib.load(fh)
+    readme = pyproject["project"]["readme"]
+    readme_file = readme["file"] if isinstance(readme, dict) else readme
+
+    required = {"pyproject.toml", readme_file}
+    assert required <= kept, f"allowlist drops build inputs: {sorted(required - kept)}"
+
+    # Every module of the packages the notebook actually imports must survive.
+    for package in ("nhp_mri_prep", "fastsurfer_nn", "fastsurfer_surfrecon"):
+        modules = {p for p in _tracked_files() if p.startswith(f"src/{package}/") and p.endswith(".py")}
+        assert modules, f"no modules found for {package}"
+        assert modules <= kept, f"allowlist drops {package} modules: {sorted(modules - kept)[:5]}"
+
+    # fastSurferCNN inference weights: the default skullstripping method needs these.
+    weights = {p for p in _tracked_files() if p.startswith("src/fastsurfer_nn/pretrained_model/")}
+    assert weights and weights <= kept, "allowlist drops the fastSurferCNN weights"
+
+
+def test_sparse_checkout_stays_lean():
+    """The checkout must not drift back toward cloning the whole repository.
+
+    It previously excluded only template_zoo/ and then checked out ~354 MB to avoid 122 MB.
+    The ceiling is deliberately loose; it exists to catch a filter that stops filtering.
+    """
+    ns = _notebook_names({"_lite_code_paths"})
+    ns.setdefault("DEMO_NIFTI", "exam_T1w_ple.nii.gz")
+    kept = ns["_lite_code_paths"](_tracked_files())
+    total = sum((REPO / p).stat().st_size for p in kept if (REPO / p).is_file())
+    megabytes = total / 1048576
+    assert megabytes < 150, (
+        f"lite code checkout grew to {megabytes:.0f} MB (expected well under 150). "
+        "Check whether a large directory now matches _LITE_CODE_DIRS."
+    )
+
+
 def _notebook_atlas_helpers() -> dict:
     """Exec just the atlas-selection helpers out of the notebook."""
     wanted = {"_lite_res_value", "_lite_atlas_res", "_lite_atlas_paths"}
