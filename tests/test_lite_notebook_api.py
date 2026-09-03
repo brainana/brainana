@@ -105,6 +105,23 @@ def _keywords(call: ast.Call) -> tuple[list[str], bool]:
     return names, splat
 
 
+def _run_qc_own_params() -> set[str]:
+    """Parameter names run_qc consumes itself rather than forwarding to the QC function.
+
+    Read from the notebook so adding a keyword to run_qc does not make this guard report it
+    as an argument the snapshot function fails to accept.
+    """
+    for src in _code_cells():
+        for node in ast.parse(src).body:
+            if isinstance(node, ast.FunctionDef) and node.name == "run_qc":
+                args = node.args
+                return {
+                    a.arg
+                    for a in [*args.posonlyargs, *args.args, *args.kwonlyargs]
+                }
+    return set()
+
+
 def _iter_calls():
     """Yield (callee_name, positional_count, keyword_names, has_splat) for brainana calls.
 
@@ -113,6 +130,7 @@ def _iter_calls():
     signatures would silently stop being covered.
     """
     imported = _brainana_imports()
+    run_qc_own = _run_qc_own_params()
     for tree in _notebook_ast():
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
@@ -122,8 +140,9 @@ def _iter_calls():
                 qc_name = node.args[0].id
                 if qc_name in imported:
                     names, splat = _keywords(node)
-                    # run_qc forwards save_f itself, plus every keyword it was given.
-                    yield qc_name, 0, ["save_f", *names], splat
+                    # run_qc forwards save_f itself, plus every keyword it does not consume.
+                    forwarded = [n for n in names if n not in run_qc_own]
+                    yield qc_name, 0, ["save_f", *forwarded], splat
                 continue
             if fname in imported:
                 names, splat = _keywords(node)
@@ -334,6 +353,27 @@ def test_sparse_checkout_keeps_the_editable_install_inputs():
     # fastSurferCNN inference weights: the default skullstripping method needs these.
     weights = {p for p in _tracked_files() if p.startswith("src/fastsurfer_nn/pretrained_model/")}
     assert weights and weights <= kept, "allowlist drops the fastSurferCNN weights"
+
+
+def test_sparse_checkout_keeps_the_anat_skullstrip_weights():
+    """anat_conform runs its OWN skullstripping, so the anat brainmask weights are required.
+
+    Excluding them -- on the reasonable-sounding assumption that lite segments with
+    fastSurferCNN and so never touches nhp_skullstrip_nn -- made the notebook die at Step 2
+    with a FileNotFoundError raised deep inside conform. Nothing static caught it; only a real
+    run did. The filename is read from prediction.py's own mapping, so a rename there fails
+    here rather than on someone's Colab runtime.
+    """
+    source = (REPO / "src/nhp_skullstrip_nn/inference/prediction.py").read_text()
+    match = re.search(r"model_mapping\s*=\s*(\{[^}]*\})", source)
+    assert match, "could not find model_mapping in prediction.py"
+    weights = ast.literal_eval(match.group(1))["anat"]
+
+    ns = _notebook_names({"_lite_code_paths"})
+    ns.setdefault("DEMO_NIFTI", "exam_T1w_ple.nii.gz")
+    kept = set(ns["_lite_code_paths"](_tracked_files()))
+    expected = f"src/nhp_skullstrip_nn/pretrained_model/{weights}"
+    assert expected in kept, f"sparse checkout drops the anat skullstrip weights ({expected})"
 
 
 def test_sparse_checkout_stays_lean():
