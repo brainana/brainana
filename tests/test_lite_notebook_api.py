@@ -58,7 +58,8 @@ def _brainana_imports() -> dict[str, str]:
 def _literal(name: str):
     """Value of a module-level ``name = <literal>`` assignment in any code cell."""
     for tree in _notebook_ast():
-        for node in tree.body:
+        # walk, not tree.body: several of these live inside the env-setup if/else.
+        for node in ast.walk(tree):
             if isinstance(node, ast.Assign) and any(
                 isinstance(t, ast.Name) and t.id == name for t in node.targets
             ):
@@ -390,6 +391,50 @@ def test_sparse_checkout_stays_lean():
     assert megabytes < 150, (
         f"lite code checkout grew to {megabytes:.0f} MB (expected well under 150). "
         "Check whether a large directory now matches _LITE_CODE_DIRS."
+    )
+
+
+def test_lite_pins_an_antspyx_floor():
+    """The notebook must floor antspyx, or uv silently picks a version with no wheel.
+
+    antspyx 0.6.x caps scipy<1.16 and numpy<2.4. Because brainana floors those unbounded,
+    uv prefers the newest scipy and backtracks antspyx to 0.5.3 -- the last release without
+    that cap, and the last without a cp313 wheel. On Python 3.13 (Colab) that silently turns
+    a wheel download into an ITK source build: tens of minutes, frequently an OOM. The floor
+    is applied at the notebook's install call rather than in the [lite] extra, so uv.lock,
+    the Docker image and CI keep their own resolution.
+
+    0.6.0 is the first release with cp313 wheels, so that is the minimum acceptable floor.
+    """
+    floor = _literal("LITE_ANTSPYX_FLOOR")
+    match = re.fullmatch(r"antspyx>=(\d+)\.(\d+)\.(\d+)", floor.strip())
+    assert match, f"expected an antspyx>=X.Y.Z floor, got {floor!r}"
+    assert tuple(int(g) for g in match.groups()) >= (0, 6, 0), (
+        f"antspyx floor {floor!r} is below 0.6.0, the first release with cp313 wheels"
+    )
+
+
+def test_lite_install_and_preflight_use_the_same_arguments():
+    """The dry-run preflight must describe the install that actually runs.
+
+    They are separate subprocess calls; if they drift, the plan reported to the user is not
+    the plan executed -- which is worse than reporting nothing.
+    """
+    installs = []
+    for src in _code_cells():
+        for node in ast.walk(ast.parse(src)):
+            if not isinstance(node, ast.Call):
+                continue
+            fname = getattr(node.func, "attr", None)
+            if fname not in {"run", "Popen"} or not node.args:
+                continue
+            flat = ast.dump(node.args[0])
+            # Must be a uv call: the `pip install -q uv` bootstrap also says pip/install.
+            if all(tok in flat for tok in ("'_uv'", "'pip'", "'install'")):
+                installs.append(flat)
+    assert len(installs) >= 2, f"expected a preflight and a real install, found {len(installs)}"
+    assert all("_install_args" in f for f in installs), (
+        "the uv preflight and the real install must share _install_args so they cannot diverge"
     )
 
 
