@@ -98,7 +98,13 @@ dependencies = [
 # Python API, so no ANTs command-line install is needed (e.g. on Colab). The ops auto-fall
 # back to antspyx only when the ANTs CLI is absent; the full pipeline never installs this.
 lite = [
-    "antspyx",
+    # Floor, not bare: antspyx 0.6.x caps scipy<1.16 and numpy<2.4, and brainana floors both
+    # unbounded. Left bare, the resolver prefers the newest scipy and backtracks antspyx to
+    # 0.5.3 -- the last release without that cap, and the last without a cp313 wheel. On
+    # Python 3.13 (which Colab now runs) that silently becomes an ITK source build: tens of
+    # minutes, frequently an OOM. 0.6.0 is the first release with cp313 wheels.
+    # Cost of the floor, measured: scipy moves 1.16.0 -> 1.15.3 in uv.lock. Nothing else.
+    "antspyx>=0.6.3",
 ]
 # Surface-reconstruction acceleration: scikit-sparse (CHOLMOD) speeds up the spherical
 # projection in fastsurfer_surfrecon. It is OPTIONAL — the code falls back to a non-CHOLMOD

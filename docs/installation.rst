@@ -10,7 +10,7 @@ Installation
 Brainana can be installed in two ways:
 
 - **Docker** (below) — full pipeline: anatomical and functional preprocessing, surface reconstruction, and HTML QC reports. This is the recommended path for most users.
-- ✨ **Brainana Lite** — lightweight volumetric T1w workflow via Jupyter or Colab; no Docker image. See `BrainanaLite.ipynb <https://github.com/xingyu-liu/brainana/blob/main/examples/BrainanaLite.ipynb>`_ notebook on GitHub and the documentation page :doc:`brainana_lite`.
+- ✨ **Brainana Lite** — lightweight volumetric T1w workflow via Jupyter or Colab; no Docker image. See `BrainanaLite.ipynb <https://github.com/brainana/brainana/blob/main/examples/BrainanaLite.ipynb>`_ notebook on GitHub and the documentation page :doc:`brainana_lite`.
 
 Docker
 ------

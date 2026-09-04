@@ -105,10 +105,20 @@ jobs:
     # antspyx is a large wheel on a resolution path nothing else covers (the
     # Colab notebook, where no ANTs CLI exists). Worth covering, not worth
     # per-PR latency.
-    name: import (lite extra)
+    #
+    # Matrixed over Python because wheel availability -- not just resolution -- is what
+    # breaks here. antspyx 0.5.3 has no cp313 wheel, so when the resolver backtracked to it
+    # the Colab notebook silently switched from downloading a wheel to compiling ITK from an
+    # sdist: tens of minutes, frequently an OOM. Testing only 3.11, where that wheel exists,
+    # could never see it. 3.13 is what Colab runs; keep this list tracking Colab, not us.
+    name: import (lite extra, py${{ matrix.python-version }})
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     needs: lock
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -116,6 +126,15 @@ jobs:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: "uv.lock"
-      - run: uv python install ${{ env.PYTHON_VERSION }}
-      - run: uv sync --locked --python ${{ env.PYTHON_VERSION }} --extra lite
+      - run: uv python install ${{ matrix.python-version }}
+      # The compiled heavyweights must arrive as WHEELS. Targeted rather than a blanket
+      # --no-build, because some pure-Python deps (antlr4-python3-runtime) ship only an
+      # sdist and build in a second -- those are fine. antspyx compiling ITK is not.
+      - run: >
+          uv sync --locked --python ${{ matrix.python-version }} --extra lite
+          --no-build-package antspyx
+          --no-build-package simpleitk
+          --no-build-package numpy
+          --no-build-package scipy
+          --no-build-package torch
       - run: uv run --no-sync python tests/tools/import_all.py --profile lite
