@@ -145,3 +145,81 @@ def test_a_timepoint_cannot_seed_itself(subjects_dir):
             cross_subject_id="sub-01_ses-a",
             tp_to_base_lta=_lta(subjects_dir),
         )
+
+
+class TestRobustTemplateIscale:
+    """`iscale` must actually reach the averaged volume.
+
+    Pass 1 solves the transforms on norm.mgz; pass 2 averages orig.mgz with
+    --noit, i.e. without re-solving. So intensity scales solved in pass 1 have to
+    be written out and read back in, or the knob changes nothing about the base --
+    which is precisely the effect it is documented to have.
+    """
+
+    def _recorder(self, monkeypatch):
+        calls = []
+
+        def fake(cmd, *a, **k):
+            calls.append([str(c) for c in cmd])
+
+            class _Done:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            return _Done()
+
+        monkeypatch.setattr(
+            "fastsurfer_surfrecon.wrappers.longitudinal.run_fs_command", fake
+        )
+        return calls
+
+    def test_iscaleout_implies_iscale_and_lists_one_file_per_input(
+        self, tmp_path, monkeypatch
+    ):
+        from fastsurfer_surfrecon.wrappers.longitudinal import mri_robust_template
+
+        calls = self._recorder(monkeypatch)
+        movs = [tmp_path / "a.mgz", tmp_path / "b.mgz"]
+        scales = [tmp_path / "a.txt", tmp_path / "b.txt"]
+        mri_robust_template(
+            movs=movs, template=tmp_path / "t.mgz", iscaleout=scales
+        )
+        argv = calls[0]
+        assert "--iscale" in argv
+        i = argv.index("--iscaleout")
+        assert argv[i + 1 : i + 3] == [str(scales[0]), str(scales[1])]
+
+    def test_iscalein_is_passed_through(self, tmp_path, monkeypatch):
+        from fastsurfer_surfrecon.wrappers.longitudinal import mri_robust_template
+
+        calls = self._recorder(monkeypatch)
+        movs = [tmp_path / "a.mgz", tmp_path / "b.mgz"]
+        scales = [tmp_path / "a.txt", tmp_path / "b.txt"]
+        mri_robust_template(
+            movs=movs, template=tmp_path / "t.mgz", ixforms=scales, iscalein=scales,
+            noit=True, sat=None,
+        )
+        argv = calls[0]
+        i = argv.index("--iscalein")
+        assert argv[i + 1 : i + 3] == [str(scales[0]), str(scales[1])]
+
+    def test_mismatched_scale_list_is_rejected(self, tmp_path, monkeypatch):
+        """A short list would silently pair the wrong scale with the wrong scan."""
+        from fastsurfer_surfrecon.wrappers.longitudinal import mri_robust_template
+
+        self._recorder(monkeypatch)
+        with pytest.raises(ValueError, match="iscaleout has 1 entries"):
+            mri_robust_template(
+                movs=[tmp_path / "a.mgz", tmp_path / "b.mgz"],
+                template=tmp_path / "t.mgz",
+                iscaleout=[tmp_path / "a.txt"],
+            )
+
+    def test_base_build_threads_scales_from_pass_one_into_pass_two(self):
+        """Source-level: the two passes must share one scale file list."""
+        from pathlib import Path
+
+        src = Path("src/nhp_mri_prep/steps/surface_longitudinal.py").read_text()
+        assert "iscaleout=iscale_files," in src
+        assert "iscalein=iscale_files," in src

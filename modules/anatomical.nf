@@ -827,8 +827,12 @@ process ANAT_SURFACE_BASE_ATLAS {
     val gpu_id
 
     output:
-    tuple val(subject_id), path("seg/*_atlas*.nii.gz"), emit: segmentation
-    tuple val(subject_id), path("seg/*_mask.nii.gz"), emit: brain_mask
+    // Fixed names chosen here rather than globbed: apply_segmentation writes
+    // brain_segmentation.nii.gz / brain_mask.nii.gz, which no pattern derived
+    // from the BIDS stem would match, and a glob that silently matches nothing
+    // fails the whole stage.
+    tuple val(subject_id), path("seg/segmentation.nii.gz"), emit: segmentation
+    tuple val(subject_id), path("seg/brain_mask.nii.gz"), emit: brain_mask
     // arity 0..* so a custom template (no bundled atlases) or disabled
     // registration yields no ARM6 without failing the task -- exactly the
     // cross-sectional behaviour.
@@ -887,10 +891,8 @@ af = result.additional_files
 
 # Outputs the reconstruction stage consumes.
 Path('seg').mkdir(exist_ok=True)
-seg_dst = Path('seg') / Path(af['segmentation']).name
-shutil.copy2(af['segmentation'], seg_dst)
-mask_dst = Path('seg') / Path(af['brain_mask']).name
-shutil.copy2(af['brain_mask'], mask_dst)
+shutil.copy2(af['segmentation'], Path('seg') / 'segmentation.nii.gz')
+shutil.copy2(af['brain_mask'], Path('seg') / 'brain_mask.nii.gz')
 
 Path('arm6').mkdir(exist_ok=True)
 if af.get('arm6_atlas'):
@@ -906,25 +908,35 @@ if atlas_dir and Path(atlas_dir).is_dir():
 
 # Published derivatives, mirroring ANAT_SKULLSTRIPPING's per-session set.
 Path('derivatives').mkdir(exist_ok=True)
+# Renamed to BIDS, exactly as ANAT_SKULLSTRIPPING does for its per-session
+# equivalents -- apply_segmentation's own filenames (brain_mask.nii.gz, ...) are
+# work-dir internals and must not reach the output tree.
 base_sources = [str(staged_nii[0])]
-for key, skull_stripped in (
-    ('imagef_skullstripped', True),
-    ('brain_mask', None),
-    ('segmentation', None),
-    ('hemimask', None),
-    ('atlas_lut', None),
-):
+atlas_name = result.metadata.get('atlas_name')
+seg_suffix = ('atlas' + atlas_name) if atlas_name else 'segmentation'
+bids_prefix = 'sub-${subject_id}_acq-base'
+
+derivative_names = [
+    ('imagef_skullstripped', bids_prefix + '_desc-brain_T1w.nii.gz', True, None),
+    ('brain_mask', bids_prefix + '_space-T1w_desc-brain_mask.nii.gz', None, 'Brain'),
+    ('segmentation', bids_prefix + '_space-T1w_desc-brain_' + seg_suffix + '.nii.gz', None, None),
+    ('hemimask', bids_prefix + '_space-T1w_desc-brain_hemimask.nii.gz', None, 'ROI'),
+    ('atlas_lut', bids_prefix + '_space-T1w_desc-brain_' + seg_suffix + '.tsv', None, None),
+]
+for key, bids_filename, skull_stripped, roi_type in derivative_names:
     src = af.get(key)
     if not src:
         continue
-    dst = Path('derivatives') / Path(src).name
+    dst = Path('derivatives') / bids_filename
     shutil.copy2(src, dst)
     if dst.name.endswith(('.nii.gz', '.nii')):
         try:
             write_derivative_sidecar(
                 dst,
                 skull_stripped=skull_stripped,
+                roi_type=roi_type,
                 sources=base_sources,
+                extra={'Atlas': atlas_name} if key == 'segmentation' and atlas_name else None,
             )
         except Exception as exc:
             print('WARNING: could not write sidecar for ' + dst.name + ': ' + str(exc))

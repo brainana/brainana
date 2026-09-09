@@ -37,6 +37,8 @@ def mri_robust_template(
     noit: bool = False,
     finalnearest: bool = False,
     iscale: bool = False,
+    iscaleout: Optional[Sequence[Path]] = None,
+    iscalein: Optional[Sequence[Path]] = None,
     subsample: Optional[int] = None,
     inittp: Optional[int] = None,
     fixtp: bool = False,
@@ -75,6 +77,12 @@ def mri_robust_template(
     iscale : bool, default=False
         Allow intensity scaling. Off in ``rca-base-init``; relevant when tissue
         contrast changes between timepoints (e.g. ongoing myelination).
+    iscaleout : sequence of Path, optional
+        Write the solved intensity scales, one per input. Implies ``iscale``.
+        Needed when a second ``--noit`` pass must reuse them -- solving scales and
+        then averaging a different volume set without them leaves the knob inert.
+    iscalein : sequence of Path, optional
+        Reuse intensity scales solved by an earlier pass.
     subsample : int, optional
         Subsample if any axis exceeds this size. Escape hatch for large
         high-resolution volumes.
@@ -137,8 +145,24 @@ def mri_robust_template(
         cmd += ["--noit"]
     if finalnearest:
         cmd += ["--finalnearest"]
-    if iscale:
+    if iscale or iscaleout is not None:
         cmd += ["--iscale"]
+    if iscaleout is not None:
+        if len(iscaleout) != len(movs):
+            raise ValueError(
+                f"iscaleout has {len(iscaleout)} entries but movs has "
+                f"{len(movs)}; each input needs exactly one scale file"
+            )
+        for f in iscaleout:
+            Path(f).parent.mkdir(parents=True, exist_ok=True)
+        cmd += ["--iscaleout", *[Path(x) for x in iscaleout]]
+    if iscalein is not None:
+        if len(iscalein) != len(movs):
+            raise ValueError(
+                f"iscalein has {len(iscalein)} entries but movs has "
+                f"{len(movs)}; each input needs exactly one scale file"
+            )
+        cmd += ["--iscalein", *[Path(x) for x in iscalein]]
     if subsample is not None:
         cmd += ["--subsample", str(subsample)]
     if inittp is not None:

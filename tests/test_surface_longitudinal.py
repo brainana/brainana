@@ -134,15 +134,22 @@ class TestSegmentationConsensus:
         nib.save(nib.MGHImage(array.astype(np.uint8), affine), str(path))
         return path
 
-    def test_majority_vote_picks_the_modal_label(self, tmp_path, monkeypatch):
+    def _fake_apply(self, monkeypatch):
+        """Stand in for `mri_convert -at`; transforms here are identities."""
         from nhp_mri_prep.steps import surface_longitudinal as m
 
-        # Three timepoints; voxel 0 is 2,2,3 -> 2 wins, voxel 1 is 5,5,5 -> 5.
-        arrays = {
-            "ses-a": np.array([[[2, 5]]]),
-            "ses-b": np.array([[[2, 5]]]),
-            "ses-c": np.array([[[3, 5]]]),
-        }
+        def fake_apply(input_vol, output_vol, lta=None, **kwargs):
+            Path(output_vol).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(input_vol, output_vol)
+            return output_vol
+
+        monkeypatch.setattr(m, "mri_convert_apply_lta", fake_apply)
+
+    def test_maps_every_timepoint_into_base_space(self, tmp_path, monkeypatch):
+        from nhp_mri_prep.steps import surface_longitudinal as m
+
+        self._fake_apply(monkeypatch)
+        arrays = {"ses-a": np.array([[[2, 5]]]), "ses-b": np.array([[[3, 5]]])}
         asegs = {
             tp: self._write_labels(tmp_path / tp / "aseg.mgz", a)
             for tp, a in arrays.items()
@@ -151,34 +158,43 @@ class TestSegmentationConsensus:
         for lta in ltas.values():
             lta.write_text("dummy\n")
 
-        # Stand in for `mri_convert -at`: the transforms here are identities, so
-        # "resampling" is a copy. What is under test is the vote, not FreeSurfer.
-        def fake_apply(input_vol, output_vol, lta=None, **kwargs):
+        mapped = m.map_timepoint_asegs_to_base(asegs, ltas, tmp_path / "out")
+        assert set(mapped) == {"ses-a", "ses-b"}
+        assert all(p.exists() for p in mapped.values())
+        assert all(p.name.endswith("_aseg_in_base.mgz") for p in mapped.values())
+
+    def test_no_consensus_is_formed(self, tmp_path, monkeypatch):
+        """Two timepoints cannot have a majority, so none is invented.
+
+        A vote over two volumes resolves every disagreement by tie-break, which
+        would be an implementation preference presented as agreement.
+        """
+        from nhp_mri_prep.steps import surface_longitudinal as m
+
+        assert not hasattr(m, "fuse_timepoint_asegs")
+
+    def test_an_unmappable_timepoint_is_dropped_not_fatal(self, tmp_path, monkeypatch):
+        """This is a diagnostic; it must never cost the run its base template."""
+        from nhp_mri_prep.steps import surface_longitudinal as m
+
+        def flaky(input_vol, output_vol, lta=None, **kwargs):
+            if "ses-b" in str(input_vol):
+                raise RuntimeError("simulated mri_convert failure")
             Path(output_vol).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(input_vol, output_vol)
             return output_vol
 
-        monkeypatch.setattr(m, "mri_convert_apply_lta", fake_apply)
+        monkeypatch.setattr(m, "mri_convert_apply_lta", flaky)
+        asegs = {
+            tp: self._write_labels(tmp_path / tp / "aseg.mgz", np.array([[[1]]]))
+            for tp in ("ses-a", "ses-b")
+        }
+        ltas = {tp: tmp_path / f"{tp}.lta" for tp in asegs}
+        for lta in ltas.values():
+            lta.write_text("dummy\n")
 
-        out = m.fuse_timepoint_asegs(
-            asegs, ltas, tmp_path / "fused.mgz", tmp_path / "work"
-        )
-        assert out is not None
-        fused = np.asanyarray(nib.load(str(out)).dataobj)
-        assert fused.ravel().tolist() == [2, 5]
-
-    def test_one_timepoint_produces_no_consensus(self, tmp_path):
-        from nhp_mri_prep.steps import surface_longitudinal as m
-
-        aseg = self._write_labels(tmp_path / "a" / "aseg.mgz", np.array([[[1]]]))
-        lta = tmp_path / "a.lta"
-        lta.write_text("dummy\n")
-        assert (
-            m.fuse_timepoint_asegs(
-                {"ses-a": aseg}, {"ses-a": lta}, tmp_path / "f.mgz", tmp_path / "w"
-            )
-            is None
-        )
+        mapped = m.map_timepoint_asegs_to_base(asegs, ltas, tmp_path / "out")
+        assert set(mapped) == {"ses-a"}
 
     def test_dice_is_one_for_identical_volumes(self, tmp_path):
         from nhp_mri_prep.steps.surface_longitudinal import label_dice

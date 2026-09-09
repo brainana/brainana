@@ -173,52 +173,47 @@ def assert_consistent_geometry(volumes: Dict[str, Path]) -> tuple:
     return next(iter(distinct))
 
 
-def fuse_timepoint_asegs(
+def map_timepoint_asegs_to_base(
     aseg_by_timepoint: Dict[str, Path],
     ltas_by_timepoint: Dict[str, Path],
-    output: Path,
-    work_dir: Path,
+    out_dir: Path,
     log_file: Optional[Path] = None,
-) -> Optional[Path]:
-    """Map each timepoint's segmentation into base space and majority-vote it.
+) -> Dict[str, Path]:
+    """Resample each timepoint's segmentation into base space, nearest-neighbour.
 
     Purely diagnostic. The base's own segmentation comes from running the CNN on
     the robust average, which is the right choice -- the average has better SNR
     than any single session, and resampling one session's labels in would bake
-    that session's errors and its arbitrary choice into every timepoint. But the
-    CNN sees a different kind of volume there than it does cross-sectionally: a
-    median of per-session, already bias-corrected, already robustly-rescaled
+    that session's errors and its arbitrary selection into every timepoint. But
+    the CNN sees a different kind of volume there than it does cross-sectionally:
+    a median of per-session, already bias-corrected, already robustly-rescaled
     uchar volumes. That is a domain shift, and whether it matters is an empirical
-    question. This consensus gives something to compare against, so the question
+    question. These give something to compare the base against, so the question
     is answerable from the run's own outputs.
+
+    Deliberately *not* fused into a single consensus volume. A majority vote needs
+    a majority, and two timepoints is the accepted minimum -- every disagreeing
+    voxel would then be a 1-1 tie broken by whatever the implementation happened
+    to prefer, which is a bias dressed up as a consensus. Comparing against each
+    timepoint separately needs no tie-break and additionally shows the spread.
 
     Args:
         aseg_by_timepoint: Each timepoint's conformed segmentation.
         ltas_by_timepoint: The matching timepoint-to-base transforms.
-        output: Where to write the fused label volume.
-        work_dir: Scratch directory for the resampled intermediates.
+        out_dir: Directory for the resampled volumes.
         log_file: Log file path.
 
     Returns:
-        The fused volume's path, or None if it could not be produced (which is
-        never fatal -- this is a diagnostic).
+        Mapping of timepoint id to its segmentation in base space. Timepoints that
+        could not be mapped are omitted rather than raising -- this is a
+        diagnostic and must never cost the run its base.
     """
-    import numpy as np
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-    timepoints = sorted(set(aseg_by_timepoint) & set(ltas_by_timepoint))
-    if len(timepoints) < 2:
-        logger.info(
-            "Fewer than 2 timepoints have both a segmentation and a transform; "
-            "skipping the segmentation consensus"
-        )
-        return None
-
-    work_dir = Path(work_dir)
-    work_dir.mkdir(parents=True, exist_ok=True)
-
-    resampled = []
-    for tp in timepoints:
-        dst = work_dir / f"{tp}_aseg_in_base.mgz"
+    mapped: Dict[str, Path] = {}
+    for tp in sorted(set(aseg_by_timepoint) & set(ltas_by_timepoint)):
+        dst = out_dir / f"{tp}_aseg_in_base.mgz"
         try:
             mri_convert_apply_lta(
                 aseg_by_timepoint[tp],
@@ -230,34 +225,17 @@ def fuse_timepoint_asegs(
                 log_file=log_file,
             )
         except Exception as exc:
-            logger.warning("Could not map %s's segmentation into base space: %s", tp, exc)
+            logger.warning(
+                "Could not map %s's segmentation into base space: %s", tp, exc
+            )
             continue
-        resampled.append(dst)
-
-    if len(resampled) < 2:
-        logger.warning("Segmentation consensus needs 2 mapped timepoints; got %d", len(resampled))
-        return None
-
-    stack = [np.asanyarray(nib.load(str(f)).dataobj) for f in resampled]
-    shapes = {a.shape for a in stack}
-    if len(shapes) > 1:
-        logger.warning("Mapped segmentations disagree in shape (%s); skipping consensus", shapes)
-        return None
-
-    data = np.stack(stack)
-    # Per-voxel modal label. Done over the sorted unique labels rather than with
-    # scipy.stats.mode, which is slow on large volumes and pulls in a dependency
-    # this module does not otherwise need.
-    labels = np.unique(data)
-    counts = np.zeros((len(labels),) + data.shape[1:], dtype=np.uint16)
-    for i, label in enumerate(labels):
-        counts[i] = (data == label).sum(axis=0)
-    fused = labels[np.argmax(counts, axis=0)].astype(stack[0].dtype)
-
-    reference = nib.load(str(resampled[0]))
-    nib.save(nib.MGHImage(fused, reference.affine, reference.header), str(output))
-    logger.info("Wrote segmentation consensus of %d timepoints to %s", len(resampled), output)
-    return output
+        mapped[tp] = dst
+    logger.info(
+        "Mapped %d of %d timepoint segmentations into base space",
+        len(mapped),
+        len(aseg_by_timepoint),
+    )
+    return mapped
 
 
 def label_dice(a: Path, b: Path, min_voxels: int = 50) -> Dict[str, float]:
@@ -391,6 +369,14 @@ def build_base_template(
     norm_template = base_mri / "norm_template.mgz"
     mask_template = base_mri / "mask_template.mgz"
     ltas = [base_transforms / f"{tp}_to_{base_subject_id}.lta" for tp in timepoints]
+    # Intensity scales, when asked for. Pass 1 solves them and pass 2 must reuse
+    # them: pass 2 runs --noit, so without --iscalein it averages on the original
+    # unequal scales and the knob would have no effect on the base at all.
+    iscale_files = (
+        [base_transforms / f"{tp}_to_{base_subject_id}.iscale.txt" for tp in timepoints]
+        if iscale
+        else None
+    )
 
     # Pass 1: solve the rigid transforms on the skull-stripped volumes, so
     # registration is driven by brain tissue.
@@ -401,6 +387,7 @@ def build_base_template(
         average=1,  # median
         sat=RCA_BASE_INIT_SAT,
         iscale=iscale,
+        iscaleout=iscale_files,
         subsample=subsample,
         # Spatial init is random by default, which would make the base differ
         # between runs and break -resume reproducibility.
@@ -414,6 +401,7 @@ def build_base_template(
         movs=[vol(tp, "orig.mgz") for tp in timepoints],
         template=base_orig_float,
         ixforms=ltas,
+        iscalein=iscale_files,
         average=1,
         noit=True,
         sat=None,
@@ -452,22 +440,23 @@ def build_base_template(
     # FreeSurfer's own filename for the timepoint list.
     (base_scripts / "base-tps").write_text("\n".join(timepoints) + "\n")
 
-    # Diagnostic consensus of the sessions' own segmentations, in base space.
-    # Compared against the base's freshly computed segmentation by the
-    # reconstruction stage; see fuse_timepoint_asegs for why.
-    fused_aseg = None
+    # The sessions' own segmentations, in base space, for the reconstruction
+    # stage to compare the base's freshly computed one against. See
+    # map_timepoint_asegs_to_base for why this is worth recording.
+    mapped_asegs: Dict[str, Path] = {}
     try:
-        fused_aseg = fuse_timepoint_asegs(
+        mapped_asegs = map_timepoint_asegs_to_base(
             aseg_by_timepoint={
                 tp: vol(tp, "aseg.auto_noCCseg.mgz") for tp in timepoints
             },
             ltas_by_timepoint=dict(zip(timepoints, ltas)),
-            output=base_mri / "aseg_fused_timepoints.mgz",
-            work_dir=working_dir / "base_aseg_fusion",
+            # Inside the base tree so it travels to the reconstruction stage
+            # without extra channel plumbing.
+            out_dir=base_mri / "timepoint_asegs",
             log_file=log_file,
         )
     except Exception as exc:
-        logger.warning("Segmentation consensus could not be built: %s", exc)
+        logger.warning("Timepoint segmentations could not be mapped: %s", exc)
 
     # The base grid must not move from here on: the transforms above target it,
     # and postprocess_for_freesurfer in the reconstruction stage re-saves
@@ -518,7 +507,9 @@ def build_base_template(
         "sat": RCA_BASE_INIT_SAT,
         "average": "median",
         "ltas": {tp: str(lta) for tp, lta in zip(timepoints, ltas)},
-        "fused_timepoint_aseg": str(fused_aseg) if fused_aseg else None,
+        "timepoint_asegs_in_base": {
+            tp: str(path) for tp, path in sorted(mapped_asegs.items())
+        },
     }
     (base_scripts / "long_base.json").write_text(
         json.dumps(provenance, indent=2, sort_keys=True) + "\n"
@@ -639,6 +630,22 @@ def segment_and_backproject_base(
             "cannot be used for the base reconstruction without re-anchoring."
         )
 
+    missing = [
+        k
+        for k in ("segmentation", "brain_mask", "imagef_skullstripped")
+        if not seg_result.get(k)
+    ]
+    if missing:
+        # apply_segmentation returns segmentation only when the model produced
+        # one, so a bare subscript here would surface as an opaque KeyError from
+        # inside the GPU stage.
+        raise RuntimeError(
+            f"Segmentation of the base template did not produce {missing}. "
+            "Surface reconstruction needs all three; check whether "
+            "anat.skullstripping_segmentation is configured for a multi-class "
+            "atlas model."
+        )
+
     additional: Dict[str, Path] = {
         "segmentation": Path(seg_result["segmentation"]),
         "brain_mask": Path(seg_result["brain_mask"]),
@@ -654,7 +661,12 @@ def segment_and_backproject_base(
     output_space = input.config.get("template", {}).get(
         "output_space", "NMT2Sym:res-05"
     )
-    template_name = str(output_space).split(":")[0]
+    # space_label_for, not split(":"): a custom-template output_space is a file
+    # path, and splitting it would leak an absolute path into filenames and
+    # metadata. Every other caller in the repo uses the helper.
+    from ..utils.templates import space_label_for
+
+    template_name = space_label_for(output_space)
     arm6_atlas: Optional[Path] = None
     atlas_dir: Optional[Path] = None
 
@@ -864,36 +876,52 @@ def reconstruct_base(
     # base's own conformed aseg. Diagnostic: a low Dice here is the signal that
     # segmenting a robust average shifted the CNN's input domain far enough to
     # matter. Never fatal.
-    agreement: Optional[Dict[str, float]] = None
-    fused = base_dir / "mri" / "aseg_fused_timepoints.mgz"
+    median_dice: Optional[float] = None
     base_aseg = base_dir / "mri" / "aseg.auto_noCCseg.mgz"
-    if fused.exists() and base_aseg.exists():
+    mapped_dir = base_dir / "mri" / "timepoint_asegs"
+    mapped = sorted(mapped_dir.glob("*_aseg_in_base.mgz")) if mapped_dir.is_dir() else []
+    if base_aseg.exists() and mapped:
         try:
-            agreement = label_dice(base_aseg, fused)
-            if agreement:
-                values = sorted(agreement.values())
-                median = values[len(values) // 2]
+            per_timepoint: Dict[str, Dict[str, float]] = {}
+            medians = []
+            for path in mapped:
+                tp = path.name.replace("_aseg_in_base.mgz", "")
+                dice = label_dice(base_aseg, path)
+                if not dice:
+                    continue
+                per_timepoint[tp] = dice
+                values = sorted(dice.values())
+                medians.append(values[len(values) // 2])
+            if medians:
+                median_dice = float(sum(medians) / len(medians))
                 logger.info(
-                    "Base segmentation vs timepoint consensus: median Dice "
-                    "%.3f over %d labels (min %.3f)",
-                    median,
-                    len(values),
-                    values[0],
+                    "Base segmentation vs %d timepoint segmentation(s): mean of "
+                    "per-timepoint median Dice %.3f (range %.3f-%.3f)",
+                    len(medians),
+                    median_dice,
+                    min(medians),
+                    max(medians),
                 )
                 (base_dir / "scripts" / "base_segmentation_agreement.json").write_text(
                     json.dumps(
                         {
                             "description": (
                                 "Per-label Dice between the base template's own "
-                                "segmentation and a majority vote of the "
-                                "timepoints' segmentations mapped into base "
-                                "space. Diagnostic for whether segmenting a "
-                                "robust average shifted the CNN's input domain."
+                                "segmentation and each timepoint's segmentation "
+                                "mapped into base space. Diagnostic for whether "
+                                "segmenting a robust average shifted the CNN's "
+                                "input domain; low values are the signal. Not "
+                                "fused into a consensus on purpose -- with two "
+                                "timepoints every disagreement is a tie, and "
+                                "breaking it would be a bias dressed up as a "
+                                "majority."
                             ),
-                            "median_dice": median,
-                            "min_dice": values[0],
-                            "n_labels": len(values),
-                            "per_label_dice": agreement,
+                            "mean_of_per_timepoint_median_dice": median_dice,
+                            "per_timepoint_median_dice": {
+                                tp: sorted(d.values())[len(d) // 2]
+                                for tp, d in per_timepoint.items()
+                            },
+                            "per_timepoint_per_label_dice": per_timepoint,
                         },
                         indent=2,
                         sort_keys=True,
@@ -904,7 +932,7 @@ def reconstruct_base(
             logger.warning("Could not compute segmentation agreement: %s", exc)
     else:
         logger.info(
-            "No timepoint segmentation consensus available; skipping the base "
+            "No mapped timepoint segmentations available; skipping the base "
             "segmentation agreement check"
         )
 
@@ -917,11 +945,7 @@ def reconstruct_base(
             "incomplete": provenance.get("incomplete"),
             "arm6_atlas": str(arm6_atlas) if arm6_atlas else None,
             "subjects_dir": str(subjects_dir),
-            "segmentation_agreement_median_dice": (
-                sorted(agreement.values())[len(agreement) // 2]
-                if agreement
-                else None
-            ),
+            "segmentation_agreement_median_dice": median_dice,
         }
     )
     return StepOutput(output_file=base_dir, metadata=metadata)

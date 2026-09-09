@@ -18,11 +18,11 @@ include { ANAT_SURFACE_BASE_ATLAS } from '../modules/anatomical.nf'
 include { ANAT_SURFACE_BASE_RECON } from '../modules/anatomical.nf'
 include { ANAT_SURFACE_RECONSTRUCTION_LONG } from '../modules/anatomical.nf'
 include { ANAT_SURFACE_LONG_CHANGE_STATS } from '../modules/anatomical.nf'
-// Aliased: the base and the longitudinal timepoints need the same fsnative atlas
-// projection the cross-sectional sessions get. Because the _long trees live in
-// base space, the base-space atlases are the correct input for them too.
+// Aliased: the base needs the same fsnative atlas projection the cross-sectional
+// sessions get. Only the base -- every timepoint shares its mesh, so the base's
+// vertex labels are theirs too, and a per-timepoint projection would collide with
+// the cross-sectional filenames (get_bids_prefix drops acq-).
 include { ANAT_PROJECT_ATLASES_TO_SURFACE as ANAT_PROJECT_ATLASES_TO_SURFACE_BASE } from '../modules/anatomical.nf'
-include { ANAT_PROJECT_ATLASES_TO_SURFACE as ANAT_PROJECT_ATLASES_TO_SURFACE_LONG } from '../modules/anatomical.nf'
 // Aliased: a process can be invoked only once per workflow, and the base and
 // longitudinal directories need the same QC as the cross-sectional ones.
 include { QC_SURF_RECON_TISSUE_SEG as QC_SURF_RECON_TISSUE_SEG_LONG } from '../modules/qc.nf'
@@ -367,13 +367,32 @@ workflow SURF_RECON_WF {
                 .mix(QC_SURF_RECON_TISSUE_SEG_LONG.out.metadata)
                 .mix(QC_CORTICAL_SURF_AND_MEASURES_LONG.out.metadata)
 
-            // ---- ATLASES ONTO THE BASE AND LONGITUDINAL SURFACES ---------
-            // The base-space atlases are correct for the _long trees as well,
-            // because those are reconstructed *in base space* -- so one
-            // backprojection serves the base and every timepoint. Filenames
-            // carry acq-base / acq-long, so the published fsnative projections
-            // never collide with the cross-sectional ones.
+            // ---- ATLASES ONTO THE BASE SURFACE ---------------------------
+            // Projected onto the base only, and that is the right answer rather
+            // than a compromise: every timepoint inherits the base's mesh, so a
+            // vertex label assigned on the base *is* that vertex's label in all
+            // of them. Per-timepoint projections would be near-duplicates.
+            //
+            // They would also collide. anat_project_atlases_to_surface names its
+            // outputs through get_bids_prefix(), which keeps only sub/ses and
+            // drops acq-, so a per-timepoint projection would land on exactly the
+            // cross-sectional filenames in the same publish directory. The base
+            // is safe because it publishes to sub-X/anat/ while sessions publish
+            // to sub-X/ses-Y/anat/.
+            //
+            // Gated on the atlas list actually being non-empty rather than on
+            // registration_enabled/is_custom_template: this covers those cases
+            // *and* a registration that produced no inverse transform, and it
+            // needs no config resolution here.
             def base_atlas_files = ANAT_SURFACE_BASE_ATLAS.out.atlases
+                .filter { sub, files ->
+                    def list = files instanceof List ? files : (files ? [files] : [])
+                    if (!list) {
+                        println "Note: sub-${sub} has no backprojected atlases (custom template, or registration disabled); skipping fsnative atlas projection for its base."
+                        return false
+                    }
+                    return true
+                }
 
             def base_surf_atlas_input = base_qc_input
                 .map { sub, ses, base_id, bids_name, atlas_name -> [sub, bids_name] }
@@ -391,15 +410,6 @@ workflow SURF_RECON_WF {
                     [sub, '', bids_name, atlas_files, base_dir]
                 }
             ANAT_PROJECT_ATLASES_TO_SURFACE_BASE(base_surf_atlas_input, config_file)
-
-            def long_surf_atlas_input = long_qc_input
-                .map { sub, ses, long_id, bids_name, atlas_name -> [sub, ses, bids_name] }
-                .join(ANAT_SURFACE_RECONSTRUCTION_LONG.out.subject_dir, by: [0, 1])
-                .combine(base_atlas_files, by: 0)
-                .map { sub, ses, bids_name, long_dir, atlas_files ->
-                    [sub, ses, bids_name, atlas_files, long_dir]
-                }
-            ANAT_PROJECT_ATLASES_TO_SURFACE_LONG(long_surf_atlas_input, config_file)
 
             // ---- CHANGE STATISTICS: one task per subject ------------------
             // Gathers all of a subject's longitudinal timepoints, so it runs
