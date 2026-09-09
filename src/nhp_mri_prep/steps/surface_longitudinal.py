@@ -22,6 +22,7 @@ the CNN segmentation the surfaces are built on.
 
 import json
 import logging
+import re
 import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
@@ -509,3 +510,292 @@ def run_long_timepoint(
             "subjects_dir": str(subjects_dir),
         },
     )
+
+# ---------------------------------------------------------------------------
+# Within-subject change statistics
+# ---------------------------------------------------------------------------
+
+# Morphometry maps worth fitting a rate to. thickness is the usual endpoint;
+# area and curv come along because they cost nothing extra once the surfaces
+# are read.
+DEFAULT_MEASURES = ("thickness", "area", "curv")
+
+
+def parse_session_time(session_label: str) -> Optional[float]:
+    """Pull a numeric time out of a session label, or None if there isn't one.
+
+    Handles the two shapes that actually occur in BIDS session labels here:
+    ``ses-12months`` -> 12.0 and ``ses-004`` -> 4.0.
+
+    Note what this is *not*: a real elapsed time. For labels that are just scan
+    indices it yields the index, which orders the timepoints correctly but makes
+    a fitted "rate" per-scan rather than per-unit-time. Supply explicit times
+    when the spacing matters.
+    """
+    if session_label is None:
+        return None
+    label = str(session_label)
+    if label.startswith("ses-"):
+        label = label[4:]
+    match = re.match(r"^(\d+(?:\.\d+)?)", label)
+    return float(match.group(1)) if match else None
+
+
+def write_qdec_table(
+    path: Path,
+    base_subject_id: str,
+    long_ids: Sequence[str],
+    times: Sequence[float],
+) -> Path:
+    """Write a FreeSurfer qdec table for the longitudinal tools.
+
+    Written by hand rather than via ``long_qdec_table``, whose ``--cross``
+    conversion assumes FreeSurfer's ``<tp>.long.<base>`` directory naming, which
+    this pipeline deliberately does not use. The FreeSurfer tools themselves only
+    read the ``fsid`` / ``fsid-base`` columns, so arbitrary names are fine.
+    """
+    if len(long_ids) != len(times):
+        raise ValueError(
+            f"{len(long_ids)} timepoints but {len(times)} times; each timepoint "
+            "needs exactly one time value"
+        )
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["fsid fsid-base time"]
+    lines += [
+        f"{long_id} {base_subject_id} {time:g}"
+        for long_id, time in zip(long_ids, times)
+    ]
+    path.write_text("\n".join(lines) + "\n")
+    return path
+
+
+def _read_morph(path: Path):
+    import nibabel.freesurfer.io as fsio
+
+    return fsio.read_morph_data(str(path))
+
+
+def parse_aparc_stats(path: Path) -> Dict[str, Dict[str, float]]:
+    """Parse a FreeSurfer ``?h.aparc.*.stats`` table into {roi: {column: value}}.
+
+    Column names come from the file's own ``# ColHeaders`` line rather than being
+    assumed, because the set varies with what ``mris_anatomical_stats`` was asked
+    for -- notably eTIV is absent here, since talairach registration is skipped
+    for macaque data.
+    """
+    columns: List[str] = []
+    rows: Dict[str, Dict[str, float]] = {}
+    for line in Path(path).read_text().splitlines():
+        if line.startswith("#"):
+            if "ColHeaders" in line:
+                columns = line.split("ColHeaders", 1)[1].split()
+            continue
+        if not line.strip():
+            continue
+        fields = line.split()
+        if not columns or len(fields) < 2:
+            continue
+        roi = fields[0]
+        values = {}
+        for name, raw in zip(columns[1:], fields[1:]):
+            try:
+                values[name] = float(raw)
+            except ValueError:
+                continue
+        rows[roi] = values
+    return rows
+
+
+def collect_change_stats(
+    base_dir: Path,
+    long_dirs: Dict[str, Path],
+    times: Optional[Dict[str, float]] = None,
+    measures: Sequence[str] = DEFAULT_MEASURES,
+    hemis: Sequence[str] = ("lh", "rh"),
+    atlas_name: str = "ARM2",
+) -> Dict[str, Any]:
+    """Fit within-subject rates of change across a subject's longitudinal recons.
+
+    Per-vertex differencing is valid here without any surface registration: every
+    timepoint inherited the base's mesh, so vertex *i* is the same anatomical
+    point in all of them. That is the payoff of the longitudinal stream, and it
+    is also why the vertex-count check below is a hard error -- a mismatch means
+    the seeding did not take and the numbers would be meaningless.
+
+    Implemented in numpy rather than by shelling out to ``long_mris_slopes``,
+    so it is testable without FreeSurfer and needs no ``?h.sphere.reg`` (which
+    brainana does not produce). ``long_mris_slopes`` remains usable on these
+    outputs via the qdec table also written here.
+
+    Args:
+        base_dir: The base template's subject directory. Outputs are written
+            into its ``surf/`` and ``stats/``.
+        long_dirs: Mapping of longitudinal subject id to its directory.
+        times: Optional explicit time per longitudinal id. Falls back to parsing
+            the session label out of the id.
+        measures: Morphometry maps to fit.
+        hemis: Hemispheres to process.
+        atlas_name: Atlas whose ROI stats table to summarise.
+
+    Returns:
+        A summary dict: the timepoints and times used, the per-measure outputs
+        written, and any measures skipped with the reason.
+    """
+    import numpy as np
+
+    base_dir = Path(base_dir)
+    if len(long_dirs) < 2:
+        raise ValueError(
+            f"Rates of change need at least 2 timepoints; got {len(long_dirs)}"
+        )
+
+    long_ids = sorted(long_dirs)
+
+    resolved_times: Dict[str, float] = {}
+    for long_id in long_ids:
+        if times and long_id in times:
+            resolved_times[long_id] = float(times[long_id])
+            continue
+        match = re.search(r"_ses-([^_]+)", long_id)
+        parsed = parse_session_time(match.group(1)) if match else None
+        if parsed is None:
+            raise ValueError(
+                f"Cannot determine a time for {long_id}: no numeric session "
+                "label found. Pass times explicitly."
+            )
+        resolved_times[long_id] = parsed
+
+    if len(set(resolved_times.values())) < 2:
+        raise ValueError(
+            f"All timepoints resolved to the same time ({resolved_times}); a "
+            "rate cannot be fitted. Pass times explicitly."
+        )
+
+    t = np.array([resolved_times[i] for i in long_ids], dtype=float)
+
+    surf_out = base_dir / "surf"
+    stats_out = base_dir / "stats"
+    surf_out.mkdir(parents=True, exist_ok=True)
+    stats_out.mkdir(parents=True, exist_ok=True)
+
+    write_qdec_table(
+        base_dir / "scripts" / "long.qdec.table.dat",
+        base_dir.name,
+        long_ids,
+        [resolved_times[i] for i in long_ids],
+    )
+
+    summary: Dict[str, Any] = {
+        "base_subject_id": base_dir.name,
+        "timepoints": long_ids,
+        "times": resolved_times,
+        "vertex_outputs": {},
+        "roi_tables": {},
+        "skipped": {},
+    }
+
+    import nibabel as nib
+
+    for hemi in hemis:
+        for measure in measures:
+            paths = {
+                long_id: Path(long_dirs[long_id]) / "surf" / f"{hemi}.{measure}"
+                for long_id in long_ids
+            }
+            missing = [i for i, p in paths.items() if not p.exists()]
+            if missing:
+                summary["skipped"][f"{hemi}.{measure}"] = (
+                    f"missing in {', '.join(missing)}"
+                )
+                continue
+
+            stack = [_read_morph(paths[i]) for i in long_ids]
+            counts = {i: arr.shape[0] for i, arr in zip(long_ids, stack)}
+            if len(set(counts.values())) > 1:
+                raise RuntimeError(
+                    f"{hemi}.{measure} vertex counts differ across timepoints: "
+                    f"{counts}. All timepoints must inherit the base's mesh; a "
+                    "mismatch means the longitudinal seeding did not take, so "
+                    "per-vertex comparison is invalid."
+                )
+
+            data = np.vstack(stack)  # (n_timepoints, n_vertices)
+
+            # Ordinary least squares against time, per vertex.
+            t_centered = t - t.mean()
+            denom = float((t_centered**2).sum())
+            rate = (t_centered[:, None] * (data - data.mean(axis=0))).sum(
+                axis=0
+            ) / denom
+            mean_map = data.mean(axis=0)
+            # Symmetrised percent change per unit time, the quantity
+            # long_mris_slopes calls spc. Guarded against a zero mean.
+            with np.errstate(divide="ignore", invalid="ignore"):
+                spc = np.where(mean_map != 0, 100.0 * rate / mean_map, 0.0)
+
+            for suffix, values in (
+                ("rate", rate),
+                ("avg", mean_map),
+                ("spc", spc),
+            ):
+                out = surf_out / f"{hemi}.long.{measure}-{suffix}.mgh"
+                img = nib.MGHImage(
+                    values.astype(np.float32).reshape(-1, 1, 1), np.eye(4)
+                )
+                nib.save(img, str(out))
+                summary["vertex_outputs"][f"{hemi}.{measure}-{suffix}"] = str(out)
+
+        # ROI-level table, from the stats each timepoint already wrote.
+        stats_name = f"{hemi}.aparc.{atlas_name}atlas.mapped.stats"
+        per_tp = {}
+        for long_id in long_ids:
+            stats_path = Path(long_dirs[long_id]) / "stats" / stats_name
+            if stats_path.exists():
+                per_tp[long_id] = parse_aparc_stats(stats_path)
+        if len(per_tp) < 2:
+            summary["skipped"][f"{hemi}.roi"] = (
+                f"{stats_name} present in {len(per_tp)} timepoint(s); need 2"
+            )
+            continue
+
+        rois = sorted(set.intersection(*(set(v) for v in per_tp.values())))
+        roi_columns = sorted(
+            set.intersection(
+                *(set(next(iter(v.values()))) for v in per_tp.values() if v)
+            )
+        ) if rois else []
+
+        csv_lines = ["roi,measure,slope,mean,spc,n_timepoints"]
+        for roi in rois:
+            for column in roi_columns:
+                y = np.array(
+                    [per_tp[i][roi][column] for i in long_ids if roi in per_tp[i]],
+                    dtype=float,
+                )
+                tt = np.array(
+                    [resolved_times[i] for i in long_ids if roi in per_tp[i]],
+                    dtype=float,
+                )
+                if y.size < 2 or len(set(tt)) < 2:
+                    continue
+                ttc = tt - tt.mean()
+                slope = float((ttc * (y - y.mean())).sum() / (ttc**2).sum())
+                mean = float(y.mean())
+                pct = 100.0 * slope / mean if mean != 0 else 0.0
+                csv_lines.append(
+                    f"{roi},{column},{slope:.6g},{mean:.6g},{pct:.6g},{y.size}"
+                )
+        csv_path = stats_out / f"{hemi}.long.roi-rates.csv"
+        csv_path.write_text("\n".join(csv_lines) + "\n")
+        summary["roi_tables"][hemi] = str(csv_path)
+
+    (stats_out / "long.change-stats.json").write_text(
+        json.dumps(summary, indent=2, sort_keys=True) + "\n"
+    )
+    logger.info(
+        "Wrote change statistics for %s across %d timepoint(s)",
+        base_dir.name,
+        len(long_ids),
+    )
+    return summary

@@ -900,6 +900,93 @@ EOF
     """
 }
 
+/*
+ * Within-subject change statistics (anat.synthesis_level: session_longitudinal).
+ *
+ * One task per subject, after all of its longitudinal timepoints. Fits a rate of
+ * change per vertex and per ROI. Valid without any surface registration because
+ * every timepoint inherited the base's mesh, so vertex i is the same anatomical
+ * point throughout -- which is the payoff of the whole stream.
+ */
+process ANAT_SURFACE_LONG_CHANGE_STATS {
+    label 'cpu'
+    tag "${subject_id}_changestats"
+    errorStrategy 'ignore'
+
+    publishDir "${params.output_dir}/fastsurfer",
+        mode: 'copy',
+        pattern: 'fastsurfer/**',
+        saveAs: { filename -> filename.replace('fastsurfer/', '') }
+
+    input:
+    tuple val(subject_id), val(long_ids_csv), path(long_dirs, stageAs: 'staged_long/*'), path(base_dir, stageAs: 'staged_base/*'), val(base_id)
+    path config_file
+
+    output:
+    tuple val(subject_id), path("fastsurfer/${base_id}"), emit: base_dir
+    tuple val(subject_id), path("metadata.json"), emit: metadata
+
+    script:
+    """
+    \${PYTHON:-python3} <<EOF
+from nhp_mri_prep.steps.surface_longitudinal import collect_change_stats
+from nhp_mri_prep.utils.nextflow import load_config, save_metadata
+from pathlib import Path
+import shutil
+
+config = load_config('${config_file}')
+
+base_id = '${base_id}'
+long_ids = [s for s in '${long_ids_csv}'.split(',') if s]
+
+# Write into a copy of the base, so the published tree carries the statistics
+# alongside the template they are defined on.
+out_base = Path('fastsurfer') / base_id
+out_base.parent.mkdir(parents=True, exist_ok=True)
+staged_base = Path('staged_base') / base_id
+if not staged_base.is_dir():
+    candidates = [p for p in Path('staged_base').iterdir() if p.is_dir()]
+    if len(candidates) != 1:
+        raise FileNotFoundError(
+            'Expected one staged base directory, found '
+            + str([p.name for p in candidates])
+        )
+    staged_base = candidates[0]
+shutil.copytree(staged_base, out_base, symlinks=False, dirs_exist_ok=True)
+
+staged_long = Path('staged_long')
+long_dirs = {}
+for long_id in long_ids:
+    d = staged_long / long_id
+    if d.is_dir():
+        long_dirs[long_id] = d
+    else:
+        print('WARNING: no staged directory for longitudinal timepoint ' + long_id)
+
+if len(long_dirs) < 2:
+    raise RuntimeError(
+        'Change statistics need at least 2 longitudinal timepoints; got '
+        + str(len(long_dirs)) + ' for ' + base_id
+    )
+
+summary = collect_change_stats(
+    base_dir=out_base,
+    long_dirs=long_dirs,
+    atlas_name=config.get('anat', {}).get('skullstripping_segmentation', {}).get('atlas_name', 'ARM2'),
+)
+
+save_metadata({
+    'step': 'surface_long_change_stats',
+    'modality': 'anat',
+    'subject_id': 'sub-${subject_id}',
+    'base_subject_id': base_id,
+    'timepoints': summary['timepoints'],
+    'skipped': summary['skipped'],
+})
+EOF
+    """
+}
+
 process ANAT_REGISTRATION {
     label 'cpu'
     tag "${subject_id}_${session_id}"

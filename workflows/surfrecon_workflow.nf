@@ -15,6 +15,7 @@ include { QC_SURF_RECON_TISSUE_SEG } from '../modules/qc.nf'
 include { QC_CORTICAL_SURF_AND_MEASURES } from '../modules/qc.nf'
 include { ANAT_SURFACE_BASE_TEMPLATE } from '../modules/anatomical.nf'
 include { ANAT_SURFACE_RECONSTRUCTION_LONG } from '../modules/anatomical.nf'
+include { ANAT_SURFACE_LONG_CHANGE_STATS } from '../modules/anatomical.nf'
 // Aliased: a process can be invoked only once per workflow, and the base and
 // longitudinal directories need the same QC as the cross-sectional ones.
 include { QC_SURF_RECON_TISSUE_SEG as QC_SURF_RECON_TISSUE_SEG_LONG } from '../modules/qc.nf'
@@ -300,6 +301,45 @@ workflow SURF_RECON_WF {
             surf_qc_channels = surf_qc_channels
                 .mix(QC_SURF_RECON_TISSUE_SEG_LONG.out.metadata)
                 .mix(QC_CORTICAL_SURF_AND_MEASURES_LONG.out.metadata)
+
+            // ---- CHANGE STATISTICS: one task per subject ------------------
+            // Gathers all of a subject's longitudinal timepoints, so it runs
+            // once they have all finished. groupTuple again without size:, for
+            // the same errorStrategy 'ignore' reason as the base gather.
+            def change_stats_input = ANAT_SURFACE_RECONSTRUCTION_LONG.out.subject_dir
+                .join(ANAT_SURFACE_RECONSTRUCTION_LONG.out.actual_subject_id, by: [0, 1])
+                .map { sub, ses, long_dir, id_file -> [sub, ses, long_dir, id_file.text.trim()] }
+                .groupTuple(by: 0)
+                .filter { sub, ses_list, long_dirs, long_ids ->
+                    if (long_ids.size() < 2) {
+                        println "Note: sub-${sub} has ${long_ids.size()} longitudinal timepoint(s); skipping change statistics (needs >= 2)."
+                        return false
+                    }
+                    return true
+                }
+                .map { sub, ses_list, long_dirs, long_ids ->
+                    // Sorted for the same reproducibility reason as the base gather.
+                    def order = (0..<ses_list.size()).sort { a, b ->
+                        ("${ses_list[a] ?: ''}") <=> ("${ses_list[b] ?: ''}")
+                    }
+                    [ sub,
+                      order.collect { "${long_ids[it]}" }.join(','),
+                      order.collect { long_dirs[it] } ]
+                }
+                .combine(ANAT_SURFACE_BASE_TEMPLATE.out.base_dir, by: 0)
+                // From .out directly rather than surf_base_subject_id_ch, which
+                // the base QC rows above already consume; process outputs are
+                // multicast, so reusing them is safe.
+                .combine(
+                    ANAT_SURFACE_BASE_TEMPLATE.out.base_subject_id
+                        .map { sub, id_file -> [sub, id_file.text.trim()] },
+                    by: 0
+                )
+
+            ANAT_SURFACE_LONG_CHANGE_STATS(change_stats_input, config_file)
+
+            surf_qc_channels = surf_qc_channels
+                .mix(ANAT_SURFACE_LONG_CHANGE_STATS.out.metadata)
         }
     } else {
         if (surf_recon_enabled && !anat_skullstripping_enabled) {
