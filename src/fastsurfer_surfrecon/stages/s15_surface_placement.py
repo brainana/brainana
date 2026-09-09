@@ -50,13 +50,44 @@ class SurfacePlacement(HemisphereStage):
         cortex_label = self.hemi_label("cortex.label")
         cortex_hipamyg_label = self.hemi_label("cortex+hipamyg.label")
 
+        # Longitudinal timepoints anchor both passes to the base template's
+        # surfaces and cap how far vertices may travel, exactly as
+        # `recon-all -long` does (recon-all:4224-4235 for white,
+        # :4289-4304 for pial). That anchoring is what converts a shared mesh
+        # into reduced across-timepoint variance; without it the timepoints
+        # inherit the topology but drift freely, and the variance reduction --
+        # the entire point of the longitudinal stream -- is much smaller.
+        #
+        # Note it trades bias for variance: constraining movement toward the
+        # base also damps genuine change. That is the right trade in the regime
+        # this stream is designed for (near-static brains, where true change is
+        # small), and it is why the behaviour is gated on config.longitudinal
+        # rather than applied unconditionally.
+        longitudinal = self.config.longitudinal
+        long_max_cbv_dist = 3.5
+
         # Step 1: Place white surface
         # The white surface is placed from white.preaparc, which was created in stage 13.
         # This is the final white matter surface boundary.
         if not white.exists():
             logger.info(f"Placing {self.hemi} white surface...")
+            # FreeSurfer starts the longitudinal white pass from the base's
+            # white (copied to orig_white by stage 00) rather than this
+            # timepoint's white.preaparc, and follows it with --rip-surf.
+            white_input = self.hemi_path("white.preaparc")
+            if longitudinal:
+                orig_white = self.hemi_path("orig_white")
+                if orig_white.exists():
+                    white_input = orig_white
+                else:
+                    logger.warning(
+                        "longitudinal=True but %s is missing; falling back to "
+                        "white.preaparc. Surfaces will not be anchored to the "
+                        "base and across-timepoint variance will be higher.",
+                        orig_white,
+                    )
             mris_place_surface(
-                input_surf=self.hemi_path("white.preaparc"),
+                input_surf=white_input,
                 output_surf=white,
                 hemi=self.hemi,
                 wm=self.sd.mri("wm.mgz"),
@@ -67,8 +98,9 @@ class SurfacePlacement(HemisphereStage):
                 threads=self.threads,
                 rip_label=cortex_label,
                 rip_bg=True,
-                rip_surf=self.hemi_path("white.preaparc"),
+                rip_surf=white_input,
                 aparc=aparc if aparc.exists() else None,
+                max_cbv_dist=long_max_cbv_dist if longitudinal else None,
                 log_file=self.config.log_file,
                 subject_dir=self.sd.subject_dir,
                 subjects_dir=self.config.subjects_dir,
@@ -80,8 +112,25 @@ class SurfacePlacement(HemisphereStage):
         # regions. The pial surface is initially created as pial.T1, then copied to pial.
         if not pial_t1.exists():
             logger.info(f"Placing {self.hemi} pial surface...")
+            # As above, but the longitudinal pial pass additionally blends a
+            # quarter of the way toward this timepoint's own white surface
+            # (recon-all:4304). repulse_surf / white_surf stay the timepoint's
+            # white either way -- only the starting surface changes.
+            pial_input = white
+            blend_surf = None
+            if longitudinal:
+                orig_pial = self.hemi_path("orig_pial")
+                if orig_pial.exists():
+                    pial_input = orig_pial
+                    blend_surf = (0.25, white)
+                else:
+                    logger.warning(
+                        "longitudinal=True but %s is missing; starting the "
+                        "pial pass from this timepoint's white instead.",
+                        orig_pial,
+                    )
             mris_place_surface(
-                input_surf=white,
+                input_surf=pial_input,
                 output_surf=pial_t1,
                 hemi=self.hemi,
                 wm=self.sd.mri("wm.mgz"),
@@ -97,6 +146,8 @@ class SurfacePlacement(HemisphereStage):
                 repulse_surf=white,  # Repulse from white surface
                 white_surf=white,  # Reference white surface
                 aparc=aparc if aparc.exists() else None,
+                max_cbv_dist=long_max_cbv_dist if longitudinal else None,
+                blend_surf=blend_surf,
                 log_file=self.config.log_file,
                 subject_dir=self.sd.subject_dir,
                 subjects_dir=self.config.subjects_dir,

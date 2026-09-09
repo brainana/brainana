@@ -379,17 +379,27 @@ def mris_place_surface(
         "i": "--i",
     }
 
+    def _render(value):
+        """Path values become subject-dir-relative, everything else is str()."""
+        if isinstance(value, Path) and subject_dir:
+            value = to_relative_path(value, subject_dir)
+        return str(value)
+
     for key, value in kwargs.items():
         if key in kwarg_map:
             flag = kwarg_map[key]
             if value is True:
                 cmd.append(flag)
-            elif value is not False and value is not None:
-                # Convert path values to relative if subject_dir provided
-                if isinstance(value, Path) and subject_dir:
-                    value = to_relative_path(value, subject_dir)
+            elif isinstance(value, (tuple, list)):
+                # Multi-argument options, e.g. --blend-surf <weight> <surf>.
+                # These must stay separate argv items; joining them into one
+                # string would hand FreeSurfer a single token containing a
+                # space, which it does not parse back apart.
                 cmd.append(flag)
-                cmd.append(str(value))
+                cmd.extend(_render(v) for v in value)
+            elif value is not False and value is not None:
+                cmd.append(flag)
+                cmd.append(_render(value))
 
     # Input surface (if not in kwargs)
     if "--i" not in cmd:
