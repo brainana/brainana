@@ -1143,17 +1143,22 @@ process ANAT_SURFACE_LONG_CHANGE_STATS {
     tag "${subject_id}_changestats"
     errorStrategy 'ignore'
 
-    publishDir "${params.output_dir}/fastsurfer",
+    // Publishes only the files it creates, into the already-published base tree.
+    // Declaring the whole tree as an output would republish 1-2 GB that
+    // ANAT_SURFACE_BASE_RECON already published to the same path -- which works
+    // only because publishDir defaults to overwrite:false, and is exactly the
+    // kind of coincidence that breaks later.
+    publishDir "${params.output_dir}/fastsurfer/${base_id}",
         mode: 'copy',
-        pattern: 'fastsurfer/**',
-        saveAs: { filename -> filename.replace('fastsurfer/', '') }
+        pattern: 'changestats/**',
+        saveAs: { filename -> filename.replaceFirst('changestats/', '') }
 
     input:
     tuple val(subject_id), val(long_ids_csv), path(long_dirs, stageAs: 'staged_long/*'), path(base_dir, stageAs: 'staged_base/*'), val(base_id)
     path config_file
 
     output:
-    tuple val(subject_id), path("fastsurfer/${base_id}"), emit: base_dir
+    tuple val(subject_id), path("changestats/**"), emit: change_stats
     tuple val(subject_id), path("metadata.json"), emit: metadata
 
     script:
@@ -1169,9 +1174,10 @@ config = load_config('${config_file}')
 base_id = '${base_id}'
 long_ids = [s for s in '${long_ids_csv}'.split(',') if s]
 
-# Write into a copy of the base, so the published tree carries the statistics
-# alongside the template they are defined on.
-out_base = Path('fastsurfer') / base_id
+# Work in a staged copy of the base -- collect_change_stats reads its surfaces
+# and writes beside them -- but publish only the files created here, so the base
+# tree is not copied a second time into the output.
+out_base = Path('work') / base_id
 out_base.parent.mkdir(parents=True, exist_ok=True)
 staged_base = Path('staged_base') / base_id
 if not staged_base.is_dir():
@@ -1183,6 +1189,9 @@ if not staged_base.is_dir():
         )
     staged_base = candidates[0]
 shutil.copytree(staged_base, out_base, symlinks=False, dirs_exist_ok=True)
+
+# Snapshot what was already there, so only new files get published.
+before = {p for p in out_base.rglob('*') if p.is_file()}
 
 staged_long = Path('staged_long')
 long_dirs = {}
@@ -1204,6 +1213,21 @@ summary = collect_change_stats(
     long_dirs=long_dirs,
     atlas_name=config.get('anat', {}).get('skullstripping_segmentation', {}).get('atlas_name', 'ARM2'),
 )
+
+# Collect just the newly written files under changestats/, preserving their
+# position within the base tree so publishDir drops them straight in.
+staging = Path('changestats')
+created = sorted(p for p in out_base.rglob('*') if p.is_file() and p not in before)
+if not created:
+    raise RuntimeError(
+        'collect_change_stats wrote no new files into ' + str(out_base)
+        + '; nothing to publish'
+    )
+for src in created:
+    dst = staging / src.relative_to(out_base)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst)
+print('Publishing ' + str(len(created)) + ' change-statistics file(s)')
 
 save_metadata({
     'step': 'surface_long_change_stats',

@@ -11,6 +11,7 @@ than loud:
   timepoint's surfaces are misaligned without anything reporting an error.
 """
 
+import shutil
 from pathlib import Path
 
 import nibabel as nib
@@ -115,3 +116,111 @@ class TestGeometryAssertion:
         assert "anat.conform.enabled" in str(exc.value)
         # And it should say which timepoints disagreed.
         assert "ses-a" in str(exc.value) and "ses-b" in str(exc.value)
+
+
+class TestSegmentationConsensus:
+    """The diagnostic that makes the CNN domain-shift question answerable.
+
+    The base's segmentation comes from running the CNN on a robust average, which
+    is the right choice but feeds the network a different kind of volume than it
+    sees cross-sectionally. Rather than argue about whether that matters, the run
+    records a per-label Dice against a majority vote of the sessions' own
+    segmentations.
+    """
+
+    def _write_labels(self, path, array, zooms=(0.8, 0.8, 0.8)):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        affine = np.diag(list(zooms) + [1.0])
+        nib.save(nib.MGHImage(array.astype(np.uint8), affine), str(path))
+        return path
+
+    def test_majority_vote_picks_the_modal_label(self, tmp_path, monkeypatch):
+        from nhp_mri_prep.steps import surface_longitudinal as m
+
+        # Three timepoints; voxel 0 is 2,2,3 -> 2 wins, voxel 1 is 5,5,5 -> 5.
+        arrays = {
+            "ses-a": np.array([[[2, 5]]]),
+            "ses-b": np.array([[[2, 5]]]),
+            "ses-c": np.array([[[3, 5]]]),
+        }
+        asegs = {
+            tp: self._write_labels(tmp_path / tp / "aseg.mgz", a)
+            for tp, a in arrays.items()
+        }
+        ltas = {tp: tmp_path / f"{tp}.lta" for tp in arrays}
+        for lta in ltas.values():
+            lta.write_text("dummy\n")
+
+        # Stand in for `mri_convert -at`: the transforms here are identities, so
+        # "resampling" is a copy. What is under test is the vote, not FreeSurfer.
+        def fake_apply(input_vol, output_vol, lta=None, **kwargs):
+            Path(output_vol).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(input_vol, output_vol)
+            return output_vol
+
+        monkeypatch.setattr(m, "mri_convert_apply_lta", fake_apply)
+
+        out = m.fuse_timepoint_asegs(
+            asegs, ltas, tmp_path / "fused.mgz", tmp_path / "work"
+        )
+        assert out is not None
+        fused = np.asanyarray(nib.load(str(out)).dataobj)
+        assert fused.ravel().tolist() == [2, 5]
+
+    def test_one_timepoint_produces_no_consensus(self, tmp_path):
+        from nhp_mri_prep.steps import surface_longitudinal as m
+
+        aseg = self._write_labels(tmp_path / "a" / "aseg.mgz", np.array([[[1]]]))
+        lta = tmp_path / "a.lta"
+        lta.write_text("dummy\n")
+        assert (
+            m.fuse_timepoint_asegs(
+                {"ses-a": aseg}, {"ses-a": lta}, tmp_path / "f.mgz", tmp_path / "w"
+            )
+            is None
+        )
+
+    def test_dice_is_one_for_identical_volumes(self, tmp_path):
+        from nhp_mri_prep.steps.surface_longitudinal import label_dice
+
+        arr = np.zeros((10, 10, 10), dtype=np.uint8)
+        arr[2:8, 2:8, 2:8] = 3
+        a = self._write_labels(tmp_path / "a.mgz", arr)
+        b = self._write_labels(tmp_path / "b.mgz", arr)
+        dice = label_dice(a, b)
+        assert dice == {"3": pytest.approx(1.0)}
+
+    def test_dice_falls_with_disagreement(self, tmp_path):
+        from nhp_mri_prep.steps.surface_longitudinal import label_dice
+
+        a_arr = np.zeros((10, 10, 10), dtype=np.uint8)
+        a_arr[2:8, 2:8, 2:8] = 3
+        b_arr = np.zeros((10, 10, 10), dtype=np.uint8)
+        b_arr[5:8, 2:8, 2:8] = 3  # half the extent
+        a = self._write_labels(tmp_path / "a.mgz", a_arr)
+        b = self._write_labels(tmp_path / "b.mgz", b_arr)
+        dice = label_dice(a, b)
+        assert 0.0 < dice["3"] < 1.0
+
+    def test_tiny_labels_are_skipped(self, tmp_path):
+        """Dice over a handful of voxels is noise, and would look alarming."""
+        from nhp_mri_prep.steps.surface_longitudinal import label_dice
+
+        a_arr = np.zeros((10, 10, 10), dtype=np.uint8)
+        a_arr[0, 0, 0] = 7  # one voxel
+        a_arr[2:8, 2:8, 2:8] = 3
+        b_arr = a_arr.copy()
+        b_arr[0, 0, 0] = 0
+        a = self._write_labels(tmp_path / "a.mgz", a_arr)
+        b = self._write_labels(tmp_path / "b.mgz", b_arr)
+        dice = label_dice(a, b)
+        assert "7" not in dice
+        assert "3" in dice
+
+    def test_mismatched_grids_are_rejected(self, tmp_path):
+        from nhp_mri_prep.steps.surface_longitudinal import label_dice
+
+        a = self._write_labels(tmp_path / "a.mgz", np.zeros((4, 4, 4), dtype=np.uint8))
+        b = self._write_labels(tmp_path / "b.mgz", np.zeros((4, 4, 5), dtype=np.uint8))
+        with pytest.raises(ValueError, match="differ in shape"):
+            label_dice(a, b)
