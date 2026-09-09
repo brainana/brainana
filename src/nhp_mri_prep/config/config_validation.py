@@ -6,9 +6,12 @@ and preprocessing settings.
 """
 
 from pathlib import Path
+import logging
 from typing import Dict, Any, Union, Optional
 from .config_io import get_default_config, _deep_merge
 from ..utils.mri import get_opposite_orientation
+
+logger = logging.getLogger(__name__)
 
 
 def validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
@@ -113,6 +116,19 @@ def validate_anat_config(config: Dict[str, Any]) -> None:
                     "longitudinal stream is part of surface reconstruction, so "
                     "with it disabled nothing longitudinal would be produced. "
                     "Please fix this in your configuration file."
+                )
+            # Not fatal, but it fails much later and much less clearly: the base
+            # template requires every session on one voxel grid, and
+            # anat.conform is what normally guarantees that regardless of each
+            # session's acquired field of view.
+            conform = config.get("conform", {})
+            if isinstance(conform, dict) and conform.get("enabled") is False:
+                logger.warning(
+                    "anat.synthesis_level is 'session_longitudinal' but "
+                    "anat.conform.enabled is false. The within-subject base "
+                    "template needs every session on the same voxel grid, and "
+                    "conform is what puts them there; without it the base build "
+                    "will abort unless the sessions were acquired identically."
                 )
 
 

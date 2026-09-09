@@ -687,56 +687,33 @@ EOF
 }
 
 /*
- * Within-subject base template (anat.synthesis_level: session_longitudinal).
+ * Within-subject base template, stage 1 of 3 (session_longitudinal).
  *
- * One task per subject, after every session's cross-sectional reconstruction.
- * Registers the sessions into a common unbiased space with mri_robust_template,
- * segments the average, and reconstructs it -- yielding a single mesh that all
- * of the subject's timepoints will inherit.
+ * Robust-averages every session into a common unbiased space and emits the
+ * timepoint-to-base transforms. CPU-only and deliberately separate from the
+ * segmentation that follows: that one needs a GPU, and the reconstruction after
+ * it runs for hours -- doing all three in one task made a multi-hour CPU job
+ * hold a gpu_queue token, starving every other GPU consumer.
  */
 process ANAT_SURFACE_BASE_TEMPLATE {
-    label 'gpu'                 // segments the averaged volume with fastSurferCNN
+    label 'cpu'
     tag "${subject_id}_base"
-
-    // Deliberately NOT errorStrategy 'ignore', unlike the other processes in
-    // this feature. This one consumes a token from gpu_queue and returns it via
-    // gpu_token; 'ignore' would let a failed task swallow its token, and since
-    // gpu_queue is never closed the pipeline would then hang forever rather
-    // than skip a subject. A visible failure the user can -resume past is much
-    // better than a silent deadlock. Same choice as ANAT_SKULLSTRIPPING, the
-    // other GPU-token consumer.
-
-    publishDir "${params.output_dir}/fastsurfer",
-        mode: 'copy',
-        pattern: 'fastsurfer/**',
-        saveAs: { filename -> filename.replace('fastsurfer/', '') }
+    errorStrategy 'ignore'
 
     input:
     tuple val(subject_id), val(cross_ids_csv), val(expected_count), path(base_inputs, stageAs: 'base_inputs/*')
     path config_file
-    val gpu_id
 
     output:
-    // Deterministic name, unlike ANAT_SURFACE_RECONSTRUCTION whose directory may
-    // or may not carry a _ses- segment, so no glob is needed here.
-    tuple val(subject_id), path("fastsurfer/sub-${subject_id}_base"), emit: base_dir
-    tuple val(subject_id), path("base_subject_id.txt"), emit: base_subject_id
+    // Not published: this tree is incomplete until ANAT_SURFACE_BASE_RECON has
+    // run. Only that stage publishes it.
+    tuple val(subject_id), val("sub-${subject_id}_base"), path("fastsurfer/sub-${subject_id}_base"), emit: base_dir
+    tuple val(subject_id), path("base_nii/*_T1w.nii.gz"), emit: base_nii
     tuple val(subject_id), path("transforms/*_to_*.lta"), emit: tp_to_base_ltas
     tuple val(subject_id), path("metadata.json"), emit: metadata
-    val gpu_id, emit: gpu_token
 
     script:
     """
-    # GPU assignment (gpu_id is 'none' when workflow GPU scheduling is disabled,
-    # e.g. CPU mode). Without this the task would use whichever device torch
-    # picks, so multi-GPU tasks collide and CPU-mode runs still hit the GPU.
-    if [ "${gpu_id}" != "none" ]; then
-        export CUDA_VISIBLE_DEVICES=${gpu_id}
-        echo "[GPU Assignment] Task ${task.index} -> GPU ${gpu_id} (of ${params.gpu_count} available)"
-    else
-        export CUDA_VISIBLE_DEVICES=""
-    fi
-
     \${PYTHON:-python3} <<EOF
 from nhp_mri_prep.steps.surface_longitudinal import build_base_template
 from nhp_mri_prep.steps.types import StepInput
@@ -751,8 +728,6 @@ config = load_config('${config_file}')
 cross_ids = [s for s in '${cross_ids_csv}'.split(',') if s]
 expected_count = int('${expected_count}') if '${expected_count}' else None
 
-# Each timepoint was staged into base_inputs/<cross_id>/ by
-# ANAT_SURFACE_RECONSTRUCTION's collect_base_inputs.
 staged = Path('base_inputs')
 timepoint_dirs = {}
 for cross_id in cross_ids:
@@ -773,22 +748,22 @@ if len(timepoint_dirs) < 2:
 
 base_subject_id = 'sub-${subject_id}_base'
 
-input_obj = StepInput(
-    input_file=staged,
-    working_dir=Path('work'),
-    config=config,
-    output_name='surface_base_template',
-    metadata={'subject_id': 'sub-${subject_id}'},
-)
-
 result = build_base_template(
-    input_obj,
+    StepInput(
+        input_file=staged,
+        working_dir=Path('work'),
+        config=config,
+        output_name='surface_base_template',
+        metadata={'subject_id': 'sub-${subject_id}'},
+    ),
     timepoint_dirs=timepoint_dirs,
     base_subject_id=base_subject_id,
     expected_timepoints=expected_count,
+    iscale=bool(config.get('anat', {}).get('surface_reconstruction', {}).get('longitudinal', {}).get('iscale', False)),
+    subsample=config.get('anat', {}).get('surface_reconstruction', {}).get('longitudinal', {}).get('subsample'),
 )
 
-# Move the base into the location Nextflow declared as an output.
+# Move the partial base into the declared output location.
 expected_path = Path('fastsurfer') / base_subject_id
 expected_path.parent.mkdir(parents=True, exist_ok=True)
 if expected_path.resolve() != result.output_file.resolve():
@@ -798,14 +773,256 @@ if expected_path.resolve() != result.output_file.resolve():
 if not expected_path.exists():
     raise FileNotFoundError('Base template not found at ' + str(expected_path))
 
-# Expose the timepoint->base transforms as their own output, so each
-# longitudinal task can stage just the transform it needs.
+# The transforms and the NIfTI travel as their own outputs so the next stages can
+# stage just what they need instead of the whole tree.
 Path('transforms').mkdir(exist_ok=True)
 for lta in sorted((expected_path / 'mri' / 'transforms').glob('*_to_*.lta')):
     shutil.copy2(lta, Path('transforms') / lta.name)
 
-with open('base_subject_id.txt', 'w') as f:
-    f.write(base_subject_id)
+Path('base_nii').mkdir(exist_ok=True)
+base_nii = result.additional_files['base_nii']
+shutil.copy2(base_nii, Path('base_nii') / Path(base_nii).name)
+
+save_metadata(result.metadata)
+EOF
+    """
+}
+
+/*
+ * Within-subject base template, stage 2 of 3.
+ *
+ * Segments the base and backprojects the template atlases onto its grid. The
+ * only GPU stage in the longitudinal stream, and short: a CNN segmentation plus
+ * one template registration.
+ *
+ * The atlas backprojection is what closes the ARM6 parity gap. ARM6 never comes
+ * from segmentation; without it the base -- and every timepoint seeded from it --
+ * loses the claustrum fix AND the ARM2 thin-WM enhancement that feeds
+ * wm.mgz/filled.mgz.
+ */
+process ANAT_SURFACE_BASE_ATLAS {
+    label 'gpu'
+    tag "${subject_id}_base"
+
+    // Deliberately NOT errorStrategy 'ignore': this stage holds a token from
+    // gpu_queue and returns it via gpu_token, and 'ignore' would let a failed
+    // task swallow its token. gpu_queue is never closed, so the pipeline would
+    // hang forever rather than skip a subject. Same choice as ANAT_SKULLSTRIPPING.
+
+    // Base-space derivatives, mirroring what ANAT_SKULLSTRIPPING publishes per
+    // session. Named with acq-base so they sit beside the session ones without
+    // colliding, in canonical BIDS entity order.
+    publishDir "${params.output_dir}/sub-${subject_id}/anat",
+        mode: 'copy',
+        pattern: 'derivatives/*',
+        saveAs: { f -> new File(f.toString()).name }
+    publishDir "${params.output_dir}/sub-${subject_id}/anat/atlas_space-T1w",
+        mode: 'copy',
+        pattern: 'atlas/*',
+        saveAs: { f -> new File(f.toString()).name }
+
+    input:
+    tuple val(subject_id), val(base_id), path(base_nii, stageAs: 'base_nii/*')
+    path config_file
+    val gpu_id
+
+    output:
+    tuple val(subject_id), path("seg/*_atlas*.nii.gz"), emit: segmentation
+    tuple val(subject_id), path("seg/*_mask.nii.gz"), emit: brain_mask
+    // arity 0..* so a custom template (no bundled atlases) or disabled
+    // registration yields no ARM6 without failing the task -- exactly the
+    // cross-sectional behaviour.
+    tuple val(subject_id), path("arm6/*.nii.gz", arity: '0..*'), emit: arm6_atlas
+    tuple val(subject_id), path("atlas/*.nii.gz", arity: '0..*'), emit: atlases
+    path "derivatives/*", arity: '0..*', emit: derivatives
+    path "atlas/*.{json,tsv,md,bib}", arity: '0..*', emit: sidecars
+    tuple val(subject_id), path("metadata.json"), emit: metadata
+    val gpu_id, emit: gpu_token
+
+    script:
+    """
+    # GPU assignment (gpu_id is 'none' when workflow GPU scheduling is disabled,
+    # e.g. CPU mode). Without this the task uses whichever device torch picks, so
+    # multi-GPU tasks collide and CPU-mode runs still hit the GPU.
+    if [ "${gpu_id}" != "none" ]; then
+        export CUDA_VISIBLE_DEVICES=${gpu_id}
+        echo "[GPU Assignment] Task ${task.index} -> GPU ${gpu_id} (of ${params.gpu_count} available)"
+    else
+        export CUDA_VISIBLE_DEVICES=""
+    fi
+
+    \${PYTHON:-python3} <<EOF
+from nhp_mri_prep.steps.surface_longitudinal import segment_and_backproject_base
+from nhp_mri_prep.steps.types import StepInput
+from nhp_mri_prep.utils.nextflow import load_config, save_metadata
+from nhp_mri_prep.utils.sidecar import write_derivative_sidecar
+from pathlib import Path
+import shutil
+
+config = load_config('${config_file}')
+
+staged_nii = sorted(Path('base_nii').glob('*_T1w.nii.gz'))
+if len(staged_nii) != 1:
+    raise FileNotFoundError(
+        'Expected exactly one staged base NIfTI, found '
+        + str([p.name for p in staged_nii])
+    )
+
+result = segment_and_backproject_base(
+    StepInput(
+        input_file=staged_nii[0],
+        working_dir=Path('work'),
+        config=config,
+        output_name='surface_base_atlas',
+        metadata={'subject_id': 'sub-${subject_id}', 'session_id': ''},
+    ),
+    base_nii=staged_nii[0],
+    base_subject_id='${base_id}',
+    # sub-X_base is not a valid BIDS entity chain; acq-base is, and sorts
+    # canonically.
+    bids_name='sub-${subject_id}_acq-base_T1w.nii.gz',
+)
+
+af = result.additional_files
+
+# Outputs the reconstruction stage consumes.
+Path('seg').mkdir(exist_ok=True)
+seg_dst = Path('seg') / Path(af['segmentation']).name
+shutil.copy2(af['segmentation'], seg_dst)
+mask_dst = Path('seg') / Path(af['brain_mask']).name
+shutil.copy2(af['brain_mask'], mask_dst)
+
+Path('arm6').mkdir(exist_ok=True)
+if af.get('arm6_atlas'):
+    shutil.copy2(af['arm6_atlas'], Path('arm6') / Path(af['arm6_atlas']).name)
+
+# Backprojected atlases + their sidecars, published beside the session ones.
+Path('atlas').mkdir(exist_ok=True)
+atlas_dir = result.metadata.get('atlas_dir')
+if atlas_dir and Path(atlas_dir).is_dir():
+    for f in sorted(Path(atlas_dir).iterdir()):
+        if f.is_file():
+            shutil.copy2(f, Path('atlas') / f.name)
+
+# Published derivatives, mirroring ANAT_SKULLSTRIPPING's per-session set.
+Path('derivatives').mkdir(exist_ok=True)
+base_sources = [str(staged_nii[0])]
+for key, skull_stripped in (
+    ('imagef_skullstripped', True),
+    ('brain_mask', None),
+    ('segmentation', None),
+    ('hemimask', None),
+    ('atlas_lut', None),
+):
+    src = af.get(key)
+    if not src:
+        continue
+    dst = Path('derivatives') / Path(src).name
+    shutil.copy2(src, dst)
+    if dst.name.endswith(('.nii.gz', '.nii')):
+        try:
+            write_derivative_sidecar(
+                dst,
+                skull_stripped=skull_stripped,
+                sources=base_sources,
+            )
+        except Exception as exc:
+            print('WARNING: could not write sidecar for ' + dst.name + ': ' + str(exc))
+
+save_metadata(result.metadata)
+EOF
+    """
+}
+
+/*
+ * Within-subject base template, stage 3 of 3.
+ *
+ * Reconstructs the base's surfaces. CPU-only and long-running, so it is sized
+ * like ANAT_SURFACE_RECONSTRUCTION and holds no GPU token.
+ */
+process ANAT_SURFACE_BASE_RECON {
+    label 'cpu'
+    tag "${subject_id}_base"
+    errorStrategy 'ignore'
+
+    publishDir "${params.output_dir}/fastsurfer",
+        mode: 'copy',
+        pattern: 'fastsurfer/**',
+        saveAs: { f -> f.replace('fastsurfer/', '') }
+
+    input:
+    tuple val(subject_id), val(base_id), path(base_dir, stageAs: 'staged_base/*'), path(base_nii, stageAs: 'base_nii/*'), path(segmentation), path(brain_mask), path(arm6, stageAs: 'arm6/*')
+    path config_file
+
+    output:
+    tuple val(subject_id), val(base_id), path("fastsurfer/${base_id}"), emit: base_dir
+    tuple val(subject_id), path("metadata.json"), emit: metadata
+
+    script:
+    """
+    \${PYTHON:-python3} <<EOF
+from nhp_mri_prep.steps.surface_longitudinal import reconstruct_base
+from nhp_mri_prep.steps.types import StepInput
+from nhp_mri_prep.utils.nextflow import load_config, save_metadata
+from pathlib import Path
+import shutil
+
+config = load_config('${config_file}')
+base_id = '${base_id}'
+
+# ReconSurfPipeline addresses one SUBJECTS_DIR, so rebuild a work-local one from
+# the staged partial base.
+subjects_dir = Path('work') / 'fastsurfer'
+subjects_dir.mkdir(parents=True, exist_ok=True)
+staged = Path('staged_base') / base_id
+if not staged.is_dir():
+    candidates = [p for p in Path('staged_base').iterdir() if p.is_dir()]
+    if len(candidates) != 1:
+        raise FileNotFoundError(
+            'Expected one staged base directory, found '
+            + str([p.name for p in candidates])
+        )
+    staged = candidates[0]
+work_base = subjects_dir / base_id
+if not work_base.exists():
+    shutil.copytree(staged, work_base, symlinks=False, dirs_exist_ok=True)
+
+staged_nii = sorted(Path('base_nii').glob('*_T1w.nii.gz'))
+if len(staged_nii) != 1:
+    raise FileNotFoundError(
+        'Expected exactly one staged base NIfTI, found '
+        + str([p.name for p in staged_nii])
+    )
+
+# A custom template or disabled registration yields no ARM6; the directory is
+# then empty and the reconstruction proceeds without it, exactly as a
+# cross-sectional run does.
+arm6_files = sorted(Path('arm6').glob('*.nii.gz')) if Path('arm6').is_dir() else []
+arm6_atlas = arm6_files[0] if arm6_files else None
+
+result = reconstruct_base(
+    StepInput(
+        input_file=staged_nii[0],
+        working_dir=Path('work'),
+        config=config,
+        output_name='surface_base_recon',
+        metadata={'subject_id': base_id, 'session_id': ''},
+    ),
+    base_dir=work_base,
+    base_nii=staged_nii[0],
+    base_subject_id=base_id,
+    segmentation_file=Path('${segmentation}'),
+    brain_mask=Path('${brain_mask}'),
+    arm6_atlas=arm6_atlas,
+)
+
+expected_path = Path('fastsurfer') / base_id
+expected_path.parent.mkdir(parents=True, exist_ok=True)
+if expected_path.exists():
+    shutil.rmtree(expected_path)
+shutil.copytree(result.output_file, expected_path, dirs_exist_ok=True)
+if not expected_path.exists():
+    raise FileNotFoundError('Base reconstruction not found at ' + str(expected_path))
 
 save_metadata(result.metadata)
 EOF

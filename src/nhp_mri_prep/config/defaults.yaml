@@ -50,6 +50,11 @@ anat:
   surface_reconstruction:
     enabled: true  # bool: perform surface reconstruction
     use_t1wt2wcombined: false  # bool: use t1wt2wcombined image for surface recon if possible
+    longitudinal:  # only used when anat.synthesis_level is "session_longitudinal"
+      iscale: false  # bool: let mri_robust_template model intensity scaling between timepoints when building the base. Off matches FreeSurfer's rca-base-init, but each session's orig.mgz was rescaled by its own robust factor during conform, so the volumes being averaged are not on a common intensity scale
+      subsample: null  # int or null: mri_robust_template --subsample threshold; escape hatch for large high-resolution volumes
+      max_cbv_dist: 3.5  # float: how far a timepoint's surface may move from the base during placement (recon-all -long uses 3.5). Lower reduces across-timepoint variance but also damps genuine change, so it trades bias for variance
+      pial_blend_weight: 0.25  # float (0.0-1.0): how far the longitudinal pial pass is blended toward this timepoint's own white surface (recon-all -long uses .25)
 
 func:
   coreg_runs_within_session: true

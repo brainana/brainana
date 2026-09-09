@@ -14,8 +14,15 @@ include { ANAT_SURFACE_RECONSTRUCTION } from '../modules/anatomical.nf'
 include { QC_SURF_RECON_TISSUE_SEG } from '../modules/qc.nf'
 include { QC_CORTICAL_SURF_AND_MEASURES } from '../modules/qc.nf'
 include { ANAT_SURFACE_BASE_TEMPLATE } from '../modules/anatomical.nf'
+include { ANAT_SURFACE_BASE_ATLAS } from '../modules/anatomical.nf'
+include { ANAT_SURFACE_BASE_RECON } from '../modules/anatomical.nf'
 include { ANAT_SURFACE_RECONSTRUCTION_LONG } from '../modules/anatomical.nf'
 include { ANAT_SURFACE_LONG_CHANGE_STATS } from '../modules/anatomical.nf'
+// Aliased: the base and the longitudinal timepoints need the same fsnative atlas
+// projection the cross-sectional sessions get. Because the _long trees live in
+// base space, the base-space atlases are the correct input for them too.
+include { ANAT_PROJECT_ATLASES_TO_SURFACE as ANAT_PROJECT_ATLASES_TO_SURFACE_BASE } from '../modules/anatomical.nf'
+include { ANAT_PROJECT_ATLASES_TO_SURFACE as ANAT_PROJECT_ATLASES_TO_SURFACE_LONG } from '../modules/anatomical.nf'
 // Aliased: a process can be invoked only once per workflow, and the base and
 // longitudinal directories need the same QC as the cross-sectional ones.
 include { QC_SURF_RECON_TISSUE_SEG as QC_SURF_RECON_TISSUE_SEG_LONG } from '../modules/qc.nf'
@@ -232,20 +239,43 @@ workflow SURF_RECON_WF {
                       order.collect { files_list[it] }.flatten() ]
                 }
 
-            // Same gate as ANAT_SKULLSTRIPPING: without it this would pull a
-            // token and run on GPU even when the workflow is in CPU mode.
+            // ---- BASE, STAGE 1/3: robust average (cpu) -------------------
+            ANAT_SURFACE_BASE_TEMPLATE(base_build_input, config_file)
+
+            // ---- BASE, STAGE 2/3: segment + backproject atlases (gpu) ----
+            // Split out so the GPU token is held only for a CNN segmentation and
+            // one template registration, not for the multi-hour reconstruction
+            // that follows. Same gate as ANAT_SKULLSTRIPPING: without it this
+            // would pull a token and run on GPU even in CPU mode.
             def use_base_gpu = params.use_gpu
             def base_gpu_input = use_base_gpu ? gpu_queue : Channel.value('none')
-            ANAT_SURFACE_BASE_TEMPLATE(base_build_input, config_file, base_gpu_input)
 
-            // Return the GPU token so the next task can take the slot.
+            def base_atlas_input = ANAT_SURFACE_BASE_TEMPLATE.out.base_dir
+                .map { sub, base_id, base_dir -> [sub, base_id] }
+                .join(ANAT_SURFACE_BASE_TEMPLATE.out.base_nii, by: 0)
+
+            ANAT_SURFACE_BASE_ATLAS(base_atlas_input, config_file, base_gpu_input)
+
+            // Return the token so the next GPU task can take the slot.
             if (use_base_gpu) {
-                ANAT_SURFACE_BASE_TEMPLATE.out.gpu_token.subscribe { gpu_queue << it }
+                ANAT_SURFACE_BASE_ATLAS.out.gpu_token.subscribe { gpu_queue << it }
             }
 
-            surf_base_dir_ch = ANAT_SURFACE_BASE_TEMPLATE.out.base_dir
-            surf_base_subject_id_ch = ANAT_SURFACE_BASE_TEMPLATE.out.base_subject_id
-                .map { sub, id_file -> [sub, id_file.text.trim()] }
+            // ---- BASE, STAGE 3/3: reconstruct the surfaces (cpu) ---------
+            def base_recon_input = ANAT_SURFACE_BASE_TEMPLATE.out.base_dir
+                .join(ANAT_SURFACE_BASE_TEMPLATE.out.base_nii, by: 0)
+                .join(ANAT_SURFACE_BASE_ATLAS.out.segmentation, by: 0)
+                .join(ANAT_SURFACE_BASE_ATLAS.out.brain_mask, by: 0)
+                .join(ANAT_SURFACE_BASE_ATLAS.out.arm6_atlas, by: 0)
+
+            ANAT_SURFACE_BASE_RECON(base_recon_input, config_file)
+
+            // The *reconstructed* base is what timepoints seed from, so this is
+            // stage 3's output, while the transforms come from stage 1.
+            surf_base_dir_ch = ANAT_SURFACE_BASE_RECON.out.base_dir
+                .map { sub, base_id, base_dir -> [sub, base_dir] }
+            surf_base_subject_id_ch = ANAT_SURFACE_BASE_RECON.out.base_dir
+                .map { sub, base_id, base_dir -> [sub, base_id] }
 
             // ---- FAN OUT AGAIN: one longitudinal recon per session --------
             // combine(by:0), NOT join(by:0): join consumes the single
@@ -254,12 +284,14 @@ workflow SURF_RECON_WF {
             // the same idiom already used for anat_sessions_clean above.
             def long_input = ANAT_SURFACE_RECONSTRUCTION.out.subject_dir
                 .join(ANAT_SURFACE_RECONSTRUCTION.out.actual_subject_id, by: [0, 1])
-                .combine(ANAT_SURFACE_BASE_TEMPLATE.out.base_dir, by: 0)
-                .combine(ANAT_SURFACE_BASE_TEMPLATE.out.base_subject_id, by: 0)
+                // The reconstructed base (stage 3) -- timepoints inherit its
+                // surfaces, so a partial tree from stage 1 would be useless --
+                // and the transforms from stage 1, which is where they are made.
+                .combine(ANAT_SURFACE_BASE_RECON.out.base_dir, by: 0)
                 .combine(ANAT_SURFACE_BASE_TEMPLATE.out.tp_to_base_ltas, by: 0)
-                .map { sub, ses, cross_dir, aid_file, base_dir, base_id_file, ltas ->
+                .map { sub, ses, cross_dir, aid_file, base_id, base_dir, ltas ->
                     [sub, ses, cross_dir, aid_file.text.trim(),
-                     base_dir, base_id_file.text.trim(), ltas]
+                     base_dir, base_id, ltas]
                 }
 
             ANAT_SURFACE_RECONSTRUCTION_LONG(long_input, config_file)
@@ -282,24 +314,45 @@ workflow SURF_RECON_WF {
             // its own filename. The stem is only ever parsed for a name --
             // create_bids_output_filename touches no filesystem -- so a
             // synthetic one is safe.
+            // atlas_name read from the base's own metadata rather than
+            // hard-coded: with a non-default anat.skullstripping_segmentation
+            // .atlas_name the cortical QC would look for
+            // label/?h.aparc.ARM2atlas.mapped.annot and silently emit no figure.
+            def base_atlas_name = ANAT_SURFACE_BASE_ATLAS.out.metadata
+                .map { sub, metadata_file ->
+                    def name = "ARM2"
+                    try {
+                        name = new groovy.json.JsonSlurper().parse(metadata_file).atlas_name ?: "ARM2"
+                    } catch (Exception e) {
+                        println "Warning: could not read atlas_name from base metadata, using ARM2: ${e.message}"
+                    }
+                    [sub, name]
+                }
+
             def base_qc_input = surf_base_subject_id_ch
                 .combine(bids_by_subject.groupTuple(by: 0), by: 0)
-                .map { sub, base_id, ses_list, bids_names ->
+                .combine(base_atlas_name, by: 0)
+                .map { sub, base_id, ses_list, bids_names, atlas_name ->
                     def order = (0..<ses_list.size()).sort { a, b ->
                         ("${ses_list[a] ?: ''}") <=> ("${ses_list[b] ?: ''}")
                     }
-                    // Session entity dropped: the base spans all sessions.
+                    // Session entity dropped: the base spans all sessions. acq-
+                    // goes directly after sub-/ses- so the stem stays in
+                    // canonical BIDS entity order.
                     def base_stem = "${bids_names[order[0]]}"
                         .replaceAll(/_ses-[^_]+/, '')
-                        .replaceAll(/_(T1w|T2w)/, '_acq-base_\$1')
-                    [sub, '', base_id, base_stem, 'ARM2']
+                        .replaceAll(/^(sub-[^_]+)_/, '$1_acq-base_')
+                    [sub, '', base_id, base_stem, atlas_name]
                 }
 
             def long_qc_input = surf_long_subject_id_ch
                 .join(bids_by_subject, by: [0, 1])
-                .map { sub, ses, long_id, bids_name ->
-                    def long_stem = "${bids_name}".replaceAll(/_(T1w|T2w)/, '_acq-long_\$1')
-                    [sub, ses, long_id, long_stem, 'ARM2']
+                .combine(base_atlas_name, by: 0)
+                .map { sub, ses, long_id, bids_name, atlas_name ->
+                    // acq- immediately after sub-/ses-, for canonical order.
+                    def long_stem = "${bids_name}"
+                        .replaceAll(/^(sub-[^_]+(?:_ses-[^_]+)?)_/, '$1_acq-long_')
+                    [sub, ses, long_id, long_stem, atlas_name]
                 }
 
             def extra_tissue_qc = base_qc_input
@@ -313,6 +366,40 @@ workflow SURF_RECON_WF {
             surf_qc_channels = surf_qc_channels
                 .mix(QC_SURF_RECON_TISSUE_SEG_LONG.out.metadata)
                 .mix(QC_CORTICAL_SURF_AND_MEASURES_LONG.out.metadata)
+
+            // ---- ATLASES ONTO THE BASE AND LONGITUDINAL SURFACES ---------
+            // The base-space atlases are correct for the _long trees as well,
+            // because those are reconstructed *in base space* -- so one
+            // backprojection serves the base and every timepoint. Filenames
+            // carry acq-base / acq-long, so the published fsnative projections
+            // never collide with the cross-sectional ones.
+            def base_atlas_files = ANAT_SURFACE_BASE_ATLAS.out.atlases
+
+            def base_surf_atlas_input = base_qc_input
+                .map { sub, ses, base_id, bids_name, atlas_name -> [sub, bids_name] }
+                // .out directly, not surf_base_dir_ch: that one is also named in
+                // emit:, and consuming a channel in an operator *and* emitting it
+                // is the pattern that breaks the moment a parent workflow reads
+                // the emit. Process outputs are multicast, so this is safe.
+                .join(
+                    ANAT_SURFACE_BASE_RECON.out.base_dir
+                        .map { sub, base_id, base_dir -> [sub, base_dir] },
+                    by: 0
+                )
+                .combine(base_atlas_files, by: 0)
+                .map { sub, bids_name, base_dir, atlas_files ->
+                    [sub, '', bids_name, atlas_files, base_dir]
+                }
+            ANAT_PROJECT_ATLASES_TO_SURFACE_BASE(base_surf_atlas_input, config_file)
+
+            def long_surf_atlas_input = long_qc_input
+                .map { sub, ses, long_id, bids_name, atlas_name -> [sub, ses, bids_name] }
+                .join(ANAT_SURFACE_RECONSTRUCTION_LONG.out.subject_dir, by: [0, 1])
+                .combine(base_atlas_files, by: 0)
+                .map { sub, ses, bids_name, long_dir, atlas_files ->
+                    [sub, ses, bids_name, atlas_files, long_dir]
+                }
+            ANAT_PROJECT_ATLASES_TO_SURFACE_LONG(long_surf_atlas_input, config_file)
 
             // ---- CHANGE STATISTICS: one task per subject ------------------
             // Gathers all of a subject's longitudinal timepoints, so it runs
@@ -338,13 +425,12 @@ workflow SURF_RECON_WF {
                       order.collect { "${long_ids[it]}" }.join(','),
                       order.collect { long_dirs[it] } ]
                 }
-                .combine(ANAT_SURFACE_BASE_TEMPLATE.out.base_dir, by: 0)
-                // From .out directly rather than surf_base_subject_id_ch, which
-                // the base QC rows above already consume; process outputs are
+                // From .out directly rather than the surf_base_* channels, which
+                // the QC rows above already consume; process outputs are
                 // multicast, so reusing them is safe.
                 .combine(
-                    ANAT_SURFACE_BASE_TEMPLATE.out.base_subject_id
-                        .map { sub, id_file -> [sub, id_file.text.trim()] },
+                    ANAT_SURFACE_BASE_RECON.out.base_dir
+                        .map { sub, base_id, base_dir -> [sub, base_dir, base_id] },
                     by: 0
                 )
 

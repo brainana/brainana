@@ -173,9 +173,15 @@ def build_base_template(
     expected_timepoints: Optional[int] = None,
     iscale: bool = False,
     subsample: Optional[int] = None,
-    arm6_atlas: Optional[Path] = None,
 ) -> StepOutput:
-    """Build and reconstruct a subject's unbiased within-subject template.
+    """Build a subject's unbiased within-subject template volume.
+
+    First of the three base stages. This one is CPU-only and does no
+    segmentation and no reconstruction, so it can be sized and scheduled on its
+    own: `mri_robust_template` needs memory proportional to timepoint count x
+    cube size, while the reconstruction that follows needs a long wall clock and
+    the segmentation between them needs a GPU. Keeping them separate also stops
+    a multi-hour reconstruction from holding a GPU token.
 
     Args:
         input: StepInput carrying config, working_dir and metadata.
@@ -188,19 +194,17 @@ def build_base_template(
             ``errorStrategy 'ignore'``, so a failed session silently contributes
             nothing, and a longitudinal analysis must not quietly rest on a
             truncated set.
-        iscale: Allow intensity scaling between timepoints. Off by default, to
-            match ``rca-base-init``.
+        iscale: Allow intensity scaling between timepoints. Off by default to
+            match ``rca-base-init``, but reachable because each session's
+            ``orig.mgz`` was rescaled by its *own* robust factor during conform,
+            so the volumes being averaged are not on a common intensity scale.
         subsample: Subsample threshold for large volumes.
-        arm6_atlas: Optional ARM6 atlas *in base space*, for the claustrum fix
-            and thin-WM enhancement. None today -- see the note at the
-            reconstruction call for what that costs.
 
     Returns:
-        StepOutput whose output_file is the base subject directory.
+        StepOutput with output_file=base subject directory and
+        additional_files containing ``base_nii`` (the template as NIfTI, for the
+        segmentation stage) and one ``lta_<timepoint>`` per timepoint.
     """
-    from ..operations.preprocessing import apply_segmentation
-    from .anatomical import anat_surface_reconstruction
-
     if not timepoint_dirs:
         raise ValueError("build_base_template needs at least one timepoint")
 
@@ -238,19 +242,6 @@ def build_base_template(
             )
         return path
 
-    # Grids must agree before anything is averaged.
-    grid = assert_consistent_geometry({tp: vol(tp, "orig.mgz") for tp in timepoints})
-    logger.info("Timepoints share grid shape=%s zooms=%s", grid[0], grid[1])
-
-    base_orig = base_mri / "orig.mgz"
-    # mri_robust_template writes a float average. orig.mgz must be uchar to
-    # match a cross-sectional orig, so that surface reconstruction's conform
-    # check passes and it does not re-save (and possibly re-grid) the volume.
-    # longmc converts for the same reason.
-    base_orig_float = base_mri / "orig_robusttemplate.mgz"
-    norm_template = base_mri / "norm_template.mgz"
-    ltas = [base_transforms / f"{tp}_to_{base_subject_id}.lta" for tp in timepoints]
-
     if len(timepoints) < 2:
         # A single timepoint has nothing to average, and an "unbiased template"
         # of one scan is just that scan. FreeSurfer's base stream supports it
@@ -263,49 +254,67 @@ def build_base_template(
             f"{len(timepoints)} ({', '.join(timepoints)}). Single-session "
             "subjects are skipped by the workflow for this reason."
         )
-    else:
-        # Pass 1: solve the rigid transforms on the skull-stripped volumes, so
-        # registration is driven by brain tissue.
-        mri_robust_template(
-            movs=[vol(tp, "norm.mgz") for tp in timepoints],
-            template=norm_template,
-            ltas=ltas,
-            average=1,  # median
-            sat=RCA_BASE_INIT_SAT,
-            iscale=iscale,
-            subsample=subsample,
-            # Spatial init is random by default, which would make the base
-            # differ between runs and break -resume reproducibility.
-            inittp=1,
-            log_file=log_file,
-        )
-        # Pass 2: apply those transforms to the full-head volumes to get the
-        # base's own orig.mgz. --noit means "resample and average, do not
-        # re-solve", so the two passes stay consistent.
-        mri_robust_template(
-            movs=[vol(tp, "orig.mgz") for tp in timepoints],
-            template=base_orig_float,
-            ixforms=ltas,
-            average=1,
-            noit=True,
-            sat=None,
-            log_file=log_file,
-        )
-        mri_convert_apply_lta(
-            base_orig_float, base_orig, lta=None, odt="uchar", log_file=log_file
-        )
-        # Pass 3: a binary mask template, for QC only. Nearest-neighbour and a
-        # mean rather than a median, since this is a label volume.
-        mri_robust_template(
-            movs=[vol(tp, "mask.mgz") for tp in timepoints],
-            template=base_mri / "mask_template.mgz",
-            ixforms=ltas,
-            average=0,
-            noit=True,
-            finalnearest=True,
-            sat=None,
-            log_file=log_file,
-        )
+
+    # Grids must agree before anything is averaged.
+    grid = assert_consistent_geometry({tp: vol(tp, "orig.mgz") for tp in timepoints})
+    logger.info("Timepoints share grid shape=%s zooms=%s", grid[0], grid[1])
+
+    base_orig = base_mri / "orig.mgz"
+    # mri_robust_template writes a float average. orig.mgz must be uchar to
+    # match a cross-sectional orig, so that surface reconstruction's conform
+    # check passes and it does not re-save (and possibly re-grid) the volume.
+    # longmc converts for the same reason.
+    base_orig_float = base_mri / "orig_robusttemplate.mgz"
+    norm_template = base_mri / "norm_template.mgz"
+    mask_template = base_mri / "mask_template.mgz"
+    ltas = [base_transforms / f"{tp}_to_{base_subject_id}.lta" for tp in timepoints]
+
+    # Pass 1: solve the rigid transforms on the skull-stripped volumes, so
+    # registration is driven by brain tissue.
+    mri_robust_template(
+        movs=[vol(tp, "norm.mgz") for tp in timepoints],
+        template=norm_template,
+        ltas=ltas,
+        average=1,  # median
+        sat=RCA_BASE_INIT_SAT,
+        iscale=iscale,
+        subsample=subsample,
+        # Spatial init is random by default, which would make the base differ
+        # between runs and break -resume reproducibility.
+        inittp=1,
+        log_file=log_file,
+    )
+    # Pass 2: apply those transforms to the full-head volumes to get the base's
+    # own orig.mgz. --noit means "resample and average, do not re-solve", so the
+    # two passes stay consistent.
+    mri_robust_template(
+        movs=[vol(tp, "orig.mgz") for tp in timepoints],
+        template=base_orig_float,
+        ixforms=ltas,
+        average=1,
+        noit=True,
+        sat=None,
+        log_file=log_file,
+    )
+    mri_convert_apply_lta(
+        base_orig_float, base_orig, lta=None, odt="uchar", log_file=log_file
+    )
+    # Pass 3: a binary mask template. Nearest-neighbour and a mean rather than a
+    # median, since this is a label volume. Diagnostic only -- the reconstruction
+    # takes its mask from the base's own segmentation. Kept because when a base
+    # looks wrong, comparing this consensus of the sessions' masks against the
+    # base's freshly computed one is the quickest way to tell a bad average from
+    # a bad segmentation.
+    mri_robust_template(
+        movs=[vol(tp, "mask.mgz") for tp in timepoints],
+        template=mask_template,
+        ixforms=ltas,
+        average=0,
+        noit=True,
+        finalnearest=True,
+        sat=None,
+        log_file=log_file,
+    )
 
     # Inverse transforms, for anyone needing to go base -> timepoint.
     for tp, lta in zip(timepoints, ltas):
@@ -321,9 +330,9 @@ def build_base_template(
     (base_scripts / "base-tps").write_text("\n".join(timepoints) + "\n")
 
     # The base grid must not move from here on: the transforms above target it,
-    # and postprocess_for_freesurfer below re-saves orig.mgz. If a re-conform
-    # changed the grid, every timepoint would be silently misaligned, so this is
-    # a hard check rather than a warning.
+    # and postprocess_for_freesurfer in the reconstruction stage re-saves
+    # orig.mgz. If a re-conform changed the grid, every timepoint would be
+    # silently misaligned, so this is a hard check rather than a warning.
     from fastsurfer_nn.data_loader.conform import is_conform
 
     vox_size = min(grid[1])
@@ -342,20 +351,30 @@ def build_base_template(
             "(LIA, cube). Surface reconstruction would re-conform it and the "
             "timepoint-to-base transforms just written would no longer target "
             "the base's grid, misaligning every timepoint. This means the "
-            "cross-sectional inputs were not conformed identically."
+            "cross-sectional inputs were not conformed identically -- check "
+            "anat.conform.enabled, which is what normally guarantees it."
         )
 
-    # Snapshot the grid the transforms above target, so the post-reconstruction
-    # check below can prove it did not move.
-    base_affine_before = _affine(base_orig)
+    # A NIfTI copy for the segmentation and registration stage, which works in
+    # BIDS-ish space rather than on .mgz.
+    base_nii = base_dir / "mri" / f"{base_subject_id}_T1w.nii.gz"
+    from fastsurfer_surfrecon.wrappers.mri import mri_convert
 
+    mri_convert(base_orig, base_nii, log_file=log_file)
+
+    # Record the grid *and the full affine* the transforms target, so the
+    # reconstruction stage -- which runs in a different task with a different
+    # working directory -- can prove nothing moved. Shape and zooms alone would
+    # accept a translation or an axis flip.
     provenance: Dict[str, Any] = {
         "base_subject_id": base_subject_id,
         "timepoints": timepoints,
         "expected_timepoints": expected_timepoints,
         "incomplete": shortfall,
         "grid": {"shape": list(grid[0]), "zooms": list(grid[1])},
+        "affine": [[float(x) for x in row] for row in _affine(base_orig)],
         "iscale": iscale,
+        "subsample": subsample,
         "sat": RCA_BASE_INIT_SAT,
         "average": "median",
         "ltas": {tp: str(lta) for tp, lta in zip(timepoints, ltas)},
@@ -364,66 +383,308 @@ def build_base_template(
         json.dumps(provenance, indent=2, sort_keys=True) + "\n"
     )
 
-    # Segment the average itself, rather than mapping one timepoint's labels in.
-    # The base is a median of N rigidly aligned scans of the same subject, so its
-    # SNR beats any single session's. Mapping a timepoint's segmentation through
-    # its transform would instead pick an arbitrary session and bake its errors
-    # into every other timepoint -- the asymmetry the unbiased base exists to
-    # remove -- and nearest-neighbour label resampling erodes exactly the thin
-    # white matter that fix_V1_WM and the claustrum fix exist to repair.
+    additional: Dict[str, Path] = {
+        f"lta_{tp}": lta for tp, lta in zip(timepoints, ltas)
+    }
+    additional["base_nii"] = base_nii
+    additional["norm_template"] = norm_template
+    additional["mask_template"] = mask_template
+
+    return StepOutput(
+        output_file=base_dir,
+        metadata={
+            "step": "surface_base_template",
+            "modality": "anat",
+            "subject_id": base_subject_id,
+            "base_subject_id": base_subject_id,
+            "timepoints": timepoints,
+            "incomplete": shortfall,
+            "subjects_dir": str(subjects_dir),
+        },
+        additional_files=additional,
+    )
+
+
+def segment_and_backproject_base(
+    input: StepInput,
+    base_nii: Path,
+    base_subject_id: str,
+    bids_name: Optional[str] = None,
+) -> StepOutput:
+    """Segment the base template and backproject the template atlases onto it.
+
+    Second of the three base stages, and the only one that needs a GPU: the
+    fastSurferCNN segmentation and the FireANTs template registration.
+
+    Segmenting the average itself, rather than mapping one timepoint's labels in,
+    is deliberate: the base is a median of N rigidly aligned scans of the same
+    subject, so its SNR beats any single session's, whereas resampling one
+    timepoint's segmentation would pick an arbitrary session and bake its errors
+    into every other timepoint -- the asymmetry the unbiased base exists to
+    remove -- and nearest-neighbour label resampling erodes exactly the thin
+    white matter that fix_V1_WM and the claustrum fix exist to repair.
+
+    The atlas backprojection is what closes the largest parity gap. ARM6 never
+    comes from segmentation; it is a template atlas resampled through the inverse
+    anat->template transform, exactly as ANAT_BACKPROJECT_ATLASES_TO_T1W does per
+    session. Without it the base loses *two* things, and so does every timepoint
+    seeded from it: the claustrum fix (s07b disables itself when
+    aparc.ARM6atlas+aseg.orig.mgz is absent) and -- the larger effect -- the ARM2
+    thin-WM enhancement, which propagates through aseg.presurf -> wm.mgz ->
+    filled.mgz and thins the white-matter compartment in precisely the
+    orbitofrontal and lateral-prefrontal regions where partial-volume thin WM
+    makes white-surface placement fail.
+
+    Args:
+        input: StepInput carrying config, working_dir and metadata.
+        base_nii: The base template as NIfTI, from ``build_base_template``.
+        base_subject_id: The base's directory name.
+        bids_name: BIDS stem the published derivative and atlas filenames are
+            derived from. Defaults to ``<base_subject_id>_T1w.nii.gz``, but
+            ``sub-X_base`` is not a valid entity chain, so callers should pass
+            something canonical such as ``sub-X_acq-base_T1w.nii.gz``.
+
+    Returns:
+        StepOutput with output_file=the skull-stripped base and additional_files
+        containing ``segmentation``, ``brain_mask`` and, when available,
+        ``arm6_atlas``, ``hemimask``, ``atlas_lut`` and every backprojected
+        atlas under its atlas name.
+    """
+    from ..operations.preprocessing import apply_segmentation
+    from ..utils.templates import resolve_template
+    from .anatomical import anat_backproject_atlases, anat_registration
+
+    base_nii = Path(base_nii)
+    working_dir = Path(input.working_dir)
     seg_work = working_dir / "base_segmentation"
     seg_work.mkdir(parents=True, exist_ok=True)
-    base_nii = seg_work / f"{base_subject_id}_T1w.nii.gz"
 
-    from fastsurfer_surfrecon.wrappers.mri import mri_convert
+    anat_cfg = input.config.get("anat", {})
+    if anat_cfg.get("surface_reconstruction", {}).get("use_t1wt2wcombined"):
+        # Cross-sectionally the CNN is always run on the plain T1w
+        # (ANAT_SKULLSTRIPPING takes anat_after_conform), never on the combined
+        # image. The base's orig.mgz is an average of whatever fed surf recon, so
+        # with this enabled the CNN sees a contrast it never sees otherwise.
+        logger.warning(
+            "anat.surface_reconstruction.use_t1wt2wcombined is enabled, so the "
+            "base template is an average of T1w/T2w-combined volumes and its "
+            "segmentation runs on that combined contrast. Cross-sectional "
+            "segmentation always uses the plain T1w, so check the base's "
+            "segmentation QC before trusting the surfaces."
+        )
 
-    mri_convert(base_orig, base_nii, log_file=log_file)
+    bids_name = bids_name or f"{base_subject_id}_T1w.nii.gz"
+    bids_stem = bids_name.replace(".nii.gz", "").replace("_T1w", "").replace("_T2w", "")
 
-    logger.info("Segmenting base template %s", base_nii)
+    logger.info("Step: segmenting base template %s", base_nii)
     seg_result = apply_segmentation(
         imagef=base_nii,
         modal="anat",
         working_dir=seg_work,
-        output_name=f"{base_subject_id}_desc-brain_T1w.nii.gz",
+        output_name=f"{bids_stem}_desc-brain_T1w.nii.gz",
         config=input.config,
+        logger=logger,
     )
 
-    # Reconstruct the base like any other subject. session_id="" with
-    # session_count=1 makes the naming logic yield exactly base_subject_id.
-    recon_input = StepInput(
-        input_file=base_nii,
-        working_dir=working_dir,
-        config=input.config,
-        output_name="surface_base_template",
-        metadata={
-            "subject_id": base_subject_id,
-            "session_id": "",
-            "session_count": 1,
-        },
+    if seg_result.get("input_cropped"):
+        # apply_segmentation can return a cropped input whose grid differs from
+        # base_nii, in which case the mask belongs to the cropped image, not to
+        # the base. Unreachable today (enable_crop_2round is hard-coded off) but
+        # it would silently mis-place the mask, so refuse rather than guess.
+        raise RuntimeError(
+            "apply_segmentation returned input_cropped "
+            f"({seg_result['input_cropped']}) for the base template. Its mask "
+            "and segmentation are on the cropped grid, not the base's, so they "
+            "cannot be used for the base reconstruction without re-anchoring."
+        )
+
+    additional: Dict[str, Path] = {
+        "segmentation": Path(seg_result["segmentation"]),
+        "brain_mask": Path(seg_result["brain_mask"]),
+        "imagef_skullstripped": Path(seg_result["imagef_skullstripped"]),
+    }
+    for optional in ("hemimask", "atlas_lut"):
+        if seg_result.get(optional):
+            additional[optional] = Path(seg_result[optional])
+
+    atlas_name = seg_result.get("atlas_name", "ARM2")
+
+    # --- Template atlases onto the base grid -------------------------------
+    output_space = input.config.get("template", {}).get(
+        "output_space", "NMT2Sym:res-05"
     )
-    # ARM6 is not produced by segmentation -- it comes from a separate
-    # template-atlas backprojection, in *session* space, so there is no
-    # base-space ARM6 to hand over here. Consequence: the claustrum fix (s07b)
-    # and the ARM6 thin-WM enhancement are skipped for the base, and therefore
-    # for every timepoint seeded from it, while cross-sectional runs still get
-    # them. That keeps base and timepoints mutually consistent, which is what
-    # matters for comparing timepoints, but it does mean longitudinal surfaces
-    # carry a systematic offset relative to the cross-sectional ones -- worth
-    # remembering when comparing the two.
+    template_name = str(output_space).split(":")[0]
+    arm6_atlas: Optional[Path] = None
+    atlas_dir: Optional[Path] = None
+
+    try:
+        template_file = resolve_template(output_space)
+    except Exception as exc:
+        template_file = None
+        logger.warning(
+            "Could not resolve template %s (%s); the base gets no atlases, so "
+            "the claustrum fix and ARM6 white-matter enhancement will be "
+            "skipped for it and for every timepoint seeded from it.",
+            output_space,
+            exc,
+        )
+
+    if template_file is not None:
+        reg_work = working_dir / "base_registration"
+        reg_work.mkdir(parents=True, exist_ok=True)
+        # Skull-stripped moving image, matching ANAT_REGISTRATION.
+        reg = anat_registration(
+            StepInput(
+                input_file=additional["imagef_skullstripped"],
+                working_dir=reg_work,
+                config=input.config,
+                output_name=f"{bids_stem}_space-{template_name}_T1w.nii.gz",
+                metadata={"subject_id": base_subject_id, "session_id": ""},
+            ),
+            template_file=Path(template_file),
+            template_name=template_name,
+        )
+        inverse_xfm = reg.additional_files.get("inverse_transform")
+        if inverse_xfm is None:
+            logger.warning(
+                "Registration of the base to %s produced no inverse transform "
+                "(registration disabled?); no atlases will be backprojected.",
+                template_name,
+            )
+        else:
+            atlas_work = working_dir / "base_atlases"
+            atlas_work.mkdir(parents=True, exist_ok=True)
+            projected = anat_backproject_atlases(
+                inverse_xfm=Path(inverse_xfm),
+                # The base grid, so the atlases land world-aligned to the volume
+                # postprocess_for_freesurfer will conform.
+                t1w_reference=base_nii,
+                bids_name=Path(bids_name),
+                working_dir=atlas_work,
+                config=input.config,
+            )
+            atlas_dir = projected.output_file
+            for name, path in projected.additional_files.items():
+                additional[f"atlas_{name}"] = Path(path)
+            arm6_atlas = projected.additional_files.get("ARM6")
+            if arm6_atlas is None:
+                # A custom template has no bundled atlases, so this is expected
+                # there and matches the cross-sectional behaviour exactly.
+                logger.warning(
+                    "No ARM6 among the backprojected atlases for %s; the "
+                    "claustrum fix and ARM6 white-matter enhancement will be "
+                    "skipped for the base and every timepoint seeded from it.",
+                    base_subject_id,
+                )
+            else:
+                additional["arm6_atlas"] = Path(arm6_atlas)
+
+    return StepOutput(
+        output_file=additional["imagef_skullstripped"],
+        metadata={
+            "step": "surface_base_atlas",
+            "modality": "anat",
+            "subject_id": base_subject_id,
+            "base_subject_id": base_subject_id,
+            "atlas_name": atlas_name,
+            "template": template_name,
+            "arm6_atlas": str(arm6_atlas) if arm6_atlas else None,
+            "atlas_dir": str(atlas_dir) if atlas_dir else None,
+            "bids_name": bids_name,
+        },
+        additional_files=additional,
+    )
+
+
+def reconstruct_base(
+    input: StepInput,
+    base_dir: Path,
+    base_nii: Path,
+    base_subject_id: str,
+    segmentation_file: Path,
+    brain_mask: Path,
+    arm6_atlas: Optional[Path] = None,
+) -> StepOutput:
+    """Reconstruct the base template's surfaces.
+
+    Third of the three base stages: CPU-only and long-running, so it is sized
+    like ANAT_SURFACE_RECONSTRUCTION and holds no GPU token.
+
+    Args:
+        input: StepInput carrying config, working_dir and metadata. Its
+            working_dir must already contain ``fastsurfer/<base_subject_id>`` as
+            produced by ``build_base_template``.
+        base_dir: The staged base directory.
+        base_nii: The base template as NIfTI.
+        base_subject_id: The base's directory name.
+        segmentation_file: Segmentation from ``segment_and_backproject_base``.
+        brain_mask: Brain mask from the same.
+        arm6_atlas: Base-space ARM6, when available. Passed *into*
+            postprocess_for_freesurfer rather than written afterwards, because it
+            also drives the ARM2 thin-WM enhancement that produces
+            aparc+aseg.orig.mgz.
+
+    Returns:
+        StepOutput whose output_file is the reconstructed base directory.
+    """
+    from .anatomical import anat_surface_reconstruction
+
+    base_dir = Path(base_dir)
+    working_dir = Path(input.working_dir)
+    subjects_dir = working_dir / "fastsurfer"
+
+    if not input.config.get("anat", {}).get("surface_reconstruction", {}).get(
+        "enabled", True
+    ):
+        logger.info("Step: base reconstruction skipped (disabled in configuration)")
+        return StepOutput(
+            output_file=base_dir,
+            metadata={"step": "surface_base_recon", "skipped": True},
+        )
+
+    # Read back the grid the timepoint-to-base transforms target. Written by
+    # build_base_template in a different task, so it travels in the tree rather
+    # than in memory.
+    provenance_path = base_dir / "scripts" / "long_base.json"
+    if not provenance_path.exists():
+        raise FileNotFoundError(
+            f"{provenance_path} not found; the base template stage must run "
+            "before its reconstruction."
+        )
+    provenance = json.loads(provenance_path.read_text())
+    expected_grid = (
+        tuple(provenance["grid"]["shape"]),
+        tuple(round(float(z), 4) for z in provenance["grid"]["zooms"]),
+    )
+    expected_affine = provenance.get("affine")
+
     if arm6_atlas is not None:
         logger.info("Step: base ARM6 atlas supplied: %s", arm6_atlas)
     else:
         logger.info(
-            "Step: no base-space ARM6 atlas; claustrum fix and ARM6 WM "
-            "enhancement will be skipped for the base and all its timepoints"
+            "Step: no base-space ARM6 atlas; the claustrum fix and the ARM6 "
+            "white-matter enhancement will be skipped for the base and for "
+            "every timepoint seeded from it"
         )
 
+    # session_id="" with session_count=1 makes the naming logic yield exactly
+    # base_subject_id.
     recon = anat_surface_reconstruction(
-        recon_input,
-        t1w_file=base_nii,
-        segmentation_file=Path(seg_result["segmentation"]),
-        brain_mask=Path(seg_result["brain_mask"]),
-        arm6_atlas=arm6_atlas,
+        StepInput(
+            input_file=Path(base_nii),
+            working_dir=working_dir,
+            config=input.config,
+            output_name="surface_base_recon",
+            metadata={
+                "subject_id": base_subject_id,
+                "session_id": "",
+                "session_count": 1,
+            },
+        ),
+        t1w_file=Path(base_nii),
+        segmentation_file=Path(segmentation_file),
+        brain_mask=Path(brain_mask),
+        arm6_atlas=Path(arm6_atlas) if arm6_atlas else None,
     )
 
     if recon.output_file.resolve() != base_dir.resolve():
@@ -433,43 +694,43 @@ def build_base_template(
             "diverged; downstream stages locate the base by name."
         )
 
-    # The reconstruction re-saved orig.mgz (postprocess_for_freesurfer does so
-    # unconditionally, via a nifti round trip). The transforms written above
-    # target the grid it had *before* that, so confirm it did not move. If it
-    # did, every timepoint would be resampled onto a grid the base no longer
-    # has, and nothing downstream would report it -- the surfaces would simply
-    # be wrong.
+    # postprocess_for_freesurfer re-saves orig.mgz unconditionally, via a NIfTI
+    # round trip. The transforms target the grid it had before that, so confirm
+    # nothing moved -- otherwise every timepoint is resampled onto a grid the
+    # base no longer has, and nothing downstream would report it.
     import numpy as np
 
+    base_orig = base_dir / "mri" / "orig.mgz"
     final_geom = _geometry(base_orig)
     final_affine = _affine(base_orig)
-    if final_geom != grid or not np.allclose(
-        final_affine, base_affine_before, atol=1e-4
-    ):
+    moved = final_geom != expected_grid
+    if expected_affine is not None:
+        moved = moved or not np.allclose(
+            final_affine, np.asarray(expected_affine, dtype=float), atol=1e-4
+        )
+    if moved:
         raise RuntimeError(
             f"Base template geometry changed during reconstruction: was "
-            f"shape={grid[0]} zooms={grid[1]}, now shape={final_geom[0]} "
-            f"zooms={final_geom[1]}.\naffine before:\n{base_affine_before}"
-            f"\naffine after:\n{final_affine}\n"
+            f"shape={expected_grid[0]} zooms={expected_grid[1]}, now "
+            f"shape={final_geom[0]} zooms={final_geom[1]}.\naffine before:\n"
+            f"{expected_affine}\naffine after:\n{final_affine}\n"
             "The timepoint-to-base transforms target the original grid, so "
             "every timepoint would be misaligned. This is a bug in the base "
             "build, not a data problem."
         )
 
-    return StepOutput(
-        output_file=base_dir,
-        metadata={
-            "step": "surface_base_template",
-            "modality": "anat",
+    metadata = dict(recon.metadata)
+    metadata.update(
+        {
+            "step": "surface_base_recon",
             "base_subject_id": base_subject_id,
-            "timepoints": timepoints,
-            "incomplete": shortfall,
+            "timepoints": provenance.get("timepoints"),
+            "incomplete": provenance.get("incomplete"),
+            "arm6_atlas": str(arm6_atlas) if arm6_atlas else None,
             "subjects_dir": str(subjects_dir),
-        },
-        additional_files={
-            f"lta_{tp}": lta for tp, lta in zip(timepoints, ltas)
-        },
+        }
     )
+    return StepOutput(output_file=base_dir, metadata=metadata)
 
 
 def run_long_timepoint(
@@ -503,12 +764,24 @@ def run_long_timepoint(
     subjects_dir = Path(input.working_dir) / "fastsurfer"
     long_subject_id = long_subject_id or f"{cross_subject_id}_long"
 
-    atlas_name = (
-        input.config.get("anat", {})
-        .get("skullstripping_segmentation", {})
-        .get("atlas_name", "ARM2")
+    anat_cfg = input.config.get("anat", {})
+    if not anat_cfg.get("surface_reconstruction", {}).get("enabled", True):
+        # anat_surface_reconstruction() makes this check for the cross-sectional
+        # path; this function calls ReconSurfPipeline directly, so it has to make
+        # it too or the knob would apply to some paths and not others.
+        logger.info(
+            "Step: longitudinal reconstruction skipped (disabled in configuration)"
+        )
+        return StepOutput(
+            output_file=subjects_dir / long_subject_id,
+            metadata={"step": "surface_reconstruction_long", "skipped": True},
+        )
+
+    atlas_name = anat_cfg.get("skullstripping_segmentation", {}).get(
+        "atlas_name", "ARM2"
     )
     threads = input.config.get("processing", {}).get("threads", 1)
+    long_cfg = anat_cfg.get("surface_reconstruction", {}).get("longitudinal", {})
 
     logger.info(
         "Longitudinal reconstruction of %s from base %s",
@@ -534,6 +807,8 @@ def run_long_timepoint(
         base_subject_id=base_subject_id,
         cross_subject_id=cross_subject_id,
         tp_to_base_lta=Path(tp_to_base_lta),
+        long_max_cbv_dist=float(long_cfg.get("max_cbv_dist", 3.5)),
+        long_pial_blend_weight=float(long_cfg.get("pial_blend_weight", 0.25)),
     )
     ReconSurfPipeline(recon_config).run()
 

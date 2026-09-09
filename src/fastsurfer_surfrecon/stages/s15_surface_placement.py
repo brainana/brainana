@@ -64,7 +64,7 @@ class SurfacePlacement(HemisphereStage):
         # small), and it is why the behaviour is gated on config.longitudinal
         # rather than applied unconditionally.
         longitudinal = self.config.longitudinal
-        long_max_cbv_dist = 3.5
+        long_max_cbv_dist = self.config.long_max_cbv_dist
 
         # Step 1: Place white surface
         # The white surface is placed from white.preaparc, which was created in stage 13.
@@ -122,7 +122,7 @@ class SurfacePlacement(HemisphereStage):
                 orig_pial = self.hemi_path("orig_pial")
                 if orig_pial.exists():
                     pial_input = orig_pial
-                    blend_surf = (0.25, white)
+                    blend_surf = (self.config.long_pial_blend_weight, white)
                 else:
                     logger.warning(
                         "longitudinal=True but %s is missing; starting the "

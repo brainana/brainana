@@ -36,10 +36,13 @@ WORKFLOWS = sorted((REPO / "workflows").glob("*.nf"))
 # those are genuinely light and some may be under-resourced for the same reason
 # documented above, but auditing and re-sizing them is a separate change. Widen
 # HEAVY_MARKERS once that has been done.
+# Prefixed deliberately: a bare "SURFACE_BASE" also matches
+# ANAT_PROJECT_ATLASES_TO_SURFACE_BASE, which is a light mri_vol2surf job and is
+# unconfigured cross-sectionally too, so flagging it would be a false positive.
 HEAVY_MARKERS = (
-    "SURFACE_RECONSTRUCTION",
-    "SURFACE_BASE",
-    "SURFACE_LONG",
+    "ANAT_SURFACE_RECONSTRUCTION",
+    "ANAT_SURFACE_BASE",
+    "ANAT_SURFACE_LONG",
 )
 
 # Names carrying a heavy marker that are deliberately light. Keep this short and

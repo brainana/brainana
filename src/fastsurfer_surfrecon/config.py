@@ -306,6 +306,29 @@ class ReconSurfConfig(BaseModel):
             "pipeline's directory-naming convention."
         ),
     )
+    # How tightly a timepoint's surfaces are anchored to the base. These trade
+    # bias for variance -- a tighter cap reduces across-timepoint noise but also
+    # damps genuine change -- so they are configurable rather than baked in.
+    # Defaults are recon-all -long's own values.
+    long_max_cbv_dist: float = Field(
+        default=3.5,
+        gt=0,
+        description=(
+            "Maximum distance a longitudinal timepoint's surface may move from "
+            "the base during placement (recon-all -long uses 3.5). Ignored "
+            "unless longitudinal is True."
+        ),
+    )
+    long_pial_blend_weight: float = Field(
+        default=0.25,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "How far the longitudinal pial pass is blended toward this "
+            "timepoint's own white surface (recon-all -long uses .25). Ignored "
+            "unless longitudinal is True."
+        ),
+    )
 
     @property
     def cmd_log_file(self) -> Path:

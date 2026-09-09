@@ -611,6 +611,44 @@ button#generate:hover{filter:brightness(.95);}
                         </div>
                         <span class="help-text">(use T1w and T2w combined (enhanced T1w) image if available)</span>
                     </div>
+                    <div class="param-block">
+                        <div class="param-row">
+                            <span class="param-check"></span>
+                            <label>longitudinal</label>
+                            <span class="param-control"></span>
+                        </div>
+                        <span class="help-text">(only used when synthesis_level is "session_longitudinal")</span>
+                        <div class="param-row">
+                            <span class="param-check"><input type="checkbox" id="anat_surface_reconstruction_longitudinal_iscale" name="anat_surface_reconstruction_longitudinal_iscale"></span>
+                            <label for="anat_surface_reconstruction_longitudinal_iscale">iscale</label>
+                            <span class="param-control"></span>
+                        </div>
+                        <span class="help-text">(model intensity scaling between timepoints when building the base template)</span>
+                        <div class="param-row">
+                            <span class="param-check"></span>
+                            <label for="anat_surface_reconstruction_longitudinal_subsample">subsample</label>
+                            <span class="param-control">
+                                <input type="number" id="anat_surface_reconstruction_longitudinal_subsample" name="anat_surface_reconstruction_longitudinal_subsample" value="" step="1" min="1" placeholder="null">
+                            </span>
+                        </div>
+                        <span class="help-text">(subsample threshold for large volumes; blank = off)</span>
+                        <div class="param-row">
+                            <span class="param-check"></span>
+                            <label for="anat_surface_reconstruction_longitudinal_max_cbv_dist">max_cbv_dist</label>
+                            <span class="param-control">
+                                <input type="number" id="anat_surface_reconstruction_longitudinal_max_cbv_dist" name="anat_surface_reconstruction_longitudinal_max_cbv_dist" value="3.5" step="0.1" min="0">
+                            </span>
+                        </div>
+                        <span class="help-text">(how far a timepoint's surface may move from the base; lower reduces variance but damps real change)</span>
+                        <div class="param-row">
+                            <span class="param-check"></span>
+                            <label for="anat_surface_reconstruction_longitudinal_pial_blend_weight">pial_blend_weight</label>
+                            <span class="param-control">
+                                <input type="number" id="anat_surface_reconstruction_longitudinal_pial_blend_weight" name="anat_surface_reconstruction_longitudinal_pial_blend_weight" value="0.25" step="0.05" min="0" max="1">
+                            </span>
+                        </div>
+                        <span class="help-text">(blend of the longitudinal pial pass toward this timepoint's own white surface)</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1082,7 +1120,13 @@ button#generate:hover{filter:brightness(.95);}
                 },
                 surface_reconstruction: {
                     enabled: true,
-                    use_t1wt2wcombined: false
+                    use_t1wt2wcombined: false,
+                    longitudinal: {
+                        iscale: false,
+                        subsample: null,
+                        max_cbv_dist: 3.5,
+                        pial_blend_weight: 0.25
+                    }
                 }
             },
             func: {
@@ -1491,6 +1535,11 @@ button#generate:hover{filter:brightness(.95);}
             
             config.anat.surface_reconstruction.enabled = document.getElementById('anat_surface_reconstruction_enabled').checked;
             config.anat.surface_reconstruction.use_t1wt2wcombined = document.getElementById('anat_surface_reconstruction_use_t1wt2wcombined').checked;
+            config.anat.surface_reconstruction.longitudinal.iscale = document.getElementById('anat_surface_reconstruction_longitudinal_iscale').checked;
+            const _longSubsample = document.getElementById('anat_surface_reconstruction_longitudinal_subsample').value;
+            config.anat.surface_reconstruction.longitudinal.subsample = _longSubsample === '' ? null : parseInt(_longSubsample);
+            config.anat.surface_reconstruction.longitudinal.max_cbv_dist = parseFloat(document.getElementById('anat_surface_reconstruction_longitudinal_max_cbv_dist').value);
+            config.anat.surface_reconstruction.longitudinal.pial_blend_weight = parseFloat(document.getElementById('anat_surface_reconstruction_longitudinal_pial_blend_weight').value);
             
             // Functional
             config.func.coreg_runs_within_session = document.getElementById('func_coreg_runs_within_session').checked;

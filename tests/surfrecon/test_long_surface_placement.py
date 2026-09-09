@@ -96,4 +96,26 @@ def test_s15_source_gates_anchoring_on_the_longitudinal_flag():
     # The anchor surfaces are only chosen inside a longitudinal branch.
     assert 'orig_white = self.hemi_path("orig_white")' in src
     assert 'orig_pial = self.hemi_path("orig_pial")' in src
-    assert "blend_surf = (0.25, white)" in src
+
+
+def test_anchoring_strength_comes_from_config_not_constants():
+    """Both knobs trade bias for variance, so they must not be hard-coded.
+
+    A tighter cap reduces across-timepoint noise but also damps genuine change;
+    that is a study-design choice, not a constant.
+    """
+    from pathlib import Path
+
+    from fastsurfer_surfrecon.config import ReconSurfConfig
+
+    src = Path(
+        "src/fastsurfer_surfrecon/stages/s15_surface_placement.py"
+    ).read_text()
+    assert "long_max_cbv_dist = self.config.long_max_cbv_dist" in src
+    assert "blend_surf = (self.config.long_pial_blend_weight, white)" in src
+    # No stray literals left behind.
+    assert "= 3.5" not in src
+    assert "(0.25," not in src
+    # Defaults match recon-all -long.
+    assert ReconSurfConfig.model_fields["long_max_cbv_dist"].default == 3.5
+    assert ReconSurfConfig.model_fields["long_pial_blend_weight"].default == 0.25
