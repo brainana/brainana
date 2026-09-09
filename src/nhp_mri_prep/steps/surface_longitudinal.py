@@ -31,7 +31,6 @@ import nibabel as nib
 
 from fastsurfer_surfrecon.wrappers.longitudinal import (
     RCA_BASE_INIT_SAT,
-    make_upright,
     mri_concatenate_lta,
     mri_convert_apply_lta,
     mri_robust_template,
@@ -114,6 +113,17 @@ def _geometry(path: Path) -> tuple:
     img = nib.load(str(path))
     zooms = tuple(round(float(z), 4) for z in img.header.get_zooms()[:3])
     return tuple(img.shape[:3]), zooms
+
+
+def _affine(path: Path):
+    """The full voxel-to-world mapping, for checks that a grid did not move.
+
+    Shape and zooms alone would accept a translation or an axis flip, which is
+    precisely what "the grid moved" means for a transform that targets it.
+    """
+    import numpy as np
+
+    return np.asarray(nib.load(str(path)).affine, dtype=float)
 
 
 def assert_consistent_geometry(volumes: Dict[str, Path]) -> tuple:
@@ -241,16 +251,18 @@ def build_base_template(
     norm_template = base_mri / "norm_template.mgz"
     ltas = [base_transforms / f"{tp}_to_{base_subject_id}.lta" for tp in timepoints]
 
-    if len(timepoints) == 1:
-        # Nothing to average. FreeSurfer's base stream uses make_upright here so
-        # a single-session subject still traverses the same code path.
-        tp = timepoints[0]
-        logger.info("Single timepoint (%s): using make_upright for the base", tp)
-        make_upright(
-            vol(tp, "norm.mgz"), norm_template, ltas[0], log_file=log_file
+    if len(timepoints) < 2:
+        # A single timepoint has nothing to average, and an "unbiased template"
+        # of one scan is just that scan. FreeSurfer's base stream supports it
+        # (via make_upright) only so that one-session subjects appear in
+        # group-level tables; here it would add an interpolation for no gain,
+        # and the emitted transform and the base volume have to stay mutually
+        # consistent or every timepoint is resampled onto the wrong grid.
+        raise ValueError(
+            f"A within-subject base template needs at least 2 timepoints; got "
+            f"{len(timepoints)} ({', '.join(timepoints)}). Single-session "
+            "subjects are skipped by the workflow for this reason."
         )
-        shutil.copy2(vol(tp, "orig.mgz"), base_orig, follow_symlinks=True)
-        shutil.copy2(vol(tp, "mask.mgz"), base_mri / "mask_template.mgz")
     else:
         # Pass 1: solve the rigid transforms on the skull-stripped volumes, so
         # registration is driven by brain tissue.
@@ -332,6 +344,10 @@ def build_base_template(
             "the base's grid, misaligning every timepoint. This means the "
             "cross-sectional inputs were not conformed identically."
         )
+
+    # Snapshot the grid the transforms above target, so the post-reconstruction
+    # check below can prove it did not move.
+    base_affine_before = _affine(base_orig)
 
     provenance: Dict[str, Any] = {
         "base_subject_id": base_subject_id,
@@ -415,6 +431,29 @@ def build_base_template(
             f"Base reconstruction landed in {recon.output_file}, expected "
             f"{base_dir}. The subject-id naming logic and base_subject_id have "
             "diverged; downstream stages locate the base by name."
+        )
+
+    # The reconstruction re-saved orig.mgz (postprocess_for_freesurfer does so
+    # unconditionally, via a nifti round trip). The transforms written above
+    # target the grid it had *before* that, so confirm it did not move. If it
+    # did, every timepoint would be resampled onto a grid the base no longer
+    # has, and nothing downstream would report it -- the surfaces would simply
+    # be wrong.
+    import numpy as np
+
+    final_geom = _geometry(base_orig)
+    final_affine = _affine(base_orig)
+    if final_geom != grid or not np.allclose(
+        final_affine, base_affine_before, atol=1e-4
+    ):
+        raise RuntimeError(
+            f"Base template geometry changed during reconstruction: was "
+            f"shape={grid[0]} zooms={grid[1]}, now shape={final_geom[0]} "
+            f"zooms={final_geom[1]}.\naffine before:\n{base_affine_before}"
+            f"\naffine after:\n{final_affine}\n"
+            "The timepoint-to-base transforms target the original grid, so "
+            "every timepoint would be misaligned. This is a bug in the base "
+            "build, not a data problem."
         )
 
     return StepOutput(
@@ -653,6 +692,7 @@ def collect_change_stats(
     long_ids = sorted(long_dirs)
 
     resolved_times: Dict[str, float] = {}
+    ordinal_fallback: List[str] = []
     for long_id in long_ids:
         if times and long_id in times:
             resolved_times[long_id] = float(times[long_id])
@@ -660,11 +700,22 @@ def collect_change_stats(
         match = re.search(r"_ses-([^_]+)", long_id)
         parsed = parse_session_time(match.group(1)) if match else None
         if parsed is None:
-            raise ValueError(
-                f"Cannot determine a time for {long_id}: no numeric session "
-                "label found. Pass times explicitly."
-            )
+            # Labels like ses-preop or ses-M06 carry no number. Fall back to the
+            # position in the sorted order, which still gives a correctly
+            # *ordered* fit -- rather than refusing to produce any statistics.
+            # The rate is then per-scan, not per-unit-time; the summary records
+            # which timepoints were treated this way.
+            parsed = float(long_ids.index(long_id) + 1)
+            ordinal_fallback.append(long_id)
         resolved_times[long_id] = parsed
+
+    if ordinal_fallback:
+        logger.warning(
+            "No numeric session label for %s; using scan order as the time "
+            "variable, so the fitted rate is per scan rather than per unit "
+            "time. Pass times explicitly if the spacing matters.",
+            ", ".join(ordinal_fallback),
+        )
 
     if len(set(resolved_times.values())) < 2:
         raise ValueError(
@@ -690,6 +741,7 @@ def collect_change_stats(
         "base_subject_id": base_dir.name,
         "timepoints": long_ids,
         "times": resolved_times,
+        "ordinal_time_fallback": ordinal_fallback,
         "vertex_outputs": {},
         "roi_tables": {},
         "skipped": {},
@@ -759,24 +811,28 @@ def collect_change_stats(
             )
             continue
 
-        rois = sorted(set.intersection(*(set(v) for v in per_tp.values())))
-        roi_columns = sorted(
-            set.intersection(
-                *(set(next(iter(v.values()))) for v in per_tp.values() if v)
-            )
-        ) if rois else []
+        # Only the timepoints that actually had a stats file. Iterating long_ids
+        # here would KeyError on any timepoint whose stats were missing, which
+        # under errorStrategy 'ignore' would lose all of the subject's stats
+        # silently.
+        stats_ids = [i for i in long_ids if i in per_tp]
+        rois = sorted(set.intersection(*(set(per_tp[i]) for i in stats_ids)))
 
         csv_lines = ["roi,measure,slope,mean,spc,n_timepoints"]
         for roi in rois:
+            # Columns intersected across the timepoints for *this* ROI, rather
+            # than sampled from one arbitrary ROI: mris_anatomical_stats can emit
+            # different column sets, and a column present only elsewhere would
+            # KeyError here.
+            roi_columns = sorted(
+                set.intersection(*(set(per_tp[i][roi]) for i in stats_ids))
+            )
             for column in roi_columns:
+                usable = [i for i in stats_ids if roi in per_tp[i]]
                 y = np.array(
-                    [per_tp[i][roi][column] for i in long_ids if roi in per_tp[i]],
-                    dtype=float,
+                    [per_tp[i][roi][column] for i in usable], dtype=float
                 )
-                tt = np.array(
-                    [resolved_times[i] for i in long_ids if roi in per_tp[i]],
-                    dtype=float,
-                )
+                tt = np.array([resolved_times[i] for i in usable], dtype=float)
                 if y.size < 2 or len(set(tt)) < 2:
                     continue
                 ttc = tt - tt.mean()

@@ -275,20 +275,32 @@ workflow SURF_RECON_WF {
             def bids_by_subject = anat_for_surf_recon
                 .map { sub, ses, anat_file, bids_name -> [sub, ses, bids_name] }
 
+            // The QC processes derive the figure filename from the BIDS stem
+            // alone, so reusing a session's stem verbatim would send the base,
+            // longitudinal and cross-sectional figures to the *same* published
+            // path, overwriting each other. Inject an acq- entity so each gets
+            // its own filename. The stem is only ever parsed for a name --
+            // create_bids_output_filename touches no filesystem -- so a
+            // synthetic one is safe.
             def base_qc_input = surf_base_subject_id_ch
                 .combine(bids_by_subject.groupTuple(by: 0), by: 0)
                 .map { sub, base_id, ses_list, bids_names ->
-                    // Reuse the lexicographically first session's BIDS stem for
-                    // the figure filename; the base itself has no session.
                     def order = (0..<ses_list.size()).sort { a, b ->
                         ("${ses_list[a] ?: ''}") <=> ("${ses_list[b] ?: ''}")
                     }
-                    [sub, '', base_id, bids_names[order[0]], 'ARM2']
+                    // Session entity dropped: the base spans all sessions.
+                    def base_stem = "${bids_names[order[0]]}"
+                        .replaceAll(/_ses-[^_]+/, '')
+                        .replaceAll(/_(T1w|T2w)/, '_acq-base_\$1')
+                    [sub, '', base_id, base_stem, 'ARM2']
                 }
 
             def long_qc_input = surf_long_subject_id_ch
                 .join(bids_by_subject, by: [0, 1])
-                .map { sub, ses, long_id, bids_name -> [sub, ses, long_id, bids_name, 'ARM2'] }
+                .map { sub, ses, long_id, bids_name ->
+                    def long_stem = "${bids_name}".replaceAll(/_(T1w|T2w)/, '_acq-long_\$1')
+                    [sub, ses, long_id, long_stem, 'ARM2']
+                }
 
             def extra_tissue_qc = base_qc_input
                 .mix(long_qc_input)

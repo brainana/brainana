@@ -698,10 +698,13 @@ process ANAT_SURFACE_BASE_TEMPLATE {
     label 'gpu'                 // segments the averaged volume with fastSurferCNN
     tag "${subject_id}_base"
 
-    // One subject's base failing must not take down the cohort, matching
-    // ANAT_SURFACE_RECONSTRUCTION. Its timepoints simply produce no
-    // longitudinal outputs.
-    errorStrategy 'ignore'
+    // Deliberately NOT errorStrategy 'ignore', unlike the other processes in
+    // this feature. This one consumes a token from gpu_queue and returns it via
+    // gpu_token; 'ignore' would let a failed task swallow its token, and since
+    // gpu_queue is never closed the pipeline would then hang forever rather
+    // than skip a subject. A visible failure the user can -resume past is much
+    // better than a silent deadlock. Same choice as ANAT_SKULLSTRIPPING, the
+    // other GPU-token consumer.
 
     publishDir "${params.output_dir}/fastsurfer",
         mode: 'copy',
@@ -724,6 +727,16 @@ process ANAT_SURFACE_BASE_TEMPLATE {
 
     script:
     """
+    # GPU assignment (gpu_id is 'none' when workflow GPU scheduling is disabled,
+    # e.g. CPU mode). Without this the task would use whichever device torch
+    # picks, so multi-GPU tasks collide and CPU-mode runs still hit the GPU.
+    if [ "${gpu_id}" != "none" ]; then
+        export CUDA_VISIBLE_DEVICES=${gpu_id}
+        echo "[GPU Assignment] Task ${task.index} -> GPU ${gpu_id} (of ${params.gpu_count} available)"
+    else
+        export CUDA_VISIBLE_DEVICES=""
+    fi
+
     \${PYTHON:-python3} <<EOF
 from nhp_mri_prep.steps.surface_longitudinal import build_base_template
 from nhp_mri_prep.steps.types import StepInput

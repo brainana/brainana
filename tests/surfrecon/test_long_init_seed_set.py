@@ -180,6 +180,33 @@ def test_verify_outputs_catches_an_incomplete_seeding(seeded):
     assert "qsphere" in str(exc.value)
 
 
+def test_verify_outputs_detects_seed_table_drift(seeded, monkeypatch):
+    """The scenario the live-query safety net exists for.
+
+    Deleting a seed is already caught by the base class, because every seed is
+    also one of this stage's declared outputs. The case only the live query can
+    catch is a geometry stage gaining an output the seed table does not cover --
+    i.e. someone edits s08-s12 and forgets s00_long_init. Simulated here by
+    adding a requirement to s12.
+    """
+    from fastsurfer_surfrecon.stages.base import StageOutputError
+    from fastsurfer_surfrecon.stages import s12_topology_fix
+
+    config, sd, stage = seeded
+    original = s12_topology_fix.TopologyFix.expected_outputs
+
+    def with_extra_output(self):
+        return original(self) + [self.hemi_path("newly.required.surface")]
+
+    monkeypatch.setattr(
+        s12_topology_fix.TopologyFix, "expected_outputs", with_extra_output
+    )
+    with pytest.raises(StageOutputError) as exc:
+        stage.verify_outputs()
+    assert "TopologyFix" in str(exc.value)
+    assert "newly.required.surface" in str(exc.value)
+
+
 def test_orig_comes_from_the_cross_sectional_run_not_the_base(seeded):
     """orig.mgz must be the timepoint's own scan, resampled -- not base's."""
     config, sd, _ = seeded

@@ -264,25 +264,32 @@ class LongTimepointInit(PipelineStage):
 
         import importlib
 
+        # Deliberately NOT `is_disabled() or should_skip()`. is_disabled() for
+        # these stages is config.longitudinal, which is always True while this
+        # stage is running, so including it would make the check vacuous. What
+        # must hold is that the seeds satisfy each stage's own completion rule --
+        # that is what a resumed run and the surface QC step depend on, and it is
+        # what would silently break if a stage's expected_outputs() gained an
+        # entry the seed table does not cover.
         problems: list[str] = []
         for module_name, class_name in _INHERITED_STAGE_MODULES:
             module = importlib.import_module(f".{module_name}", __package__)
             stage_cls = getattr(module, class_name)
             for hemi in ("lh", "rh"):
                 stage = stage_cls(self.config, self.sd, hemi)
-                if stage.is_disabled() or stage.should_skip():
+                if stage.should_skip():
                     continue
                 missing = [
                     str(p) for p in stage.expected_outputs() if not p.exists()
                 ]
                 problems.append(
-                    f"{class_name} ({hemi}) would re-run"
-                    + (f"; unseeded: {', '.join(missing)}" if missing else "")
+                    f"{class_name} ({hemi}) is not satisfied by the seeds"
+                    + (f"; missing: {', '.join(missing)}" if missing else "")
                 )
 
         if problems:
             raise StageOutputError(
-                "Longitudinal seeding is incomplete -- these stages would "
-                "recompute geometry that must be inherited from the base:\n  "
-                + "\n  ".join(problems)
+                "Longitudinal seeding is incomplete -- the geometry these "
+                "stages would otherwise compute is not fully inherited from "
+                "the base:\n  " + "\n  ".join(problems)
             )
