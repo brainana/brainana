@@ -48,6 +48,15 @@ class Inflation(HemisphereStage):
             subject_dir=self.sd.subject_dir,
         )
 
+    def is_disabled(self) -> bool:
+        """Longitudinal timepoints inherit this geometry from the base template.
+
+        See stages/s00_long_init.py: the base's surfaces are seeded into this
+        timepoint, so recomputing them here would discard the shared topology
+        that makes cross-timepoint vertex correspondence exact.
+        """
+        return self.config.longitudinal
+
     def should_skip(self) -> bool:
         """Skip if inflated exists, or if a later stage's output proves it ran.
 

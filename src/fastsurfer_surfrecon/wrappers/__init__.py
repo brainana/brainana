@@ -38,6 +38,12 @@ from .registration import (
     lta_convert,
     pctsurfcon as pctsurfcon_wrapper,
 )
+from .longitudinal import (
+    mri_robust_template,
+    mri_convert_apply_lta,
+    make_upright,
+    mri_concatenate_lta,
+)
 
 __all__ = [
     # Base utilities
@@ -70,4 +76,9 @@ __all__ = [
     "talairach_avi",
     "lta_convert",
     "pctsurfcon_wrapper",
+    # Longitudinal stream
+    "mri_robust_template",
+    "mri_convert_apply_lta",
+    "make_upright",
+    "mri_concatenate_lta",
 ]

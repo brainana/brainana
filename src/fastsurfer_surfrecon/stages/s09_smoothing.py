@@ -41,6 +41,15 @@ class Smoothing(HemisphereStage):
             subject_dir=self.sd.subject_dir,
         )
 
+    def is_disabled(self) -> bool:
+        """Longitudinal timepoints inherit this geometry from the base template.
+
+        See stages/s00_long_init.py: the base's surfaces are seeded into this
+        timepoint, so recomputing them here would discard the shared topology
+        that makes cross-timepoint vertex correspondence exact.
+        """
+        return self.config.longitudinal
+
     def expected_outputs(self) -> list:
         """Smoothed surface, before topology correction."""
         return [self.hemi_path("smoothwm.nofix")]

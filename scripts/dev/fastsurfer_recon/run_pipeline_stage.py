@@ -21,6 +21,7 @@ from fastsurfer_surfrecon.io.subjects_dir import SubjectsDir
 from fastsurfer_surfrecon.utils.logging import setup_logging
 from fastsurfer_surfrecon.stages import (
     # Volume stages
+    LongTimepointInit,
     VolumePrep,
     BiasCorrection,
     MaskAseg,
@@ -138,6 +139,7 @@ def run_pipeline_to_step(config: ReconSurfConfig, stop_step: str):
         print("=" * 60)
 
         volume_stages = [
+            ("s00", LongTimepointInit),
             ("s01", VolumePrep),
             ("s02", BiasCorrection),
             ("s03", MaskAseg),

@@ -308,6 +308,15 @@ class TopologyFix(HemisphereStage):
             return False
         return a.read_bytes() == b.read_bytes()
 
+    def is_disabled(self) -> bool:
+        """Longitudinal timepoints inherit this geometry from the base template.
+
+        See stages/s00_long_init.py: the base's surfaces are seeded into this
+        timepoint, so recomputing them here would discard the shared topology
+        that makes cross-timepoint vertex correspondence exact.
+        """
+        return self.config.longitudinal
+
     def expected_outputs(self) -> list:
         """Everything this stage guarantees on success.
 
