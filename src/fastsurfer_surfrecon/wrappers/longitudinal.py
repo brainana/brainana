@@ -162,7 +162,7 @@ def mri_robust_template(
 def mri_convert_apply_lta(
     input_vol: Path,
     output_vol: Path,
-    lta: Path,
+    lta: Optional[Path] = None,
     odt: Optional[str] = "uchar",
     resample: str = "cubic",
     log_file: Optional[Path] = None,
@@ -189,8 +189,11 @@ def mri_convert_apply_lta(
         Input volume, in the source (cross-sectional) space.
     output_vol : Path
         Output volume, on the LTA target's geometry.
-    lta : Path
-        Transform whose target geometry the output adopts.
+    lta : Path, optional
+        Transform whose target geometry the output adopts. When None, no
+        transform is applied and this is a plain convert -- used to write the
+        base template as uchar, which is what ``longmc`` also does so that the
+        volume matches a cross-sectional orig.mgz and is not re-conformed later.
     odt : str, optional
         Output data type. ``longmc`` uses ``uchar`` for orig.mgz; pass None to
         leave the type unchanged, which is what label volumes need.
@@ -209,12 +212,19 @@ def mri_convert_apply_lta(
     output_vol = Path(output_vol)
     output_vol.parent.mkdir(parents=True, exist_ok=True)
 
-    cmd: list[str | Path] = ["mri_convert", "-at", Path(lta)]
+    cmd: list[str | Path] = ["mri_convert"]
+    if lta is not None:
+        cmd += ["-at", Path(lta)]
     if odt is not None:
         cmd += ["-odt", odt]
-    cmd += ["-rt", resample, Path(input_vol), output_vol]
+    if lta is not None:
+        cmd += ["-rt", resample]
+    cmd += [Path(input_vol), output_vol]
 
-    logger.info("Resampling %s through %s -> %s", input_vol, lta, output_vol)
+    if lta is None:
+        logger.info("Converting %s -> %s (odt=%s)", input_vol, output_vol, odt)
+    else:
+        logger.info("Resampling %s through %s -> %s", input_vol, lta, output_vol)
     run_fs_command(
         cmd,
         log_file=log_file,

@@ -554,11 +554,18 @@ process ANAT_SURFACE_RECONSTRUCTION {
     tuple val(subject_id), val(session_id), path("fastsurfer/sub-${subject_id}*"), emit: subject_dir
     tuple val(subject_id), val(session_id), path("actual_subject_id.txt"), emit: actual_subject_id
     tuple val(subject_id), val(session_id), path("metadata.json"), emit: metadata
+    // The few small volumes a within-subject base template is built from, so
+    // ANAT_SURFACE_BASE_TEMPLATE can stage those instead of N whole 1-2 GB
+    // FreeSurfer trees. Optional: with errorStrategy 'ignore' a failed session
+    // emits nothing at all, and the base process reconciles what arrives
+    // against the expected count rather than relying on Nextflow to notice.
+    tuple val(subject_id), val(session_id), path("base_inputs/*"), optional: true, emit: base_inputs
     
     script:
     """
     \${PYTHON:-python3} <<EOF
 from nhp_mri_prep.steps.anatomical import anat_surface_reconstruction
+from nhp_mri_prep.steps.surface_longitudinal import collect_base_inputs
 from nhp_mri_prep.steps.types import StepInput
 from nhp_mri_prep.utils.nextflow import (
     load_config, normalize_session_id, save_metadata
@@ -662,7 +669,232 @@ if not expected_path.exists():
 with open('actual_subject_id.txt', 'w') as f:
     f.write(actual_subject_id)
 
+# Collect the volumes a longitudinal base template would need. Always emitted:
+# it is cheap, and gating it on synthesis_level here would mean the emission
+# depended on config parsing inside the script body.
+try:
+    collect_base_inputs(expected_path, Path('base_inputs'), actual_subject_id)
+except Exception as exc:
+    # Never fail an otherwise-good cross-sectional reconstruction over this.
+    # If a longitudinal run then finds a timepoint missing, the base process
+    # reports the shortfall by name.
+    print(f"WARNING: could not collect base inputs for {actual_subject_id}: {exc}")
+
 # Save metadata
+save_metadata(result.metadata)
+EOF
+    """
+}
+
+/*
+ * Within-subject base template (anat.synthesis_level: session_longitudinal).
+ *
+ * One task per subject, after every session's cross-sectional reconstruction.
+ * Registers the sessions into a common unbiased space with mri_robust_template,
+ * segments the average, and reconstructs it -- yielding a single mesh that all
+ * of the subject's timepoints will inherit.
+ */
+process ANAT_SURFACE_BASE_TEMPLATE {
+    label 'gpu'                 // segments the averaged volume with fastSurferCNN
+    tag "${subject_id}_base"
+
+    // One subject's base failing must not take down the cohort, matching
+    // ANAT_SURFACE_RECONSTRUCTION. Its timepoints simply produce no
+    // longitudinal outputs.
+    errorStrategy 'ignore'
+
+    publishDir "${params.output_dir}/fastsurfer",
+        mode: 'copy',
+        pattern: 'fastsurfer/**',
+        saveAs: { filename -> filename.replace('fastsurfer/', '') }
+
+    input:
+    tuple val(subject_id), val(cross_ids_csv), val(expected_count), path(base_inputs, stageAs: 'base_inputs/*')
+    path config_file
+    val gpu_id
+
+    output:
+    // Deterministic name, unlike ANAT_SURFACE_RECONSTRUCTION whose directory may
+    // or may not carry a _ses- segment, so no glob is needed here.
+    tuple val(subject_id), path("fastsurfer/sub-${subject_id}_base"), emit: base_dir
+    tuple val(subject_id), path("base_subject_id.txt"), emit: base_subject_id
+    tuple val(subject_id), path("transforms/*_to_*.lta"), emit: tp_to_base_ltas
+    tuple val(subject_id), path("metadata.json"), emit: metadata
+    val gpu_id, emit: gpu_token
+
+    script:
+    """
+    \${PYTHON:-python3} <<EOF
+from nhp_mri_prep.steps.surface_longitudinal import build_base_template
+from nhp_mri_prep.steps.types import StepInput
+from nhp_mri_prep.utils.nextflow import load_config, save_metadata
+from pathlib import Path
+import shutil
+
+config = load_config('${config_file}')
+
+# Comma-separated rather than JSON: JSON's double quotes would need escaping
+# through both the Groovy string and the shell heredoc.
+cross_ids = [s for s in '${cross_ids_csv}'.split(',') if s]
+expected_count = int('${expected_count}') if '${expected_count}' else None
+
+# Each timepoint was staged into base_inputs/<cross_id>/ by
+# ANAT_SURFACE_RECONSTRUCTION's collect_base_inputs.
+staged = Path('base_inputs')
+timepoint_dirs = {}
+for cross_id in cross_ids:
+    d = staged / cross_id
+    if d.is_dir():
+        timepoint_dirs[cross_id] = d
+    else:
+        print('WARNING: no staged base inputs for timepoint ' + cross_id)
+
+if len(timepoint_dirs) < 2:
+    raise RuntimeError(
+        'A within-subject base template needs at least 2 timepoints; got '
+        + str(len(timepoint_dirs)) + ' of an expected ' + str(expected_count)
+        + ' for sub-${subject_id}. Check the cross-sectional surface '
+        + 'reconstruction logs: it runs with errorStrategy ignore, so a failed '
+        + 'session contributes nothing without failing the run.'
+    )
+
+base_subject_id = 'sub-${subject_id}_base'
+
+input_obj = StepInput(
+    input_file=staged,
+    working_dir=Path('work'),
+    config=config,
+    output_name='surface_base_template',
+    metadata={'subject_id': 'sub-${subject_id}'},
+)
+
+result = build_base_template(
+    input_obj,
+    timepoint_dirs=timepoint_dirs,
+    base_subject_id=base_subject_id,
+    expected_timepoints=expected_count,
+)
+
+# Move the base into the location Nextflow declared as an output.
+expected_path = Path('fastsurfer') / base_subject_id
+expected_path.parent.mkdir(parents=True, exist_ok=True)
+if expected_path.resolve() != result.output_file.resolve():
+    if expected_path.exists():
+        shutil.rmtree(expected_path)
+    shutil.copytree(result.output_file, expected_path, dirs_exist_ok=True)
+if not expected_path.exists():
+    raise FileNotFoundError('Base template not found at ' + str(expected_path))
+
+# Expose the timepoint->base transforms as their own output, so each
+# longitudinal task can stage just the transform it needs.
+Path('transforms').mkdir(exist_ok=True)
+for lta in sorted((expected_path / 'mri' / 'transforms').glob('*_to_*.lta')):
+    shutil.copy2(lta, Path('transforms') / lta.name)
+
+with open('base_subject_id.txt', 'w') as f:
+    f.write(base_subject_id)
+
+save_metadata(result.metadata)
+EOF
+    """
+}
+
+/*
+ * Longitudinal reconstruction of one timepoint, seeded from its subject's base.
+ *
+ * Stage 00 resamples this session into base space and copies the base's surfaces
+ * in; stages 08-12 then disable themselves, so placement onward refines the
+ * inherited mesh against this session's own intensities. All of a subject's
+ * timepoints therefore share one vertex numbering.
+ */
+process ANAT_SURFACE_RECONSTRUCTION_LONG {
+    label 'cpu'
+    tag "${subject_id}_${session_id}_long"
+    errorStrategy 'ignore'
+
+    publishDir "${params.output_dir}/fastsurfer",
+        mode: 'copy',
+        pattern: 'fastsurfer/**',
+        saveAs: { filename -> filename.replace('fastsurfer/', '') }
+
+    input:
+    tuple val(subject_id), val(session_id), path(cross_dir, stageAs: 'staged_cross/*'), val(cross_id), path(base_dir, stageAs: 'staged_base/*'), val(base_id), path(ltas, stageAs: 'staged_ltas/*')
+    path config_file
+
+    output:
+    tuple val(subject_id), val(session_id), path("fastsurfer/${cross_id}_long"), emit: subject_dir
+    tuple val(subject_id), val(session_id), path("actual_subject_id.txt"), emit: actual_subject_id
+    tuple val(subject_id), val(session_id), path("metadata.json"), emit: metadata
+
+    script:
+    """
+    \${PYTHON:-python3} <<EOF
+from nhp_mri_prep.steps.surface_longitudinal import run_long_timepoint
+from nhp_mri_prep.steps.types import StepInput
+from nhp_mri_prep.utils.nextflow import load_config, save_metadata
+from pathlib import Path
+import shutil
+
+config = load_config('${config_file}')
+
+cross_id = '${cross_id}'
+base_id = '${base_id}'
+long_id = cross_id + '_long'
+
+# ReconSurfPipeline addresses a single SUBJECTS_DIR, so assemble a work-local
+# one holding the base and this timepoint's cross-sectional tree side by side.
+subjects_dir = Path('work') / 'fastsurfer'
+subjects_dir.mkdir(parents=True, exist_ok=True)
+for staged_root, name in ((Path('staged_base'), base_id), (Path('staged_cross'), cross_id)):
+    src = staged_root / name
+    if not src.is_dir():
+        candidates = [p for p in staged_root.iterdir() if p.is_dir()]
+        if len(candidates) != 1:
+            raise FileNotFoundError(
+                'Expected exactly one staged directory in ' + str(staged_root)
+                + ', found ' + str([p.name for p in candidates])
+            )
+        src = candidates[0]
+    dst = subjects_dir / name
+    if not dst.exists():
+        shutil.copytree(src, dst, symlinks=False, dirs_exist_ok=True)
+
+lta = Path('staged_ltas') / (cross_id + '_to_' + base_id + '.lta')
+if not lta.exists():
+    available = sorted(p.name for p in Path('staged_ltas').iterdir())
+    raise FileNotFoundError(
+        'Transform ' + lta.name + ' not found among the staged transforms '
+        + str(available) + '. Without it this timepoint cannot be put into '
+        + 'base space.'
+    )
+
+input_obj = StepInput(
+    input_file=subjects_dir / cross_id,
+    working_dir=Path('work'),
+    config=config,
+    output_name='surface_reconstruction_long',
+    metadata={'subject_id': 'sub-${subject_id}', 'session_id': '${session_id}'},
+)
+
+result = run_long_timepoint(
+    input_obj,
+    cross_subject_id=cross_id,
+    base_subject_id=base_id,
+    tp_to_base_lta=lta,
+    long_subject_id=long_id,
+)
+
+expected_path = Path('fastsurfer') / long_id
+expected_path.parent.mkdir(parents=True, exist_ok=True)
+if expected_path.exists():
+    shutil.rmtree(expected_path)
+shutil.copytree(result.output_file, expected_path, dirs_exist_ok=True)
+if not expected_path.exists():
+    raise FileNotFoundError('Longitudinal output not found at ' + str(expected_path))
+
+with open('actual_subject_id.txt', 'w') as f:
+    f.write(long_id)
+
 save_metadata(result.metadata)
 EOF
     """

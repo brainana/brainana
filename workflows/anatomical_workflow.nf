@@ -1199,6 +1199,16 @@ workflow ANAT_WF {
     def anat_for_surf_recon = use_t1wt2wcombined ? anat_after_t1wt2wcombined : anat_after_bias
     SURF_RECON_WF(anat_for_surf_recon, anat_skull_seg, anat_skull_mask, anat_arm6_atlas, gpu_queue)
 
+    // Note on the longitudinal stream (anat.synthesis_level: session_longitudinal):
+    // SURF_RECON_WF also emits surf_base_dir_ch / surf_long_subject_dir_ch, and
+    // those are deliberately NOT consumed here. Functional and atlas consumers
+    // must keep seeing the cross-sectional trees: a _long tree's orig.mgz is in
+    // base space, while project_tsnr_to_surface uses `mri_vol2surf --regheader`
+    // and ANAT_PROJECT_ATLASES_TO_SURFACE feeds session-space atlases -- both
+    // assume header agreement with the session's own volumes, so pointing them
+    // at longitudinal surfaces would misregister by the timepoint-to-base
+    // transform. The longitudinal outputs are consumed only inside
+    // SURF_RECON_WF (for QC), which is also why main.nf needs no change.
     def surf_recon_enabled_for_emit = paramResolver.getYamlBool("anat.surface_reconstruction.enabled")
     
     // No `def`: must be workflow-scoped so emit
