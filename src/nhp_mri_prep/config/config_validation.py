@@ -85,15 +85,35 @@ def validate_anat_config(config: Dict[str, Any]) -> None:
         ValueError: If configuration is invalid
     """
     # synthesis_level selects cross-session ("subject") vs within-session
-    # ("session") T1w/T2w synthesis; no other values are supported.
+    # ("session") T1w/T2w synthesis. "session_longitudinal" is a strict
+    # superset of "session": identical anatomical selection, plus a
+    # within-subject base template and a base-seeded longitudinal surface
+    # reconstruction per session. No other values are supported.
+    valid_levels = ["subject", "session", "session_longitudinal"]
     if "synthesis_level" in config:
         level = config["synthesis_level"]
-        if level not in ["subject", "session"]:
+        if level not in valid_levels:
             raise ValueError(
                 f"Configuration error in anat: "
-                f"synthesis_level must be 'subject' or 'session', got {level!r}. "
+                f"synthesis_level must be one of "
+                f"{', '.join(repr(v) for v in valid_levels)}, got {level!r}. "
                 f"Please fix this in your configuration file."
             )
+        # The longitudinal stream lives entirely inside surface reconstruction,
+        # so selecting it with surf recon off would run an ordinary "session"
+        # pass and quietly produce none of the longitudinal outputs. Catching
+        # that here beats discovering it after the anatomical workflow finishes.
+        if level == "session_longitudinal":
+            surf_recon = config.get("surface_reconstruction", {})
+            if isinstance(surf_recon, dict) and surf_recon.get("enabled") is False:
+                raise ValueError(
+                    "Configuration error in anat: "
+                    "synthesis_level 'session_longitudinal' requires "
+                    "anat.surface_reconstruction.enabled: true -- the "
+                    "longitudinal stream is part of surface reconstruction, so "
+                    "with it disabled nothing longitudinal would be produced. "
+                    "Please fix this in your configuration file."
+                )
 
 
 def validate_slice_timing_config(config: Dict[str, Any]) -> None:

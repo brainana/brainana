@@ -71,6 +71,33 @@ def test_generator_covers_every_default_key():
 
 
 @pytest.mark.parametrize(
+    "synthesis_level",
+    ["subject", "session", "session_longitudinal"],
+)
+def test_every_synthesis_level_validates(synthesis_level):
+    """All three documented values must pass, so the enum cannot silently narrow."""
+    validate_config({"anat": {"synthesis_level": synthesis_level}})
+
+
+def test_longitudinal_requires_surface_reconstruction():
+    """The longitudinal stream lives inside surf recon.
+
+    Selecting it with surf recon disabled would run an ordinary "session" pass
+    and produce none of the longitudinal outputs, which is worth catching at
+    config time rather than an hour into a run.
+    """
+    with pytest.raises(ValueError, match="surface_reconstruction"):
+        validate_config(
+            {
+                "anat": {
+                    "synthesis_level": "session_longitudinal",
+                    "surface_reconstruction": {"enabled": False},
+                }
+            }
+        )
+
+
+@pytest.mark.parametrize(
     "bad_config",
     [
         {"anat": {"synthesis_level": "bogus"}},

@@ -22,9 +22,13 @@ template:
   #   - "NMT2Sym:res-025"
 
 anat:
-  synthesis_level: "subject"  # str: T1w/T2w synthesis level ("subject", "session"). 
-  # "subject" = cross-session synthesis (cross-sectional)
-  # "session" = within-session synthesis (longitudinal)
+  synthesis_level: "subject"  # str: T1w/T2w synthesis level ("subject", "session", "session_longitudinal").
+  # "subject" = cross-session synthesis; one shared T1w per subject (cross-sectional)
+  # "session" = within-session synthesis; each session reconstructed independently
+  # "session_longitudinal" = like "session", plus a within-subject unbiased base
+  #   template per subject and a base-seeded longitudinal surface reconstruction
+  #   per session, so surfaces share one mesh across timepoints. Requires
+  #   anat.surface_reconstruction.enabled and >=2 sessions with anatomy.
   conform:
     enabled: true  # HIGILY RECOMMENDED: bool: conform input image to template space using FLIRT rigid registration
   skullstripping_segmentation:
