@@ -229,7 +229,14 @@ workflow SURF_RECON_WF {
                     // not input order, so without this the base-tps ordering,
                     // the LTA filenames and mri_robust_template's --inittp would
                     // all vary between runs, breaking -resume reproducibility.
-                    def order = (0..<ses_list.size()).sort { a, b ->
+                    // toList() before sort: (0..<n) is an IntRange, an immutable
+                    // AbstractList, and Groovy's sort(Closure) mutates in place --
+                    // so sorting the range directly throws
+                    // UnsupportedOperationException and aborts the whole run. It
+                    // only fires once groupTuple emits, i.e. after every
+                    // cross-sectional reconstruction has finished, so the cost of
+                    // getting this wrong is hours.
+                    def order = (0..<ses_list.size()).toList().sort { a, b ->
                         ("${ses_list[a] ?: ''}") <=> ("${ses_list[b] ?: ''}")
                     }
                     def expected = counts instanceof List ? counts[0] : counts
@@ -278,20 +285,27 @@ workflow SURF_RECON_WF {
                 .map { sub, base_id, base_dir -> [sub, base_id] }
 
             // ---- FAN OUT AGAIN: one longitudinal recon per session --------
-            // combine(by:0), NOT join(by:0): join consumes the single
-            // per-subject base row on the first match, so every later session of
-            // that subject would be silently dropped. combine broadcasts it --
-            // the same idiom already used for anat_sessions_clean above.
+            // Each session's own BIDS stem, which the timepoint turns into its
+            // acq-long name.
+            def bids_by_subject = anat_for_surf_recon
+                .map { sub, ses, anat_file, bids_name -> [sub, ses, bids_name] }
+
+            // combine(by:0), NOT join(by:0), for the per-subject rows: join is 1:1
+            // and would consume the single base row on the first match, silently
+            // dropping every later session of that subject. combine broadcasts it
+            // -- the same idiom already used for anat_sessions_clean above. The
+            // per-session rows above it are joined, since those are 1:1.
             def long_input = ANAT_SURFACE_RECONSTRUCTION.out.subject_dir
                 .join(ANAT_SURFACE_RECONSTRUCTION.out.actual_subject_id, by: [0, 1])
+                .join(bids_by_subject, by: [0, 1])
                 // The reconstructed base (stage 3) -- timepoints inherit its
                 // surfaces, so a partial tree from stage 1 would be useless --
                 // and the transforms from stage 1, which is where they are made.
                 .combine(ANAT_SURFACE_BASE_RECON.out.base_dir, by: 0)
                 .combine(ANAT_SURFACE_BASE_TEMPLATE.out.tp_to_base_ltas, by: 0)
-                .map { sub, ses, cross_dir, aid_file, base_id, base_dir, ltas ->
+                .map { sub, ses, cross_dir, aid_file, bids_name, base_id, base_dir, ltas ->
                     [sub, ses, cross_dir, aid_file.text.trim(),
-                     base_dir, base_id, ltas]
+                     base_dir, base_id, ltas, bids_name]
                 }
 
             ANAT_SURFACE_RECONSTRUCTION_LONG(long_input, config_file)
@@ -304,54 +318,73 @@ workflow SURF_RECON_WF {
             // Both QC processes locate a subject dir by name under
             // output_dir/fastsurfer, which is exactly where these publish, so
             // they need no change -- only new input rows.
-            def bids_by_subject = anat_for_surf_recon
-                .map { sub, ses, anat_file, bids_name -> [sub, ses, bids_name] }
-
-            // The QC processes derive the figure filename from the BIDS stem
-            // alone, so reusing a session's stem verbatim would send the base,
-            // longitudinal and cross-sectional figures to the *same* published
-            // path, overwriting each other. Inject an acq- entity so each gets
-            // its own filename. The stem is only ever parsed for a name --
+            //
+            // They derive the figure filename from the BIDS stem alone, and all
+            // of a subject's figures land in one sub-<id>/figures directory, so
+            // the filename is the only thing separating a session's
+            // cross-sectional figure from its longitudinal one. Each stream is
+            // therefore named through longitudinal_bids_name() by the process
+            // that produces it. The stem is only ever parsed for a name --
             // create_bids_output_filename touches no filesystem -- so a
             // synthetic one is safe.
-            // atlas_name read from the base's own metadata rather than
-            // hard-coded: with a non-default anat.skullstripping_segmentation
-            // .atlas_name the cortical QC would look for
-            // label/?h.aparc.ARM2atlas.mapped.annot and silently emit no figure.
-            def base_atlas_name = ANAT_SURFACE_BASE_ATLAS.out.metadata
-                .map { sub, metadata_file ->
-                    def name = "ARM2"
-                    try {
-                        name = new groovy.json.JsonSlurper().parse(metadata_file).atlas_name ?: "ARM2"
-                    } catch (Exception e) {
-                        println "Warning: could not read atlas_name from base metadata, using ARM2: ${e.message}"
-                    }
-                    [sub, name]
+            // atlas_name read from metadata rather than hard-coded: with a
+            // non-default anat.skullstripping_segmentation.atlas_name the cortical
+            // QC would look for label/?h.aparc.ARM2atlas.mapped.annot and silently
+            // emit no figure.
+            //
+            // From the RECON's metadata, not ANAT_SURFACE_BASE_ATLAS's. Those are
+            // two different values that only coincide today because both land on
+            // ARM2: the recon takes atlas_name from config and uses it to *name*
+            // ?h.aparc.<X>atlas.mapped.{annot,stats}, while the atlas stage's comes
+            // from apply_segmentation, i.e. whatever the segmentation checkpoint
+            // reports. The rule -- already what the cross-sectional QC above does --
+            // is to read it from the metadata of the run that wrote the files you
+            // are about to open.
+            def atlasNameFrom = { metadata_file ->
+                try {
+                    new groovy.json.JsonSlurper().parse(metadata_file).atlas_name ?: "ARM2"
+                } catch (Exception e) {
+                    println "Warning: could not read atlas_name from metadata, using ARM2: ${e.message}"
+                    "ARM2"
                 }
+            }
+            def base_atlas_name = ANAT_SURFACE_BASE_RECON.out.metadata
+                .map { sub, metadata_file -> [sub, atlasNameFrom(metadata_file)] }
+            def long_atlas_name = ANAT_SURFACE_RECONSTRUCTION_LONG.out.metadata
+                .map { sub, ses, metadata_file -> [sub, ses, atlasNameFrom(metadata_file)] }
 
-            def base_qc_input = surf_base_subject_id_ch
-                .combine(bids_by_subject.groupTuple(by: 0), by: 0)
-                .combine(base_atlas_name, by: 0)
-                .map { sub, base_id, ses_list, bids_names, atlas_name ->
-                    def order = (0..<ses_list.size()).sort { a, b ->
-                        ("${ses_list[a] ?: ''}") <=> ("${ses_list[b] ?: ''}")
-                    }
-                    // Session entity dropped: the base spans all sessions. acq-
-                    // goes directly after sub-/ses- so the stem stays in
-                    // canonical BIDS entity order.
-                    def base_stem = "${bids_names[order[0]]}"
-                        .replaceAll(/_ses-[^_]+/, '')
-                        .replaceAll(/^(sub-[^_]+)_/, '$1_acq-base_')
+            // The stems come from the processes that own them, not from a regex
+            // here. The regex version could not work: bids_name is an absolute
+            // path (create_synthesized_bids_filename's session-level branch
+            // returns one), so both `^`-anchored rules silently matched nothing
+            // and every longitudinal QC figure was written to exactly the
+            // cross-sectional filename -- same directory, publishDir
+            // overwrite:false, figure dropped.
+            def base_qc_input = ANAT_SURFACE_BASE_RECON.out.base_dir
+                .map { sub, base_id, base_dir -> [sub, base_id] }
+                .join(
+                    ANAT_SURFACE_BASE_ATLAS.out.bids_name
+                        .map { sub, name_file -> [sub, name_file.text.trim()] },
+                    by: 0
+                )
+                .join(base_atlas_name, by: 0)
+                .map { sub, base_id, base_stem, atlas_name ->
                     [sub, '', base_id, base_stem, atlas_name]
                 }
 
-            def long_qc_input = surf_long_subject_id_ch
-                .join(bids_by_subject, by: [0, 1])
-                .combine(base_atlas_name, by: 0)
-                .map { sub, ses, long_id, bids_name, atlas_name ->
-                    // acq- immediately after sub-/ses-, for canonical order.
-                    def long_stem = "${bids_name}"
-                        .replaceAll(/^(sub-[^_]+(?:_ses-[^_]+)?)_/, '$1_acq-long_')
+            // .out directly, not surf_long_subject_id_ch: that one is also named
+            // in emit:, and consuming a channel in an operator *and* emitting it
+            // is the pattern that breaks the moment a parent workflow reads the
+            // emit. Process outputs are multicast, so this is safe.
+            def long_qc_input = ANAT_SURFACE_RECONSTRUCTION_LONG.out.actual_subject_id
+                .map { sub, ses, id_file -> [sub, ses, id_file.text.trim()] }
+                .join(
+                    ANAT_SURFACE_RECONSTRUCTION_LONG.out.bids_name
+                        .map { sub, ses, name_file -> [sub, ses, name_file.text.trim()] },
+                    by: [0, 1]
+                )
+                .join(long_atlas_name, by: [0, 1])
+                .map { sub, ses, long_id, long_stem, atlas_name ->
                     [sub, ses, long_id, long_stem, atlas_name]
                 }
 
@@ -428,7 +461,14 @@ workflow SURF_RECON_WF {
                 }
                 .map { sub, ses_list, long_dirs, long_ids ->
                     // Sorted for the same reproducibility reason as the base gather.
-                    def order = (0..<ses_list.size()).sort { a, b ->
+                    // toList() before sort: (0..<n) is an IntRange, an immutable
+                    // AbstractList, and Groovy's sort(Closure) mutates in place --
+                    // so sorting the range directly throws
+                    // UnsupportedOperationException and aborts the whole run. It
+                    // only fires once groupTuple emits, i.e. after every
+                    // cross-sectional reconstruction has finished, so the cost of
+                    // getting this wrong is hours.
+                    def order = (0..<ses_list.size()).toList().sort { a, b ->
                         ("${ses_list[a] ?: ''}") <=> ("${ses_list[b] ?: ''}")
                     }
                     [ sub,
@@ -443,6 +483,20 @@ workflow SURF_RECON_WF {
                         .map { sub, base_id, base_dir -> [sub, base_dir, base_id] },
                     by: 0
                 )
+                .combine(base_atlas_name, by: 0)
+                // The subject's own sessions.tsv, which is where BIDS keeps the
+                // real elapsed time. Without it the fitted rate is per scan, or
+                // keyed to whatever digits lead the session label -- a different
+                // quantity wearing the same name. A .dummy placeholder keeps the
+                // input arity fixed when the dataset has none; the process tests
+                // the filename, so the placeholder must not end in _sessions.tsv.
+                .map { sub, long_ids_csv, long_dirs, base_dir, base_id, atlas_name ->
+                    def tsv = file("${params.bids_dir}/sub-${sub}/sub-${sub}_sessions.tsv")
+                    def sessions_tsv = tsv.exists()
+                        ? tsv
+                        : file("${workDir}/no_sessions_tsv.dummy").tap { it.toFile().text = "" }
+                    [sub, long_ids_csv, long_dirs, base_dir, base_id, atlas_name, sessions_tsv]
+                }
 
             ANAT_SURFACE_LONG_CHANGE_STATS(change_stats_input, config_file)
 

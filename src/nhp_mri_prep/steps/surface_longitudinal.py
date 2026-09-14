@@ -29,6 +29,11 @@ from typing import Any, Dict, List, Optional, Sequence
 
 import nibabel as nib
 
+from fastsurfer_surfrecon.utils.geometry import (
+    describe_geometry_mismatch,
+    volume_affine as _affine,
+    volume_geometry as _geometry,
+)
 from fastsurfer_surfrecon.wrappers.longitudinal import (
     RCA_BASE_INIT_SAT,
     mri_concatenate_lta,
@@ -36,6 +41,7 @@ from fastsurfer_surfrecon.wrappers.longitudinal import (
     mri_robust_template,
 )
 
+from ..utils.nextflow import config_section, config_value
 from .types import StepInput, StepOutput
 
 logger = logging.getLogger(__name__)
@@ -116,30 +122,19 @@ def collect_base_inputs(
     return copied
 
 
-def _geometry(path: Path) -> tuple:
-    img = nib.load(str(path))
-    zooms = tuple(round(float(z), 4) for z in img.header.get_zooms()[:3])
-    return tuple(img.shape[:3]), zooms
-
-
-def _affine(path: Path):
-    """The full voxel-to-world mapping, for checks that a grid did not move.
-
-    Shape and zooms alone would accept a translation or an axis flip, which is
-    precisely what "the grid moved" means for a transform that targets it.
-    """
-    import numpy as np
-
-    return np.asarray(nib.load(str(path)).affine, dtype=float)
-
-
 def assert_consistent_geometry(volumes: Dict[str, Path]) -> tuple:
-    """All timepoints must share one voxel grid before averaging.
+    """Every volume going into the base must share one voxel grid before averaging.
 
     ``mri_robust_template`` produces a well-defined conformed output only when
     its inputs agree, and this is the one violation that would not announce
     itself: the base would be built on some arbitrary grid, the transforms would
     target it, and every timepoint's surfaces would be quietly misaligned.
+
+    Callers pass several volumes per timepoint, not one, because the passes use
+    different ones: the transforms are solved on ``norm.mgz`` while the base's
+    own ``orig.mgz`` comes from ``orig.mgz``. So an ``orig``/``norm`` divergence
+    *within* a single timepoint has the same consequence as a divergence between
+    timepoints, and both are caught here.
 
     Under the default ``anat.conform.enabled: true`` this holds by construction,
     because every session is registered onto the same template-derived grid --
@@ -161,8 +156,8 @@ def assert_consistent_geometry(volumes: Dict[str, Path]) -> tuple:
             f"{tp}: shape={g[0]} zooms={g[1]}" for tp, g in sorted(geoms.items())
         )
         raise ValueError(
-            "Timepoints do not share a voxel grid, so an unbiased base template "
-            "cannot be built from them:\n  "
+            "The volumes going into the base template do not share one voxel "
+            "grid, so an unbiased template cannot be built from them:\n  "
             + detail
             + "\n\nFirst thing to check: anat.conform.enabled should be true, "
             "which puts every session on the same template-derived grid "
@@ -356,8 +351,19 @@ def build_base_template(
             "subjects are skipped by the workflow for this reason."
         )
 
-    # Grids must agree before anything is averaged.
-    grid = assert_consistent_geometry({tp: vol(tp, "orig.mgz") for tp in timepoints})
+    # Grids must agree before anything is averaged -- across timepoints, and
+    # across the three volumes each timepoint contributes. The second half
+    # matters because pass 1 solves the transforms on norm.mgz while pass 2
+    # builds the base's orig.mgz from orig.mgz: an orig/norm divergence *within*
+    # one timepoint is precisely what produces LTAs that target a grid the base
+    # does not have.
+    grid = assert_consistent_geometry(
+        {
+            f"{tp} ({name})": vol(tp, name)
+            for tp in timepoints
+            for name in ("orig.mgz", "norm.mgz", "mask.mgz")
+        }
+    )
     logger.info("Timepoints share grid shape=%s zooms=%s", grid[0], grid[1])
 
     base_orig = base_mri / "orig.mgz"
@@ -410,8 +416,9 @@ def build_base_template(
     mri_convert_apply_lta(
         base_orig_float, base_orig, lta=None, odt="uchar", log_file=log_file
     )
-    # Pass 3: a binary mask template. Nearest-neighbour and a mean rather than a
-    # median, since this is a label volume. Diagnostic only -- the reconstruction
+    # Pass 3: a mask template. Nearest-neighbour resampling and a mean rather than
+    # a median, so the result is the *fraction* of timepoints calling each voxel
+    # brain -- not itself a binary mask. Diagnostic only -- the reconstruction
     # takes its mask from the base's own segmentation. Kept because when a base
     # looks wrong, comparing this consensus of the sessions' masks against the
     # base's freshly computed one is the quickest way to tell a bad average from
@@ -483,6 +490,27 @@ def build_base_template(
             "cross-sectional inputs were not conformed identically -- check "
             "anat.conform.enabled, which is what normally guarantees it."
         )
+
+    # The three passes must have landed on one grid. They should by
+    # construction, but only pass 1 receives --subsample, and it is pass 1 that
+    # writes the LTAs while pass 2 writes the base's orig.mgz. If those ever
+    # diverge, the transforms target a grid the base does not have and every
+    # timepoint is silently misaligned -- so check here, before the GPU
+    # segmentation and the multi-hour reconstruction, rather than discovering it
+    # per timepoint afterwards.
+    for name, other in (("norm_template", norm_template), ("mask_template", mask_template)):
+        mismatch = describe_geometry_mismatch(
+            base_orig, other, labels=("the base's orig.mgz", name)
+        )
+        if mismatch:
+            raise RuntimeError(
+                f"mri_robust_template's passes did not agree on a grid.\n\n"
+                + mismatch
+                + "\n\nThe timepoint-to-base transforms were solved in the pass "
+                "that produced norm_template, so they target its grid, not the "
+                "base's. Every timepoint seeded from this base would be "
+                "misaligned. This is a bug in the base build, not a data problem."
+            )
 
     # A NIfTI copy for the segmentation and registration stage, which works in
     # BIDS-ish space rather than on .mgz.
@@ -591,8 +619,9 @@ def segment_and_backproject_base(
     seg_work = working_dir / "base_segmentation"
     seg_work.mkdir(parents=True, exist_ok=True)
 
-    anat_cfg = input.config.get("anat", {})
-    if anat_cfg.get("surface_reconstruction", {}).get("use_t1wt2wcombined"):
+    if config_value(
+        input.config, "anat.surface_reconstruction.use_t1wt2wcombined", False
+    ):
         # Cross-sectionally the CNN is always run on the plain T1w
         # (ANAT_SKULLSTRIPPING takes anat_after_conform), never on the combined
         # image. The base's orig.mgz is an average of whatever fed surf recon, so
@@ -749,6 +778,104 @@ def segment_and_backproject_base(
     )
 
 
+def _segmentation_agreement(base_dir: Path) -> Optional[float]:
+    """Score the base's own segmentation against the timepoints', then clean up.
+
+    Answers the empirical question ``map_timepoint_asegs_to_base`` exists to pose:
+    the CNN sees a different kind of volume on a robust average than it does
+    cross-sectionally, and whether that domain shift matters is only decidable
+    from the run's own outputs. Writes ``scripts/base_segmentation_agreement.json``.
+
+    Deletes ``mri/timepoint_asegs/`` afterwards. Those are full-size label
+    volumes, one per timepoint, and this is their only consumer -- but the base
+    tree is published, and is then copied again by every longitudinal timepoint
+    and by the change-statistics task, so keeping them multiplies. The JSON keeps
+    the finding, and ``scripts/long_base.json`` still records where they came
+    from. The originals survive in the (unpublished) base-template task's work
+    directory if they are ever needed.
+
+    Args:
+        base_dir: The reconstructed base subject directory.
+
+    Returns:
+        Mean of the per-timepoint median Dice, or None when there was nothing to
+        compare. Never raises: this must not cost a run its base.
+    """
+    base_aseg = base_dir / "mri" / "aseg.auto_noCCseg.mgz"
+    mapped_dir = base_dir / "mri" / "timepoint_asegs"
+    mapped = (
+        sorted(mapped_dir.glob("*_aseg_in_base.mgz")) if mapped_dir.is_dir() else []
+    )
+    if not (base_aseg.exists() and mapped):
+        logger.info(
+            "No mapped timepoint segmentations available; skipping the base "
+            "segmentation agreement check"
+        )
+        return None
+
+    median_dice: Optional[float] = None
+    try:
+        per_timepoint: Dict[str, Dict[str, float]] = {}
+        medians = []
+        for path in mapped:
+            tp = path.name.replace("_aseg_in_base.mgz", "")
+            dice = label_dice(base_aseg, path)
+            if not dice:
+                continue
+            per_timepoint[tp] = dice
+            values = sorted(dice.values())
+            medians.append(values[len(values) // 2])
+        if medians:
+            median_dice = float(sum(medians) / len(medians))
+            logger.info(
+                "Base segmentation vs %d timepoint segmentation(s): mean of "
+                "per-timepoint median Dice %.3f (range %.3f-%.3f)",
+                len(medians),
+                median_dice,
+                min(medians),
+                max(medians),
+            )
+            (base_dir / "scripts" / "base_segmentation_agreement.json").write_text(
+                json.dumps(
+                    {
+                        "description": (
+                            "Per-label Dice between the base template's own "
+                            "segmentation and each timepoint's segmentation "
+                            "mapped into base space. Diagnostic for whether "
+                            "segmenting a robust average shifted the CNN's "
+                            "input domain; low values are the signal. Not "
+                            "fused into a consensus on purpose -- with two "
+                            "timepoints every disagreement is a tie, and "
+                            "breaking it would be a bias dressed up as a "
+                            "majority."
+                        ),
+                        "mean_of_per_timepoint_median_dice": median_dice,
+                        "per_timepoint_median_dice": {
+                            tp: sorted(d.values())[len(d) // 2]
+                            for tp, d in per_timepoint.items()
+                        },
+                        "per_timepoint_per_label_dice": per_timepoint,
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+    except Exception as exc:
+        logger.warning("Could not compute segmentation agreement: %s", exc)
+
+    try:
+        shutil.rmtree(mapped_dir)
+        logger.info(
+            "Pruned %s; the Dice it fed is in scripts/base_segmentation_agreement.json",
+            mapped_dir,
+        )
+    except OSError as exc:
+        logger.warning("Could not prune %s: %s", mapped_dir, exc)
+
+    return median_dice
+
+
 def reconstruct_base(
     input: StepInput,
     base_dir: Path,
@@ -786,8 +913,8 @@ def reconstruct_base(
     working_dir = Path(input.working_dir)
     subjects_dir = working_dir / "fastsurfer"
 
-    if not input.config.get("anat", {}).get("surface_reconstruction", {}).get(
-        "enabled", True
+    if not config_value(
+        input.config, "anat.surface_reconstruction.enabled", True
     ):
         logger.info("Step: base reconstruction skipped (disabled in configuration)")
         return StepOutput(
@@ -872,69 +999,9 @@ def reconstruct_base(
             "build, not a data problem."
         )
 
-    # Segmentation agreement, once postprocess_for_freesurfer has written the
-    # base's own conformed aseg. Diagnostic: a low Dice here is the signal that
-    # segmenting a robust average shifted the CNN's input domain far enough to
-    # matter. Never fatal.
-    median_dice: Optional[float] = None
-    base_aseg = base_dir / "mri" / "aseg.auto_noCCseg.mgz"
-    mapped_dir = base_dir / "mri" / "timepoint_asegs"
-    mapped = sorted(mapped_dir.glob("*_aseg_in_base.mgz")) if mapped_dir.is_dir() else []
-    if base_aseg.exists() and mapped:
-        try:
-            per_timepoint: Dict[str, Dict[str, float]] = {}
-            medians = []
-            for path in mapped:
-                tp = path.name.replace("_aseg_in_base.mgz", "")
-                dice = label_dice(base_aseg, path)
-                if not dice:
-                    continue
-                per_timepoint[tp] = dice
-                values = sorted(dice.values())
-                medians.append(values[len(values) // 2])
-            if medians:
-                median_dice = float(sum(medians) / len(medians))
-                logger.info(
-                    "Base segmentation vs %d timepoint segmentation(s): mean of "
-                    "per-timepoint median Dice %.3f (range %.3f-%.3f)",
-                    len(medians),
-                    median_dice,
-                    min(medians),
-                    max(medians),
-                )
-                (base_dir / "scripts" / "base_segmentation_agreement.json").write_text(
-                    json.dumps(
-                        {
-                            "description": (
-                                "Per-label Dice between the base template's own "
-                                "segmentation and each timepoint's segmentation "
-                                "mapped into base space. Diagnostic for whether "
-                                "segmenting a robust average shifted the CNN's "
-                                "input domain; low values are the signal. Not "
-                                "fused into a consensus on purpose -- with two "
-                                "timepoints every disagreement is a tie, and "
-                                "breaking it would be a bias dressed up as a "
-                                "majority."
-                            ),
-                            "mean_of_per_timepoint_median_dice": median_dice,
-                            "per_timepoint_median_dice": {
-                                tp: sorted(d.values())[len(d) // 2]
-                                for tp, d in per_timepoint.items()
-                            },
-                            "per_timepoint_per_label_dice": per_timepoint,
-                        },
-                        indent=2,
-                        sort_keys=True,
-                    )
-                    + "\n"
-                )
-        except Exception as exc:
-            logger.warning("Could not compute segmentation agreement: %s", exc)
-    else:
-        logger.info(
-            "No mapped timepoint segmentations available; skipping the base "
-            "segmentation agreement check"
-        )
+    # Diagnostic: a low Dice here is the signal that segmenting a robust average
+    # shifted the CNN's input domain far enough to matter. Never fatal.
+    median_dice = _segmentation_agreement(base_dir)
 
     metadata = dict(recon.metadata)
     metadata.update(
@@ -945,7 +1012,10 @@ def reconstruct_base(
             "incomplete": provenance.get("incomplete"),
             "arm6_atlas": str(arm6_atlas) if arm6_atlas else None,
             "subjects_dir": str(subjects_dir),
-            "segmentation_agreement_median_dice": median_dice,
+            "segmentation_agreement_mean_of_median_dice": median_dice,
+            # So an absent mri/timepoint_asegs/ reads as "consumed", not "never
+            # produced". long_base.json still records what was mapped.
+            "timepoint_asegs_pruned": True,
         }
     )
     return StepOutput(output_file=base_dir, metadata=metadata)
@@ -982,8 +1052,9 @@ def run_long_timepoint(
     subjects_dir = Path(input.working_dir) / "fastsurfer"
     long_subject_id = long_subject_id or f"{cross_subject_id}_long"
 
-    anat_cfg = input.config.get("anat", {})
-    if not anat_cfg.get("surface_reconstruction", {}).get("enabled", True):
+    if not config_value(
+        input.config, "anat.surface_reconstruction.enabled", True
+    ):
         # anat_surface_reconstruction() makes this check for the cross-sectional
         # path; this function calls ReconSurfPipeline directly, so it has to make
         # it too or the knob would apply to some paths and not others.
@@ -995,11 +1066,13 @@ def run_long_timepoint(
             metadata={"step": "surface_reconstruction_long", "skipped": True},
         )
 
-    atlas_name = anat_cfg.get("skullstripping_segmentation", {}).get(
-        "atlas_name", "ARM2"
+    atlas_name = config_value(
+        input.config, "anat.skullstripping_segmentation.atlas_name", "ARM2"
     )
-    threads = input.config.get("processing", {}).get("threads", 1)
-    long_cfg = anat_cfg.get("surface_reconstruction", {}).get("longitudinal", {})
+    threads = config_value(input.config, "processing.threads", 1)
+    long_cfg = config_section(
+        input.config, "anat.surface_reconstruction.longitudinal"
+    )
 
     logger.info(
         "Longitudinal reconstruction of %s from base %s",
@@ -1025,8 +1098,10 @@ def run_long_timepoint(
         base_subject_id=base_subject_id,
         cross_subject_id=cross_subject_id,
         tp_to_base_lta=Path(tp_to_base_lta),
-        long_max_cbv_dist=float(long_cfg.get("max_cbv_dist", 3.5)),
-        long_pial_blend_weight=float(long_cfg.get("pial_blend_weight", 0.25)),
+        long_max_cbv_dist=config_value(long_cfg, "max_cbv_dist", 3.5, float),
+        long_pial_blend_weight=config_value(
+            long_cfg, "pial_blend_weight", 0.25, float
+        ),
     )
     ReconSurfPipeline(recon_config).run()
 
@@ -1071,6 +1146,156 @@ def parse_session_time(session_label: str) -> Optional[float]:
         label = label[4:]
     match = re.match(r"^(\d+(?:\.\d+)?)", label)
     return float(match.group(1)) if match else None
+
+
+def read_session_times(
+    sessions_tsv: Path,
+    long_ids: Sequence[str],
+    time_column: Optional[str] = None,
+) -> tuple:
+    """Resolve each timepoint's time from a BIDS ``sessions.tsv``.
+
+    Without this the fitted rate is keyed to whatever digits lead the session
+    label, or to scan order. For labels like ``ses-01, ses-02, ses-03`` covering
+    2, 9 and 24 months, that slope is wrong by an amount nothing in the outputs
+    reveals -- the ordinal fallback is only recorded when the label carried no
+    number at all. ``sessions.tsv`` is where BIDS already keeps the real answer.
+
+    Args:
+        sessions_tsv: ``<bids_dir>/sub-XX/sub-XX_sessions.tsv``.
+        long_ids: The longitudinal subject ids to resolve, e.g.
+            ``sub-01_ses-a_long``. Rows are matched by the ``session_id`` column
+            against the ``_ses-<label>`` in each id -- the same expression
+            ``collect_change_stats`` uses, so the two cannot drift apart.
+        time_column: Column to read. When None, the first of ``age`` then
+            ``acq_time`` that is present.
+
+    Returns:
+        ``(times, source)`` -- a mapping of longitudinal id to time, and a short
+        provenance string naming the file and column. **All or nothing**: if any
+        timepoint is unresolved the result is ``({}, None)``. Partial coverage
+        would silently mix real ages with ordinal indices inside one regression,
+        which is worse than the honest fallback it would displace.
+    """
+    import csv
+
+    sessions_tsv = Path(sessions_tsv)
+    if not sessions_tsv.is_file():
+        return {}, None
+
+    wanted = {}
+    for long_id in long_ids:
+        match = re.search(r"_ses-([^_]+)", long_id)
+        if match is None:
+            logger.warning(
+                "%s carries no session entity, so %s cannot be matched to it; "
+                "falling back to session labels for the time variable.",
+                long_id,
+                sessions_tsv.name,
+            )
+            return {}, None
+        wanted[match.group(1)] = long_id
+
+    try:
+        with sessions_tsv.open(newline="") as handle:
+            rows = list(csv.DictReader(handle, delimiter="\t"))
+    except Exception as exc:
+        logger.warning("Could not read %s: %s", sessions_tsv, exc)
+        return {}, None
+
+    if not rows or "session_id" not in (rows[0] or {}):
+        logger.warning(
+            "%s has no session_id column; falling back to session labels.",
+            sessions_tsv,
+        )
+        return {}, None
+
+    columns = list(rows[0].keys())
+    if time_column is None:
+        column = next((c for c in ("age", "acq_time") if c in columns), None)
+        if column is None:
+            logger.info(
+                "%s has no age or acq_time column (found %s); the fitted rate "
+                "will be per scan rather than per unit time. Set "
+                "anat.surface_reconstruction.longitudinal.time_column to pick "
+                "one explicitly.",
+                sessions_tsv.name,
+                ", ".join(columns),
+            )
+            return {}, None
+    elif time_column not in columns:
+        logger.warning(
+            "anat.surface_reconstruction.longitudinal.time_column is %r but %s "
+            "has only %s; falling back to session labels.",
+            time_column,
+            sessions_tsv.name,
+            ", ".join(columns),
+        )
+        return {}, None
+    else:
+        column = time_column
+
+    # acq_time is an ISO-8601 timestamp, so it becomes days from the subject's
+    # earliest session. BIDS date-shifting preserves intervals, which is all a
+    # rate needs -- the absolute dates are meaningless and often deliberately
+    # false.
+    raw: Dict[str, Any] = {}
+    for row in rows:
+        label = (row.get("session_id") or "").strip()
+        label = label[4:] if label.startswith("ses-") else label
+        if label not in wanted:
+            continue
+        value = (row.get(column) or "").strip()
+        if not value or value.lower() in ("n/a", "na", "nan"):
+            continue
+        raw[wanted[label]] = value
+
+    missing = [i for i in long_ids if i not in raw]
+    if missing:
+        logger.warning(
+            "%s gives no usable %s for %s; falling back to session labels for "
+            "every timepoint, rather than mixing real times with scan indices "
+            "inside one regression.",
+            sessions_tsv.name,
+            column,
+            ", ".join(missing),
+        )
+        return {}, None
+
+    times: Dict[str, float] = {}
+    try:
+        times = {i: float(v) for i, v in raw.items()}
+        source = f"{sessions_tsv.name}:{column}"
+    except ValueError:
+        from datetime import datetime
+
+        try:
+            stamps = {i: datetime.fromisoformat(v) for i, v in raw.items()}
+        except ValueError as exc:
+            logger.warning(
+                "%s column %s is neither numeric nor ISO-8601 (%s); falling "
+                "back to session labels.",
+                sessions_tsv.name,
+                column,
+                exc,
+            )
+            return {}, None
+        origin = min(stamps.values())
+        times = {i: (t - origin).total_seconds() / 86400.0 for i, t in stamps.items()}
+        source = f"{sessions_tsv.name}:{column} (days from first session)"
+
+    if len(set(times.values())) < 2:
+        logger.warning(
+            "%s gives the same %s for every timepoint (%s); a rate cannot be "
+            "fitted from it, so falling back to session labels.",
+            sessions_tsv.name,
+            column,
+            sorted(set(times.values())),
+        )
+        return {}, None
+
+    logger.info("Times for %d timepoint(s) from %s", len(times), source)
+    return times, source
 
 
 def write_qdec_table(
@@ -1146,6 +1371,7 @@ def collect_change_stats(
     measures: Sequence[str] = DEFAULT_MEASURES,
     hemis: Sequence[str] = ("lh", "rh"),
     atlas_name: str = "ARM2",
+    time_source: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Fit within-subject rates of change across a subject's longitudinal recons.
 
@@ -1166,6 +1392,10 @@ def collect_change_stats(
         long_dirs: Mapping of longitudinal subject id to its directory.
         times: Optional explicit time per longitudinal id. Falls back to parsing
             the session label out of the id.
+        time_source: Where ``times`` came from, e.g.
+            ``"sub-01_sessions.tsv:age"``. Recorded in the summary: a rate whose
+            time variable is unknown cannot be interpreted, and this file is the
+            only place that can be recovered from.
         measures: Morphometry maps to fit.
         hemis: Hemispheres to process.
         atlas_name: Atlas whose ROI stats table to summarise.
@@ -1234,6 +1464,13 @@ def collect_change_stats(
         "base_subject_id": base_dir.name,
         "timepoints": long_ids,
         "times": resolved_times,
+        # Which regime produced these numbers. Without it a per-scan rate and a
+        # per-month rate are indistinguishable in the output.
+        "time_source": (
+            time_source
+            if times and time_source
+            else ("scan order" if ordinal_fallback else "session label")
+        ),
         "ordinal_time_fallback": ordinal_fallback,
         "vertex_outputs": {},
         "roi_tables": {},
@@ -1320,15 +1557,16 @@ def collect_change_stats(
             roi_columns = sorted(
                 set.intersection(*(set(per_tp[i][roi]) for i in stats_ids))
             )
+            # Every id in stats_ids has this ROI -- rois is their intersection --
+            # and the times do not vary by column, so both are loop-invariant.
+            tt = np.array([resolved_times[i] for i in stats_ids], dtype=float)
+            if tt.size < 2 or len(set(tt)) < 2:
+                continue
+            ttc = tt - tt.mean()
             for column in roi_columns:
-                usable = [i for i in stats_ids if roi in per_tp[i]]
                 y = np.array(
-                    [per_tp[i][roi][column] for i in usable], dtype=float
+                    [per_tp[i][roi][column] for i in stats_ids], dtype=float
                 )
-                tt = np.array([resolved_times[i] for i in usable], dtype=float)
-                if y.size < 2 or len(set(tt)) < 2:
-                    continue
-                ttc = tt - tt.mean()
                 slope = float((ttc * (y - y.mean())).sum() / (ttc**2).sum())
                 mean = float(y.mean())
                 pct = 100.0 * slope / mean if mean != 0 else 0.0

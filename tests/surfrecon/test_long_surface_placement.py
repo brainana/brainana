@@ -11,7 +11,12 @@ The flags mirror `recon-all -long`: --max-cbv-dist 3.5 on both passes,
 --blend-surf .25 <white> for the pial (recon-all:4289-4304).
 """
 
+from pathlib import Path
+
 import pytest
+
+REPO = Path(__file__).resolve().parent.parent.parent
+S15_SOURCE = REPO / "src" / "fastsurfer_surfrecon" / "stages" / "s15_surface_placement.py"
 
 from fastsurfer_surfrecon.wrappers.mris import mris_place_surface
 
@@ -85,11 +90,7 @@ def test_s15_source_gates_anchoring_on_the_longitudinal_flag():
     populated subject tree; what matters is that neither flag can be emitted
     without consulting config.longitudinal.
     """
-    from pathlib import Path
-
-    src = Path(
-        "src/fastsurfer_surfrecon/stages/s15_surface_placement.py"
-    ).read_text()
+    src = S15_SOURCE.read_text()
     assert "longitudinal = self.config.longitudinal" in src
     # Both passes must condition the cap on that flag.
     assert src.count("max_cbv_dist=long_max_cbv_dist if longitudinal else None") == 2
@@ -104,13 +105,9 @@ def test_anchoring_strength_comes_from_config_not_constants():
     A tighter cap reduces across-timepoint noise but also damps genuine change;
     that is a study-design choice, not a constant.
     """
-    from pathlib import Path
-
     from fastsurfer_surfrecon.config import ReconSurfConfig
 
-    src = Path(
-        "src/fastsurfer_surfrecon/stages/s15_surface_placement.py"
-    ).read_text()
+    src = S15_SOURCE.read_text()
     assert "long_max_cbv_dist = self.config.long_max_cbv_dist" in src
     assert "blend_surf = (self.config.long_pial_blend_weight, white)" in src
     # No stray literals left behind.

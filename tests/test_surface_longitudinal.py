@@ -11,6 +11,7 @@ than loud:
   timepoint's surfaces are misaligned without anything reporting an error.
 """
 
+import json
 import shutil
 from pathlib import Path
 
@@ -19,6 +20,7 @@ import numpy as np
 import pytest
 
 from nhp_mri_prep.steps.surface_longitudinal import (
+    _segmentation_agreement,
     BASE_INPUT_VOLUMES,
     assert_consistent_geometry,
     collect_base_inputs,
@@ -29,6 +31,14 @@ def _write_vol(path, shape=(4, 4, 4), zooms=(0.8, 0.8, 0.8)):
     path.parent.mkdir(parents=True, exist_ok=True)
     affine = np.diag(list(zooms) + [1.0])
     nib.save(nib.Nifti1Image(np.zeros(shape, dtype=np.uint8), affine), str(path))
+    return path
+
+
+def _write_vol_data(path, data, zooms=(0.8, 0.8, 0.8)):
+    """A volume with real label content, for the Dice diagnostic."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    affine = np.diag(list(zooms) + [1.0])
+    nib.save(nib.MGHImage(np.asarray(data), affine), str(path))
     return path
 
 
@@ -94,7 +104,7 @@ class TestGeometryAssertion:
             "ses-a": _write_vol(tmp_path / "a.nii.gz", (8, 8, 8), (0.8, 0.8, 0.8)),
             "ses-b": _write_vol(tmp_path / "b.nii.gz", (8, 8, 8), (0.5, 0.5, 0.5)),
         }
-        with pytest.raises(ValueError, match="do not share a voxel grid"):
+        with pytest.raises(ValueError, match="do not share one voxel grid"):
             assert_consistent_geometry(vols)
 
     def test_differing_shapes_are_rejected(self, tmp_path):
@@ -102,8 +112,28 @@ class TestGeometryAssertion:
             "ses-a": _write_vol(tmp_path / "a.nii.gz", (8, 8, 8), (0.8, 0.8, 0.8)),
             "ses-b": _write_vol(tmp_path / "b.nii.gz", (8, 9, 8), (0.8, 0.8, 0.8)),
         }
-        with pytest.raises(ValueError, match="do not share a voxel grid"):
+        with pytest.raises(ValueError, match="do not share one voxel grid"):
             assert_consistent_geometry(vols)
+
+    def test_one_timepoints_orig_and_norm_may_not_disagree(self, tmp_path):
+        """Pass 1 solves the transforms on norm.mgz; pass 2 averages orig.mgz.
+
+        So an orig/norm divergence *within* a single timepoint has the same
+        consequence as one between timepoints: the LTAs end up targeting a grid
+        the base does not have. build_base_template passes every contributed
+        volume through here for that reason.
+        """
+        vols = {
+            "ses-a (orig.mgz)": _write_vol(
+                tmp_path / "a_orig.nii.gz", (8, 8, 8), (0.8, 0.8, 0.8)
+            ),
+            "ses-a (norm.mgz)": _write_vol(
+                tmp_path / "a_norm.nii.gz", (8, 8, 8), (0.5, 0.5, 0.5)
+            ),
+        }
+        with pytest.raises(ValueError) as exc:
+            assert_consistent_geometry(vols)
+        assert "ses-a (norm.mgz)" in str(exc.value)
 
     def test_error_names_conform_as_the_first_thing_to_check(self, tmp_path):
         """anat.conform.enabled is what normally makes this hold."""
@@ -240,3 +270,57 @@ class TestSegmentationConsensus:
         b = self._write_labels(tmp_path / "b.mgz", np.zeros((4, 4, 5), dtype=np.uint8))
         with pytest.raises(ValueError, match="differ in shape"):
             label_dice(a, b)
+
+
+class TestSegmentationAgreement:
+    """The Dice diagnostic, and the cleanup that follows it.
+
+    mri/timepoint_asegs/ holds one full-size label volume per timepoint and has
+    exactly one consumer. The base tree is published and then copied again by
+    every longitudinal timepoint and by the change-statistics task, so leaving
+    them there multiplies a diagnostic into the largest thing in the output.
+    """
+
+    def _base(self, tmp_path, n_timepoints=2, agree=True):
+        base = tmp_path / "sub-01_base"
+        (base / "scripts").mkdir(parents=True)
+        labels = np.zeros((6, 6, 6), dtype=np.int16)
+        labels[:3] = 2
+        labels[3:] = 41
+        _write_vol_data(base / "mri" / "aseg.auto_noCCseg.mgz", labels)
+        for i in range(n_timepoints):
+            tp = labels if agree else np.full_like(labels, 2)
+            _write_vol_data(
+                base / "mri" / "timepoint_asegs" / f"ses-{i}_aseg_in_base.mgz", tp
+            )
+        return base
+
+    def test_writes_the_summary_and_prunes_the_volumes(self, tmp_path):
+        base = self._base(tmp_path)
+        dice = _segmentation_agreement(base)
+        assert dice == pytest.approx(1.0)
+        summary = json.loads(
+            (base / "scripts" / "base_segmentation_agreement.json").read_text()
+        )
+        assert summary["mean_of_per_timepoint_median_dice"] == pytest.approx(1.0)
+        assert len(summary["per_timepoint_median_dice"]) == 2
+        assert not (base / "mri" / "timepoint_asegs").exists()
+
+    def test_disagreement_lowers_the_score(self, tmp_path):
+        base = self._base(tmp_path, agree=False)
+        assert _segmentation_agreement(base) < 1.0
+
+    def test_nothing_to_compare_is_not_an_error(self, tmp_path):
+        base = tmp_path / "sub-01_base"
+        (base / "scripts").mkdir(parents=True)
+        assert _segmentation_agreement(base) is None
+
+    def test_a_failure_never_costs_the_run_its_base(self, tmp_path):
+        """Diagnostic only -- an unreadable volume must not raise."""
+        base = self._base(tmp_path)
+        (base / "mri" / "timepoint_asegs" / "ses-0_aseg_in_base.mgz").write_bytes(
+            b"not a volume"
+        )
+        assert _segmentation_agreement(base) is None
+        # Still cleaned up, so a retry does not accumulate.
+        assert not (base / "mri" / "timepoint_asegs").exists()

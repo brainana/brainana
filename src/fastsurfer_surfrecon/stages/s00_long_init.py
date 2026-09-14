@@ -42,6 +42,7 @@ import shutil
 from pathlib import Path
 
 from .base import PipelineStage, StageOutputError
+from ..utils.geometry import describe_geometry_mismatch, volume_geometry
 from ..wrappers.longitudinal import mri_convert_apply_lta
 
 logger = logging.getLogger(__name__)
@@ -189,6 +190,48 @@ class LongTimepointInit(PipelineStage):
             cmd_log_file=self.config.cmd_log_file,
         )
         provenance["orig_from"] = str(cross_orig)
+
+        # The one check that stands between a mis-targeted LTA and silently
+        # misaligned surfaces. `mri_convert -at` makes the output adopt the
+        # *LTA's destination* geometry, while everything copied in below -- the
+        # asegs, and every surface in _SURFACE_SEEDS -- is on the *base's*
+        # geometry. If those two disagree, nothing downstream notices:
+        # collect_change_stats would still fit clean per-vertex rates, and they
+        # would be measuring the wrong vertices.
+        #
+        # Before step 3 on purpose, so a bad tree fails with nothing seeded
+        # rather than half-seeded. Two real volumes are compared rather than the
+        # LTA's header, so this also catches a transform mis-wired by the
+        # workflow's staging, not just one built on the wrong grid.
+        base_orig = base_dir / "mri" / "orig.mgz"
+        if not base_orig.exists():
+            raise FileNotFoundError(
+                f"Base template is missing mri/orig.mgz (looked in {base_orig}); "
+                f"the base reconstruction of {base_id} must complete before its "
+                "timepoints can be initialized."
+            )
+        mismatch = describe_geometry_mismatch(
+            self.sd.mri("orig.mgz"),
+            base_orig,
+            labels=(
+                "this timepoint, resampled through the LTA",
+                f"base {base_id}",
+            ),
+        )
+        if mismatch:
+            raise StageOutputError(
+                f"{lta} does not target the base's voxel grid.\n\n"
+                + mismatch
+                + "\n\nThe surfaces and segmentations about to be inherited are "
+                "defined on the base's grid, so this timepoint would be "
+                "misaligned against its own mesh by exactly this difference -- "
+                "and nothing downstream would report it. The transform must come "
+                "from the build_base_template run that produced this base, and "
+                "the base's orig.mgz must not have been re-gridded since."
+            )
+        shape, zooms = volume_geometry(base_orig)
+        provenance["geometry_checked_against"] = str(base_orig)
+        provenance["grid"] = {"shape": list(shape), "zooms": list(zooms)}
 
         # 3. Inherit the label scaffold from the base. Both trees are in base
         #    space, so these are straight copies -- no resampling.

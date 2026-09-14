@@ -6,10 +6,14 @@ success and yields surfaces with no cross-timepoint vertex correspondence. That
 is the failure mode these tests exist to make impossible.
 """
 
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
 from fastsurfer_surfrecon.config import ReconSurfConfig
+
+REPO = Path(__file__).resolve().parent.parent.parent
 
 
 @pytest.fixture
@@ -216,10 +220,14 @@ class TestRobustTemplateIscale:
                 iscaleout=[tmp_path / "a.txt"],
             )
 
-    def test_base_build_threads_scales_from_pass_one_into_pass_two(self):
-        """Source-level: the two passes must share one scale file list."""
-        from pathlib import Path
+    def test_both_passes_share_one_scale_file_list(self):
+        """Source-level: pass 1 must write the scales pass 2 reads back.
 
-        src = Path("src/nhp_mri_prep/steps/surface_longitudinal.py").read_text()
+        Pass 2 runs --noit, so without --iscalein it averages on the original
+        unequal scales and the iscale knob has no effect on the base at all.
+        """
+        src = (
+            REPO / "src" / "nhp_mri_prep" / "steps" / "surface_longitudinal.py"
+        ).read_text()
         assert "iscaleout=iscale_files," in src
         assert "iscalein=iscale_files," in src

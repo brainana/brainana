@@ -670,8 +670,10 @@ with open('actual_subject_id.txt', 'w') as f:
     f.write(actual_subject_id)
 
 # Collect the volumes a longitudinal base template would need. Always emitted:
-# it is cheap, and gating it on synthesis_level here would mean the emission
-# depended on config parsing inside the script body.
+# it is cheap (four small conformed volumes), and gating it on synthesis_level
+# would mean adding a process input -- which changes this task's hash and forces
+# every cross-sectional reconstruction to re-run on -resume against existing work
+# directories. Not worth it for the I/O it saves.
 try:
     collect_base_inputs(expected_path, Path('base_inputs'), actual_subject_id)
 except Exception as exc:
@@ -700,6 +702,17 @@ process ANAT_SURFACE_BASE_TEMPLATE {
     tag "${subject_id}_base"
     errorStrategy 'ignore'
 
+    // This tree is incomplete until ANAT_SURFACE_BASE_RECON has run, so nothing
+    // here should be published -- but `enabled: false` with a real path, rather
+    // than no publishDir at all. nextflow.config sets a process-wide default of
+    // `publishDir = [mode: 'copy', overwrite: false]` with no path, which a
+    // process that declares none inherits verbatim; the task then dies while
+    // being finalized with "Target path for directive publishDir cannot be
+    // null". Same idiom as ANAT_BIAS_CORRECTION.
+    publishDir "${params.output_dir}/sub-${subject_id}/anat",
+        mode: 'copy',
+        enabled: false
+
     input:
     tuple val(subject_id), val(cross_ids_csv), val(expected_count), path(base_inputs, stageAs: 'base_inputs/*')
     path config_file
@@ -717,7 +730,7 @@ process ANAT_SURFACE_BASE_TEMPLATE {
     \${PYTHON:-python3} <<EOF
 from nhp_mri_prep.steps.surface_longitudinal import build_base_template
 from nhp_mri_prep.steps.types import StepInput
-from nhp_mri_prep.utils.nextflow import load_config, save_metadata
+from nhp_mri_prep.utils.nextflow import config_value, load_config, save_metadata
 from pathlib import Path
 import shutil
 
@@ -759,29 +772,41 @@ result = build_base_template(
     timepoint_dirs=timepoint_dirs,
     base_subject_id=base_subject_id,
     expected_timepoints=expected_count,
-    iscale=bool(config.get('anat', {}).get('surface_reconstruction', {}).get('longitudinal', {}).get('iscale', False)),
-    subsample=config.get('anat', {}).get('surface_reconstruction', {}).get('longitudinal', {}).get('subsample'),
+    iscale=bool(config_value(config, 'anat.surface_reconstruction.longitudinal.iscale', False)),
+    subsample=config_value(config, 'anat.surface_reconstruction.longitudinal.subsample'),
 )
 
 # Move the partial base into the declared output location.
+# The NIfTI's name, resolved BEFORE the move below: additional_files points into
+# work/, which is about to stop existing.
+base_nii_name = Path(result.additional_files['base_nii']).name
+
+# Move, not copy: both sides live in this task's work directory, so this is a
+# rename on one filesystem rather than a second 1-2 GB of I/O. Safe because
+# work/ is declared by no output: block -- Nextflow hashes inputs and only
+# requires the *declared* path to exist afterwards, and publishDir copies from
+# there either way. (The staged inputs above are a different matter: those
+# symlink into upstream tasks' work dirs and must stay real copies.)
 expected_path = Path('fastsurfer') / base_subject_id
 expected_path.parent.mkdir(parents=True, exist_ok=True)
 if expected_path.resolve() != result.output_file.resolve():
+    # rmtree first: shutil.move into an existing directory nests instead of
+    # replacing.
     if expected_path.exists():
         shutil.rmtree(expected_path)
-    shutil.copytree(result.output_file, expected_path, dirs_exist_ok=True)
+    shutil.move(str(result.output_file), str(expected_path))
 if not expected_path.exists():
     raise FileNotFoundError('Base template not found at ' + str(expected_path))
 
 # The transforms and the NIfTI travel as their own outputs so the next stages can
-# stage just what they need instead of the whole tree.
+# stage just what they need instead of the whole tree. Read from expected_path,
+# which is where they live now.
 Path('transforms').mkdir(exist_ok=True)
 for lta in sorted((expected_path / 'mri' / 'transforms').glob('*_to_*.lta')):
     shutil.copy2(lta, Path('transforms') / lta.name)
 
 Path('base_nii').mkdir(exist_ok=True)
-base_nii = result.additional_files['base_nii']
-shutil.copy2(base_nii, Path('base_nii') / Path(base_nii).name)
+shutil.copy2(expected_path / 'mri' / base_nii_name, Path('base_nii') / base_nii_name)
 
 save_metadata(result.metadata)
 EOF
@@ -818,7 +843,7 @@ process ANAT_SURFACE_BASE_ATLAS {
         saveAs: { f -> new File(f.toString()).name }
     publishDir "${params.output_dir}/sub-${subject_id}/anat/atlas_space-T1w",
         mode: 'copy',
-        pattern: 'atlas/*',
+        pattern: 'atlas/*.{nii.gz,json,tsv,md,bib}',
         saveAs: { f -> new File(f.toString()).name }
 
     input:
@@ -841,6 +866,9 @@ process ANAT_SURFACE_BASE_ATLAS {
     path "derivatives/*", arity: '0..*', emit: derivatives
     path "atlas/*.{json,tsv,md,bib}", arity: '0..*', emit: sidecars
     tuple val(subject_id), path("metadata.json"), emit: metadata
+    // The stem every base-derived output is named from, emitted so the workflow
+    // does not have to rebuild it by regex. See longitudinal_bids_name().
+    tuple val(subject_id), path("bids_name.txt"), emit: bids_name
     val gpu_id, emit: gpu_token
 
     script:
@@ -858,12 +886,17 @@ process ANAT_SURFACE_BASE_ATLAS {
     \${PYTHON:-python3} <<EOF
 from nhp_mri_prep.steps.surface_longitudinal import segment_and_backproject_base
 from nhp_mri_prep.steps.types import StepInput
+from nhp_mri_prep.utils.bids import get_filename_stem, longitudinal_bids_name
 from nhp_mri_prep.utils.nextflow import load_config, save_metadata
 from nhp_mri_prep.utils.sidecar import write_derivative_sidecar
 from pathlib import Path
 import shutil
 
 config = load_config('${config_file}')
+
+base_bids_name = longitudinal_bids_name('sub-${subject_id}_T1w.nii.gz', 'base')
+with open('bids_name.txt', 'w') as f:
+    f.write(base_bids_name)
 
 staged_nii = sorted(Path('base_nii').glob('*_T1w.nii.gz'))
 if len(staged_nii) != 1:
@@ -883,8 +916,9 @@ result = segment_and_backproject_base(
     base_nii=staged_nii[0],
     base_subject_id='${base_id}',
     # sub-X_base is not a valid BIDS entity chain; acq-base is, and sorts
-    # canonically.
-    bids_name='sub-${subject_id}_acq-base_T1w.nii.gz',
+    # canonically. One helper, so the derivatives below, the fsnative atlases and
+    # the QC figures cannot drift into three different names.
+    bids_name=base_bids_name,
 )
 
 af = result.additional_files
@@ -914,7 +948,7 @@ Path('derivatives').mkdir(exist_ok=True)
 base_sources = [str(staged_nii[0])]
 atlas_name = result.metadata.get('atlas_name')
 seg_suffix = ('atlas' + atlas_name) if atlas_name else 'segmentation'
-bids_prefix = 'sub-${subject_id}_acq-base'
+bids_prefix = get_filename_stem(base_bids_name).replace('_T1w', '').replace('_T2w', '')
 
 derivative_names = [
     ('imagef_skullstripped', bids_prefix + '_desc-brain_T1w.nii.gz', True, None),
@@ -1028,11 +1062,18 @@ result = reconstruct_base(
     arm6_atlas=arm6_atlas,
 )
 
+# Move, not copy: both sides live in this task's work directory, so this is a
+# rename on one filesystem rather than a second 1-2 GB of I/O. Safe because
+# work/ is declared by no output: block -- Nextflow hashes inputs and only
+# requires the *declared* path to exist afterwards, and publishDir copies from
+# there either way. (The staged inputs above are a different matter: those
+# symlink into upstream tasks' work dirs and must stay real copies.)
 expected_path = Path('fastsurfer') / base_id
 expected_path.parent.mkdir(parents=True, exist_ok=True)
+# rmtree first: shutil.move into an existing directory nests instead of replacing.
 if expected_path.exists():
     shutil.rmtree(expected_path)
-shutil.copytree(result.output_file, expected_path, dirs_exist_ok=True)
+shutil.move(str(result.output_file), str(expected_path))
 if not expected_path.exists():
     raise FileNotFoundError('Base reconstruction not found at ' + str(expected_path))
 
@@ -1060,19 +1101,24 @@ process ANAT_SURFACE_RECONSTRUCTION_LONG {
         saveAs: { filename -> filename.replace('fastsurfer/', '') }
 
     input:
-    tuple val(subject_id), val(session_id), path(cross_dir, stageAs: 'staged_cross/*'), val(cross_id), path(base_dir, stageAs: 'staged_base/*'), val(base_id), path(ltas, stageAs: 'staged_ltas/*')
+    tuple val(subject_id), val(session_id), path(cross_dir, stageAs: 'staged_cross/*'), val(cross_id), path(base_dir, stageAs: 'staged_base/*'), val(base_id), path(ltas, stageAs: 'staged_ltas/*'), val(bids_name)
     path config_file
 
     output:
     tuple val(subject_id), val(session_id), path("fastsurfer/${cross_id}_long"), emit: subject_dir
     tuple val(subject_id), val(session_id), path("actual_subject_id.txt"), emit: actual_subject_id
     tuple val(subject_id), val(session_id), path("metadata.json"), emit: metadata
+    // This timepoint's own stem, with acq-long replacing any acq- the session
+    // carried. Without it the QC figures land on exactly the cross-sectional
+    // filenames, in the same publish directory, and are dropped.
+    tuple val(subject_id), val(session_id), path("bids_name.txt"), emit: bids_name
 
     script:
     """
     \${PYTHON:-python3} <<EOF
 from nhp_mri_prep.steps.surface_longitudinal import run_long_timepoint
 from nhp_mri_prep.steps.types import StepInput
+from nhp_mri_prep.utils.bids import longitudinal_bids_name
 from nhp_mri_prep.utils.nextflow import load_config, save_metadata
 from pathlib import Path
 import shutil
@@ -1126,16 +1172,26 @@ result = run_long_timepoint(
     long_subject_id=long_id,
 )
 
+# Move, not copy: both sides live in this task's work directory, so this is a
+# rename on one filesystem rather than a second 1-2 GB of I/O. Safe because
+# work/ is declared by no output: block -- Nextflow hashes inputs and only
+# requires the *declared* path to exist afterwards, and publishDir copies from
+# there either way. (The staged inputs above are a different matter: those
+# symlink into upstream tasks' work dirs and must stay real copies.)
 expected_path = Path('fastsurfer') / long_id
 expected_path.parent.mkdir(parents=True, exist_ok=True)
+# rmtree first: shutil.move into an existing directory nests instead of replacing.
 if expected_path.exists():
     shutil.rmtree(expected_path)
-shutil.copytree(result.output_file, expected_path, dirs_exist_ok=True)
+shutil.move(str(result.output_file), str(expected_path))
 if not expected_path.exists():
     raise FileNotFoundError('Longitudinal output not found at ' + str(expected_path))
 
 with open('actual_subject_id.txt', 'w') as f:
     f.write(long_id)
+
+with open('bids_name.txt', 'w') as f:
+    f.write(longitudinal_bids_name('${bids_name}', 'long'))
 
 save_metadata(result.metadata)
 EOF
@@ -1166,7 +1222,11 @@ process ANAT_SURFACE_LONG_CHANGE_STATS {
         saveAs: { filename -> filename.replaceFirst('changestats/', '') }
 
     input:
-    tuple val(subject_id), val(long_ids_csv), path(long_dirs, stageAs: 'staged_long/*'), path(base_dir, stageAs: 'staged_base/*'), val(base_id)
+    // atlas_name comes from the metadata of the RECON that wrote the stats files,
+    // not from the segmentation's -- see the note in surfrecon_workflow.nf. The
+    // sessions.tsv is the subject's own, or a .dummy placeholder when the dataset
+    // has none.
+    tuple val(subject_id), val(long_ids_csv), path(long_dirs, stageAs: 'staged_long/*'), path(base_dir, stageAs: 'staged_base/*'), val(base_id), val(atlas_name), path(sessions_tsv)
     path config_file
 
     output:
@@ -1176,8 +1236,10 @@ process ANAT_SURFACE_LONG_CHANGE_STATS {
     script:
     """
     \${PYTHON:-python3} <<EOF
-from nhp_mri_prep.steps.surface_longitudinal import collect_change_stats
-from nhp_mri_prep.utils.nextflow import load_config, save_metadata
+from nhp_mri_prep.steps.surface_longitudinal import (
+    collect_change_stats, read_session_times
+)
+from nhp_mri_prep.utils.nextflow import config_value, load_config, save_metadata
 from pathlib import Path
 import shutil
 
@@ -1220,10 +1282,30 @@ if len(long_dirs) < 2:
         + str(len(long_dirs)) + ' for ' + base_id
     )
 
+# Real elapsed time, when the dataset carries it. Without this the fitted rate is
+# per scan (or keyed to digits in the session label), which is a different
+# quantity wearing the same name -- so the source is recorded in the summary too.
+times, time_source = None, None
+sessions_tsv = Path('${sessions_tsv}')
+# endswith, not exists(): the placeholder is always staged, and is named .dummy
+# precisely so it cannot pass this test.
+if sessions_tsv.name.endswith('_sessions.tsv'):
+    times, time_source = read_session_times(
+        sessions_tsv,
+        long_ids,
+        time_column=config_value(
+            config, 'anat.surface_reconstruction.longitudinal.time_column'
+        ),
+    )
+    if not times:
+        times, time_source = None, None
+
 summary = collect_change_stats(
     base_dir=out_base,
     long_dirs=long_dirs,
-    atlas_name=config.get('anat', {}).get('skullstripping_segmentation', {}).get('atlas_name', 'ARM2'),
+    times=times,
+    time_source=time_source,
+    atlas_name='${atlas_name}',
 )
 
 # Collect just the newly written files under changestats/, preserving their
@@ -1247,6 +1329,7 @@ save_metadata({
     'subject_id': 'sub-${subject_id}',
     'base_subject_id': base_id,
     'timepoints': summary['timepoints'],
+    'time_source': summary['time_source'],
     'skipped': summary['skipped'],
 })
 EOF

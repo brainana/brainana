@@ -21,6 +21,7 @@ from nhp_mri_prep.steps.surface_longitudinal import (
     collect_change_stats,
     parse_aparc_stats,
     parse_session_time,
+    read_session_times,
     write_qdec_table,
 )
 
@@ -84,6 +85,129 @@ class TestSessionTimeParsing:
     )
     def test_parses_the_shapes_that_occur(self, label, expected):
         assert parse_session_time(label) == expected
+
+
+LONG_IDS = ["sub-01_ses-001_long", "sub-01_ses-002_long", "sub-01_ses-004_long"]
+
+
+def _sessions_tsv(path, header, rows):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["\t".join(header)] + ["\t".join(r) for r in rows]
+    path.write_text("\n".join(lines) + "\n")
+    return path
+
+
+class TestSessionTsvTimes:
+    """Real elapsed time, which is what makes a "rate" a rate.
+
+    Without a sessions.tsv the fit is keyed to digits in the session label, or to
+    scan order. For ses-01/02/03 covering 2, 9 and 24 months that slope is wrong
+    by an amount nothing in the outputs reveals -- so these tests also pin the
+    refusal to half-resolve, which is what would make the error invisible.
+    """
+
+    def test_reads_a_named_column(self, tmp_path):
+        tsv = _sessions_tsv(
+            tmp_path / "sub-01_sessions.tsv",
+            ["session_id", "scan_day"],
+            [["ses-001", "0"], ["ses-002", "30"], ["ses-004", "90"]],
+        )
+        times, source = read_session_times(tsv, LONG_IDS, time_column="scan_day")
+        assert times == {
+            "sub-01_ses-001_long": 0.0,
+            "sub-01_ses-002_long": 30.0,
+            "sub-01_ses-004_long": 90.0,
+        }
+        assert source == "sub-01_sessions.tsv:scan_day"
+
+    def test_auto_detects_age_before_acq_time(self, tmp_path):
+        tsv = _sessions_tsv(
+            tmp_path / "sub-01_sessions.tsv",
+            ["session_id", "acq_time", "age"],
+            [
+                ["ses-001", "2024-01-01T09:00:00", "4.0"],
+                ["ses-002", "2024-02-01T09:00:00", "4.5"],
+                ["ses-004", "2024-04-01T09:00:00", "5.5"],
+            ],
+        )
+        times, source = read_session_times(tsv, LONG_IDS)
+        assert times["sub-01_ses-004_long"] == 5.5
+        assert source.endswith(":age")
+
+    def test_acq_time_becomes_days_from_the_first_session(self, tmp_path):
+        """BIDS date-shifting preserves intervals; absolute dates are meaningless."""
+        tsv = _sessions_tsv(
+            tmp_path / "sub-01_sessions.tsv",
+            ["session_id", "acq_time"],
+            [
+                ["ses-001", "2024-01-01T00:00:00"],
+                ["ses-002", "2024-01-31T00:00:00"],
+                ["ses-004", "2024-03-31T00:00:00"],
+            ],
+        )
+        times, source = read_session_times(tsv, LONG_IDS)
+        assert times["sub-01_ses-001_long"] == 0.0
+        assert times["sub-01_ses-002_long"] == 30.0
+        assert times["sub-01_ses-004_long"] == 90.0
+        assert "days from first session" in source
+
+    def test_a_missing_session_yields_no_times_at_all(self, tmp_path):
+        """Partial coverage is refused on purpose.
+
+        Filling the gap from scan order would put real ages and scan indices in
+        one regression, and the summary would still call the result a rate. The
+        honest fallback it would displace is strictly better.
+        """
+        tsv = _sessions_tsv(
+            tmp_path / "sub-01_sessions.tsv",
+            ["session_id", "age"],
+            [["ses-001", "4.0"], ["ses-002", "4.5"]],
+        )
+        assert read_session_times(tsv, LONG_IDS) == ({}, None)
+
+    def test_na_counts_as_missing(self, tmp_path):
+        tsv = _sessions_tsv(
+            tmp_path / "sub-01_sessions.tsv",
+            ["session_id", "age"],
+            [["ses-001", "4.0"], ["ses-002", "n/a"], ["ses-004", "5.5"]],
+        )
+        assert read_session_times(tsv, LONG_IDS) == ({}, None)
+
+    def test_a_named_column_that_is_absent_falls_back(self, tmp_path):
+        tsv = _sessions_tsv(
+            tmp_path / "sub-01_sessions.tsv",
+            ["session_id", "age"],
+            [["ses-001", "4.0"], ["ses-002", "4.5"], ["ses-004", "5.5"]],
+        )
+        assert read_session_times(tsv, LONG_IDS, time_column="weight") == ({}, None)
+
+    def test_no_usable_column_falls_back(self, tmp_path):
+        tsv = _sessions_tsv(
+            tmp_path / "sub-01_sessions.tsv",
+            ["session_id", "handedness"],
+            [["ses-001", "R"], ["ses-002", "R"], ["ses-004", "R"]],
+        )
+        assert read_session_times(tsv, LONG_IDS) == ({}, None)
+
+    def test_one_constant_time_cannot_fit_a_rate(self, tmp_path):
+        tsv = _sessions_tsv(
+            tmp_path / "sub-01_sessions.tsv",
+            ["session_id", "age"],
+            [["ses-001", "4.0"], ["ses-002", "4.0"], ["ses-004", "4.0"]],
+        )
+        assert read_session_times(tsv, LONG_IDS) == ({}, None)
+
+    def test_a_missing_file_is_not_an_error(self, tmp_path):
+        assert read_session_times(tmp_path / "absent.tsv", LONG_IDS) == ({}, None)
+
+    def test_session_ids_without_the_ses_prefix_still_match(self, tmp_path):
+        tsv = _sessions_tsv(
+            tmp_path / "sub-01_sessions.tsv",
+            ["session_id", "age"],
+            [["001", "4.0"], ["002", "4.5"], ["004", "5.5"]],
+        )
+        times, _ = read_session_times(tsv, LONG_IDS)
+        assert times["sub-01_ses-002_long"] == 4.5
 
 
 class TestQdecTable:
@@ -180,6 +304,82 @@ class TestCollectChangeStats:
         first = sorted(long_dirs)[0]
         with pytest.raises(ValueError, match="at least 2 timepoints"):
             collect_change_stats(base, {first: long_dirs[first]})
+
+    def test_roi_tables_follow_the_atlas_that_named_the_stats_files(self, long_tree):
+        """atlas_name has to come from the recon that wrote these files.
+
+        It is only ever used to build ?h.aparc.<X>atlas.mapped.stats, and a wrong
+        value does not raise -- it finds nothing and drops every ROI table into
+        summary["skipped"], which is easy to miss in a run that otherwise looks
+        fine.
+        """
+        base, long_dirs = long_tree
+        for d in long_dirs.values():
+            for hemi in ("lh", "rh"):
+                src = d / "stats" / f"{hemi}.aparc.ARM2atlas.mapped.stats"
+                src.rename(src.with_name(f"{hemi}.aparc.ARM3atlas.mapped.stats"))
+
+        matched = collect_change_stats(
+            base, long_dirs, measures=(), hemis=("lh",), atlas_name="ARM3"
+        )
+        assert "lh" in matched["roi_tables"]
+        assert "lh.roi" not in matched["skipped"]
+
+        mismatched = collect_change_stats(
+            base, long_dirs, measures=(), hemis=("lh",), atlas_name="ARM2"
+        )
+        assert "lh" not in mismatched["roi_tables"]
+        assert "ARM2" in mismatched["skipped"]["lh.roi"]
+
+    def test_the_time_variable_changes_the_rate_and_is_recorded(self, long_tree):
+        """A rate is only interpretable alongside the time it is per.
+
+        The same surfaces yield 0.1/unit against the session labels {1,2,4} and
+        0.01/day against real spacing {0,10,30}. Nothing in the maps distinguishes
+        those, so the summary has to say which one it fitted.
+        """
+        base, long_dirs = long_tree
+        summary = collect_change_stats(
+            base,
+            long_dirs,
+            times={
+                "sub-01_ses-001_long": 0.0,
+                "sub-01_ses-002_long": 10.0,
+                "sub-01_ses-004_long": 30.0,
+            },
+            time_source="sub-01_sessions.tsv:age",
+            measures=("thickness",),
+            hemis=("lh",),
+        )
+        assert summary["time_source"] == "sub-01_sessions.tsv:age"
+        rate = np.asanyarray(
+            nib.load(summary["vertex_outputs"]["lh.thickness-rate"]).dataobj
+        ).ravel()
+        assert np.allclose(rate, 0.01, atol=1e-5)
+
+        on_disk = json.loads((base / "stats" / "long.change-stats.json").read_text())
+        assert on_disk["time_source"] == "sub-01_sessions.tsv:age"
+
+    def test_time_source_names_the_fallback_when_there_is_no_tsv(self, long_tree):
+        base, long_dirs = long_tree
+        summary = collect_change_stats(
+            base, long_dirs, measures=("thickness",), hemis=("lh",)
+        )
+        assert summary["time_source"] == "session label"
+
+    def test_time_source_says_scan_order_for_unparseable_labels(self, tmp_path, long_tree):
+        """ses-preop and friends carry no number, so the rate is per scan."""
+        _, long_dirs = long_tree
+        base = tmp_path / "sub-02_base"
+        renamed = {
+            f"sub-02_ses-{label}_long": d
+            for label, d in zip(("preop", "postop", "followup"), long_dirs.values())
+        }
+        summary = collect_change_stats(
+            base, renamed, measures=("thickness",), hemis=("lh",)
+        )
+        assert summary["time_source"] == "scan order"
+        assert sorted(summary["ordinal_time_fallback"]) == sorted(renamed)
 
     def test_explicit_times_override_label_parsing(self, long_tree):
         """Session labels are often scan indices, not elapsed time."""
