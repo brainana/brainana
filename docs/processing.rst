@@ -213,6 +213,73 @@ maps.
 
 - **Outputs:** FreeSurfer-compatible subject directories under ``fastsurfer/``.
 
+.. _longitudinal-surface-stream:
+
+3.1 Longitudinal stream (``session_longitudinal``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Setting ``anat.synthesis_level: "session_longitudinal"`` adds a second pass on
+top of the per-session reconstruction above. Anatomical selection is unchanged
+from ``"session"`` (see :doc:`anat_selection_for_func`); what changes is that
+every session of a subject ends up sharing **one cortical mesh**.
+
+- **When:** ``anat.synthesis_level: "session_longitudinal"``, which also
+  requires ``anat.surface_reconstruction.enabled``. Subjects with fewer than
+  two sessions carrying anatomy are skipped — an "unbiased template" built from
+  a single scan is just that scan, and would add an interpolation for no gain.
+- **Purpose:** Make within-subject change measurable. Because every timepoint
+  inherits the base's mesh, vertex *i* is the same anatomical point in all of
+  them, so thickness at that vertex can be differenced across sessions directly
+  — no surface registration, and no spherical registration step.
+- **Method:** Two phases.
+
+  1. **Within-subject base template.** Each session's conformed volumes are
+     registered into a common unbiased space with ``mri_robust_template``
+     (robust rigid registration, median averaging) and averaged. The average is
+     then segmented and fully reconstructed, giving one mesh for the subject.
+     ``mri_robust_template`` is used on its own deliberately: it is pure robust
+     rigid registration plus averaging, with no atlas priors and no species
+     assumptions, so it transfers to macaque data unchanged. FreeSurfer's own
+     ``recon-all -base``/``-long`` streams would run a human volume pipeline and
+     discard the CNN segmentation these surfaces are built on.
+  2. **Per-timepoint reconstruction.** Each session's volume is resampled into
+     base space and its reconstruction is seeded from the base's surfaces.
+     Tessellation through topology correction are inherited rather than
+     recomputed; surface *placement* onward still runs against that session's
+     own intensities, so genuine change is still measured. Placement is anchored
+     to the base and capped, as ``recon-all -long`` does.
+
+- **Tuning:** ``anat.surface_reconstruction.longitudinal.max_cbv_dist`` (how far
+  a timepoint's surface may move from the base) and ``pial_blend_weight`` trade
+  bias for variance — tightening them reduces across-timepoint noise but also
+  damps real change. ``iscale`` lets the base build model intensity scaling
+  between sessions; ``subsample`` is an escape hatch for large volumes.
+- **Change statistics:** A rate of change is fitted per vertex and per ROI
+  across the subject's timepoints. The time variable comes from
+  ``<bids_dir>/sub-<id>/sub-<id>_sessions.tsv`` when present — an ``age`` or
+  ``acq_time`` column, or one named by
+  ``anat.surface_reconstruction.longitudinal.time_column``. Without a usable
+  column the fit falls back to any number in the session label, and then to scan
+  order, in which case the fitted rate is **per scan rather than per unit
+  time**. Which was used is recorded in the summary (see
+  :doc:`outputs`), because a rate is not interpretable without it.
+- **Quality control:** The base and each timepoint get the same surface QC
+  figures as a cross-sectional session, named with an ``acq-base`` or
+  ``acq-long`` entity so all three sit side by side in ``figures/``. The base
+  additionally records per-label Dice between its own segmentation and each
+  session's, mapped into base space — a check on whether segmenting a robust
+  average shifted the segmentation model's input domain enough to matter.
+- **Outputs:** ``fastsurfer/sub-<id>_base/`` and
+  ``fastsurfer/sub-<id>_ses-<id>_long/``, plus the change-statistic files
+  described in :doc:`outputs`.
+
+.. note::
+
+   Functional processing and the fsnative atlas outputs continue to use the
+   **cross-sectional** reconstructions. A longitudinal tree lives in base space,
+   and projecting session data onto it would misregister by the
+   timepoint-to-base transform.
+
 
 4. Functional processing
 ------------------------

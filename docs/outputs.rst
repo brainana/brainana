@@ -172,6 +172,23 @@ Surface reconstruction (``fastsurfer/``)
 
 When surface reconstruction is enabled, FreeSurfer-compatible outputs are written under ``fastsurfer/sub-<id>/`` (or ``fastsurfer/sub-<id>_ses-<id>/`` when multiple sessions are reconstructed separately). This includes ``label/``, ``mri/``, ``surf/``, and ``stats/`` (meshes, parcellations, and morphometric maps).
 
+.. rubric:: Longitudinal stream (``anat.synthesis_level: "session_longitudinal"``)
+
+With the longitudinal stream enabled (see :ref:`longitudinal-surface-stream`), two further kinds of subject directory appear alongside the cross-sectional ones, which are still produced and are still what functional outputs are registered to:
+
+- ``fastsurfer/sub-<id>_base/`` — the within-subject base template: one unbiased average of the subject's sessions, reconstructed once. Its ``mri/transforms/`` holds the timepoint-to-base transforms (and their inverses).
+- ``fastsurfer/sub-<id>_ses-<id>_long/`` — one per session, reconstructed in base space and seeded from the base, so every timepoint shares the base's vertex numbering.
+
+Because the meshes correspond vertex-for-vertex, within-subject rates of change are fitted and written into the base directory:
+
+- ``sub-<id>_base/surf/?h.long.<measure>-{rate,avg,spc}.mgh`` — per-vertex rate of change, temporal mean, and symmetrised percent change per unit time, for ``thickness``, ``area`` and ``curv``.
+- ``sub-<id>_base/stats/?h.long.roi-rates.csv`` — the same fits per parcellation ROI.
+- ``sub-<id>_base/stats/long.change-stats.json`` — summary: the timepoints used, the time value assigned to each, **which source those times came from** (``time_source``), and anything skipped. Check this first: when no ``sessions.tsv`` column was usable the rate is per scan rather than per unit time.
+- ``sub-<id>_base/scripts/long.qdec.table.dat`` — a FreeSurfer qdec table, for feeding these outputs to FreeSurfer's own longitudinal tools.
+- ``sub-<id>_base/scripts/base_segmentation_agreement.json`` — per-label Dice between the base's own segmentation and each session's, mapped into base space. A diagnostic, not a gate; low values are the signal that the base's surfaces deserve a closer look.
+
+Base-space derivatives and atlases are published under ``sub-<id>/anat/`` with an ``acq-base`` entity, and the QC figures for the base and each timepoint carry ``acq-base`` / ``acq-long`` so they sit beside the cross-sectional ones in ``figures/`` without colliding.
+
 Quality control report
 ----------------------
 

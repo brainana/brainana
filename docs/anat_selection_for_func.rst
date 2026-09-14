@@ -26,7 +26,7 @@ Overview
        D -->|one ses only| E(["That ses's T1w"])
        D -->|multiple ses| H{"anat.<br/>synthesis_level?"}
        H -->|"subject (default)"| I(["Subject-level T1w<br/><i>shared by all func ses</i>"])
-       H -->|session| J(["Same-ses T1w<br/><i>or lexicographically first<br/>other ses, if absent</i>"])
+       H -->|"session<br/>session_longitudinal"| J(["Same-ses T1w<br/><i>or lexicographically first<br/>other ses, if absent</i>"])
 
        classDef result fill:#ecfdf5,stroke:#059669,color:#064e3b
        classDef proc   fill:#eff6ff,stroke:#3b82f6,color:#1e3a8a
@@ -98,7 +98,7 @@ When T1w images exist across multiple sessions, the
 .. code-block:: yaml
 
    anat:
-     synthesis_level: "subject"   # default — or "session"
+     synthesis_level: "subject"   # default — or "session", "session_longitudinal"
 
 
 - **``synthesis_level: "subject"`` (default)**
@@ -115,3 +115,25 @@ When T1w images exist across multiple sessions, the
   fall back to the T1w from the lexicographically first other session of
   the same subject. This setting is suitable for **longitudinal
   studies** where each session's T1w should be treated independently.
+
+- **``synthesis_level: "session_longitudinal"``**
+
+  Anatomical selection is **identical to** ``"session"`` — every row in the
+  chart above resolves the same way, and the functional stream is unaffected.
+  What it adds happens later, inside surface reconstruction: a within-subject
+  base template per subject, and a per-session reconstruction seeded from it,
+  so all of a subject's surfaces share one mesh. See
+  :ref:`longitudinal-surface-stream`.
+
+  Choose it when you intend to measure **within-subject change** over time.
+  It needs at least two sessions with anatomy per subject, and
+  ``anat.surface_reconstruction.enabled``; subjects with a single session are
+  processed cross-sectionally and skipped by the longitudinal stream.
+
+  .. note::
+
+     Functional outputs deliberately keep using the **cross-sectional**
+     surfaces. A longitudinal reconstruction lives in base space, while
+     projecting functional data onto a surface assumes agreement with that
+     session's own volumes — so using the longitudinal meshes there would
+     misregister by exactly the timepoint-to-base transform.
