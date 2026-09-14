@@ -11,7 +11,7 @@ import logging
 import os
 import shutil
 import sys
-from typing import Dict, Any, Optional, Union
+from typing import Callable, Dict, Any, Optional, Union
 
 from .bids import get_filename_stem
 from ..config.config_io import load_yaml_config
@@ -155,6 +155,61 @@ def load_config(config_file_path: Union[str, Path]) -> Dict[str, Any]:
 
     config = load_yaml_config(config_path)
     return config or {}
+
+
+def config_section(config: Dict[str, Any], dotted: str) -> Dict[str, Any]:
+    """A nested config section as a dict, whatever the YAML actually held.
+
+    ``config.get("anat", {}).get("surface_reconstruction", {})`` looks safe and is
+    not: a key written with an empty value -- ``longitudinal:`` on a line of its
+    own -- parses as ``None``, not ``{}``, so the next ``.get()`` raises
+    ``AttributeError`` from inside a Nextflow task. Under
+    ``errorStrategy 'ignore'`` that surfaces as nothing happening at all.
+
+    Args:
+        config: Full configuration dictionary.
+        dotted: Dotted path to the section, e.g.
+            ``"anat.surface_reconstruction.longitudinal"``.
+
+    Returns:
+        The section, or ``{}`` if any level is missing, null, or not a dict.
+    """
+    node: Any = config
+    for key in dotted.split("."):
+        if not isinstance(node, dict):
+            return {}
+        node = node.get(key)
+    return node if isinstance(node, dict) else {}
+
+
+def config_value(
+    config: Dict[str, Any],
+    dotted: str,
+    default: Any = None,
+    cast: Optional[Callable[[Any], Any]] = None,
+) -> Any:
+    """A single config value, treating an explicit null as "not set".
+
+    ``dict.get(key, default)`` returns ``None`` for a key present with an empty
+    value, so ``float(cfg.get("max_cbv_dist", 3.5))`` raises ``TypeError`` on
+    ``max_cbv_dist:``. Callers want the default there, not a traceback.
+
+    Args:
+        config: Full configuration dictionary.
+        dotted: Dotted path to the value.
+        default: Returned when the key is absent or null.
+        cast: Applied to a non-null value, e.g. ``float``. Never applied to
+            ``default``, so a ``None`` default survives.
+
+    Returns:
+        The cast value, or ``default``.
+    """
+    parent, _, leaf = dotted.rpartition(".")
+    section = config_section(config, parent) if parent else config
+    value = section.get(leaf) if isinstance(section, dict) else None
+    if value is None:
+        return default
+    return cast(value) if cast is not None else value
 
 
 def detect_modality(bids_naming_template: Union[str, Path]) -> str:

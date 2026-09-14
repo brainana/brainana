@@ -401,6 +401,70 @@ def create_synthesized_bids_filename(
     return bids_filename, bids_path_for_downstream
 
 
+def longitudinal_bids_name(bids_name: Union[str, Path], kind: str) -> str:
+    """Filename the base template or a longitudinal timepoint publishes under.
+
+    The two longitudinal streams write derivatives, atlases and QC figures beside
+    the cross-sectional ones, into directories that carry no extra level to
+    separate them -- QC figures in particular all land in ``sub-<id>/figures``.
+    So the *filename* is the only thing keeping them apart, and it has to be
+    derived once, here, rather than by regex at each call site.
+
+    Args:
+        bids_name: A session's BIDS name. May be an absolute path: callers get
+            this from ``create_synthesized_bids_filename``, whose session-level
+            branch returns a full path, and an earlier regex-based version of
+            this logic was anchored with ``^`` and therefore never fired at all.
+        kind: ``"base"`` or ``"long"``.
+
+    Returns:
+        A bare filename (no directory), which is what every consumer wants --
+        ``create_bids_output_filename`` and ``get_bids_prefix`` both take the
+        basename anyway.
+
+    Raises:
+        ValueError: If *kind* is unknown, or *bids_name* has no ``sub`` entity.
+
+    Examples:
+        >>> longitudinal_bids_name('sub-01_ses-a_T1w.nii.gz', 'base')
+        'sub-01_acq-base_T1w.nii.gz'
+        >>> longitudinal_bids_name('sub-01_ses-a_acq-mprage_run-1_T1w.nii.gz', 'long')
+        'sub-01_ses-a_acq-long_run-1_T1w.nii.gz'
+    """
+    if kind not in ("base", "long"):
+        raise ValueError(f"kind must be 'base' or 'long', got {kind!r}")
+
+    name = Path(str(bids_name)).name
+    parsed = parse_bids_entities(name)
+    if "sub" not in parsed:
+        raise ValueError(
+            f"Cannot derive a longitudinal name from {bids_name!r}: no sub- entity."
+        )
+
+    modality = next(
+        (t for t in _BIDS_MODALITY_SUFFIX_TOKENS if name.endswith(f"_{t}.nii.gz")),
+        "T1w",
+    )
+
+    if kind == "base":
+        # Only sub. The base spans every session, so ses -- and any session-level
+        # entity such as run- or rec- -- would be inherited from whichever session
+        # happened to sort first, which makes the base's name depend on an
+        # ordering that means nothing. Keeping it to sub also makes this identical
+        # to the acq-base prefix the base's derivatives already publish under, so
+        # the two name families agree by construction rather than by coincidence.
+        entities = {"sub": parsed["sub"], "acq": "base"}
+    else:
+        # Everything the session carried, minus derivative-only entities, with acq
+        # *replaced* rather than prepended -- appending would give two acq- values
+        # for input named sub-XX_ses-Y_acq-mprage_T1w. create_bids_filename re-emits
+        # through BIDS_ENTITY_ORDER, so acq lands before run with no regex.
+        entities = {k: v for k, v in parsed.items() if k not in ("space", "desc")}
+        entities["acq"] = "long"
+
+    return create_bids_filename(entities, suffix=modality, extension=".nii.gz")
+
+
 def get_bids_prefix(
     bids_name: Union[str, Path],
     run_identifier: Optional[str] = None,
