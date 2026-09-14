@@ -55,6 +55,7 @@ anat:
       subsample: null  # int or null: mri_robust_template --subsample threshold; escape hatch for large high-resolution volumes
       max_cbv_dist: 3.5  # float: how far a timepoint's surface may move from the base during placement (recon-all -long uses 3.5). Lower reduces across-timepoint variance but also damps genuine change, so it trades bias for variance
       pial_blend_weight: 0.25  # float (0.0-1.0): how far the longitudinal pial pass is blended toward this timepoint's own white surface (recon-all -long uses .25)
+      time_column: null  # str or null: column in <bids_dir>/sub-XX/sub-XX_sessions.tsv holding each session's time, e.g. "age". null auto-detects "age" then "acq_time" (converted to days from the subject's first session). With no usable column the fitted rate is per scan rather than per unit time
 
 func:
   coreg_runs_within_session: true

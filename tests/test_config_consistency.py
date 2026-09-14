@@ -19,6 +19,7 @@ import pytest
 
 from nhp_mri_prep.config.config_io import load_yaml_config
 from nhp_mri_prep.config.config_validation import (
+    VALID_SYNTHESIS_LEVELS,
     validate_config,
     validate_confounds_config,
 )
@@ -70,13 +71,28 @@ def test_generator_covers_every_default_key():
     )
 
 
-@pytest.mark.parametrize(
-    "synthesis_level",
-    ["subject", "session", "session_longitudinal"],
-)
+@pytest.mark.parametrize("synthesis_level", VALID_SYNTHESIS_LEVELS)
 def test_every_synthesis_level_validates(synthesis_level):
-    """All three documented values must pass, so the enum cannot silently narrow."""
+    """Every documented value must pass, so the enum cannot silently narrow."""
     validate_config({"anat": {"synthesis_level": synthesis_level}})
+
+
+@pytest.mark.parametrize("synthesis_level", VALID_SYNTHESIS_LEVELS)
+def test_generator_offers_every_synthesis_level(synthesis_level):
+    """The generator must offer every value the validator accepts.
+
+    test_generator_covers_every_default_key is deliberately name-level: it checks
+    that each leaf *key* appears in the HTML, never that an enum's *values* do.
+    So "session_longitudinal" shipped with four new longitudinal.* fields in the
+    generator and no <option> to reach them -- the feature could not be turned on
+    through the documented UI at all. This is the check that would have caught it.
+    """
+    html = GENERATOR.read_text()
+    assert f'<option value="{synthesis_level}"' in html, (
+        f"config_generator.html has no <option> for anat.synthesis_level "
+        f"{synthesis_level!r}, so the UI cannot produce a config that selects it. "
+        f"Add it to the #anat_synthesis_level <select>."
+    )
 
 
 def test_longitudinal_requires_surface_reconstruction():
@@ -95,6 +111,45 @@ def test_longitudinal_requires_surface_reconstruction():
                 }
             }
         )
+
+
+def _long(**kwargs):
+    return {"anat": {"surface_reconstruction": {"longitudinal": kwargs}}}
+
+
+@pytest.mark.parametrize(
+    "bad_longitudinal",
+    [
+        {"iscale": "yes"},
+        {"subsample": 0},
+        {"subsample": 1.5},
+        {"max_cbv_dist": 0},
+        {"max_cbv_dist": -1},
+        {"max_cbv_dist": "far"},
+        {"pial_blend_weight": 1.5},
+        {"pial_blend_weight": -0.1},
+        {"time_column": 3},
+    ],
+)
+def test_longitudinal_subsection_rejects_bad_values(bad_longitudinal):
+    """These knobs are read hours into a run, inside errorStrategy 'ignore' tasks.
+
+    anat.surface_reconstruction.longitudinal had no validator at all, so a bad
+    value did not produce an error message -- it produced a subject that quietly
+    reconstructed nothing. Catch it at config load, naming the key.
+    """
+    key = next(iter(bad_longitudinal))
+    with pytest.raises(ValueError, match=key):
+        validate_config(_long(**bad_longitudinal))
+
+
+def test_longitudinal_subsection_accepts_an_empty_key():
+    """`longitudinal:` written with no value parses as None, not {}.
+
+    Every consumer then did `.get('longitudinal', {}).get(...)` and hit
+    AttributeError inside a Nextflow task. Null means "unset", not "invalid".
+    """
+    validate_config({"anat": {"surface_reconstruction": {"longitudinal": None}}})
 
 
 @pytest.mark.parametrize(

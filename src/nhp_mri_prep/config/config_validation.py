@@ -13,6 +13,17 @@ from ..utils.mri import get_opposite_orientation
 
 logger = logging.getLogger(__name__)
 
+# anat.synthesis_level selects cross-session ("subject") vs within-session
+# ("session") T1w/T2w synthesis. "session_longitudinal" is a strict superset of
+# "session": identical anatomical selection, plus a within-subject base template
+# and a base-seeded longitudinal surface reconstruction per session.
+#
+# Module level, not a local, because docs/_static/config_generator.html has to
+# offer exactly these values and tests/test_config_consistency.py checks that
+# against this list. A local would let the two drift, which is how
+# "session_longitudinal" shipped with no <option> in the generator.
+VALID_SYNTHESIS_LEVELS = ("subject", "session", "session_longitudinal")
+
 
 def validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
     """Validate and normalize configuration.
@@ -87,12 +98,8 @@ def validate_anat_config(config: Dict[str, Any]) -> None:
     Raises:
         ValueError: If configuration is invalid
     """
-    # synthesis_level selects cross-session ("subject") vs within-session
-    # ("session") T1w/T2w synthesis. "session_longitudinal" is a strict
-    # superset of "session": identical anatomical selection, plus a
-    # within-subject base template and a base-seeded longitudinal surface
-    # reconstruction per session. No other values are supported.
-    valid_levels = ["subject", "session", "session_longitudinal"]
+    # See VALID_SYNTHESIS_LEVELS. No other values are supported.
+    valid_levels = VALID_SYNTHESIS_LEVELS
     if "synthesis_level" in config:
         level = config["synthesis_level"]
         if level not in valid_levels:
@@ -627,6 +634,88 @@ def validate_surface_reconstruction_config(config: Dict[str, Any]) -> None:
                 f"use_t1wt2wcombined must be boolean, got: {type(config['use_t1wt2wcombined']).__name__}. "
                 f"Please fix this in your configuration file."
             )
+
+    if "longitudinal" in config:
+        validate_longitudinal_config(config["longitudinal"])
+
+
+def validate_longitudinal_config(config: Dict[str, Any]) -> None:
+    """Validate anat.surface_reconstruction.longitudinal.
+
+    These four knobs reach code that runs hours into a pipeline: ``iscale`` and
+    ``subsample`` are read inside ANAT_SURFACE_BASE_TEMPLATE, the other three
+    inside a longitudinal timepoint's reconstruction. Both processes carry
+    ``errorStrategy 'ignore'``, so a bad value there is not an error message --
+    it is a subject that quietly produces nothing. Checking at config load turns
+    that into a named key before anything starts.
+
+    Args:
+        config: The ``longitudinal`` sub-dictionary. ``None`` (the key written
+            with an empty value) is accepted as "unset".
+
+    Raises:
+        ValueError: If any longitudinal parameter is invalid.
+    """
+    if config is None:
+        return
+    if not isinstance(config, dict):
+        raise ValueError(
+            f"Configuration error in anat.surface_reconstruction.longitudinal: "
+            f"must be a mapping, got: {type(config).__name__}. "
+            f"Please fix this in your configuration file."
+        )
+
+    if "iscale" in config and config["iscale"] is not None:
+        if not isinstance(config["iscale"], bool):
+            raise ValueError(
+                "Configuration error in anat.surface_reconstruction.longitudinal: "
+                f"iscale must be boolean, got: {type(config['iscale']).__name__}. "
+                "Please fix this in your configuration file."
+            )
+
+    subsample = config.get("subsample")
+    if subsample is not None:
+        if isinstance(subsample, bool) or not isinstance(subsample, int) or subsample <= 0:
+            raise ValueError(
+                "Configuration error in anat.surface_reconstruction.longitudinal: "
+                f"subsample must be a positive integer or null, got: {subsample!r}. "
+                "Please fix this in your configuration file."
+            )
+
+    # Range constraints mirror the pydantic Fields on ReconSurfConfig
+    # (long_max_cbv_dist gt=0, long_pial_blend_weight 0..1). Duplicated on
+    # purpose: pydantic would only catch it inside the task, which is the whole
+    # problem this function exists to avoid.
+    max_cbv_dist = config.get("max_cbv_dist")
+    if max_cbv_dist is not None:
+        if isinstance(max_cbv_dist, bool) or not isinstance(
+            max_cbv_dist, (int, float)
+        ) or max_cbv_dist <= 0:
+            raise ValueError(
+                "Configuration error in anat.surface_reconstruction.longitudinal: "
+                f"max_cbv_dist must be a positive number, got: {max_cbv_dist!r}. "
+                "Please fix this in your configuration file."
+            )
+
+    blend = config.get("pial_blend_weight")
+    if blend is not None:
+        if isinstance(blend, bool) or not isinstance(blend, (int, float)) or not (
+            0.0 <= blend <= 1.0
+        ):
+            raise ValueError(
+                "Configuration error in anat.surface_reconstruction.longitudinal: "
+                f"pial_blend_weight must be a number between 0 and 1, got: "
+                f"{blend!r}. Please fix this in your configuration file."
+            )
+
+    time_column = config.get("time_column")
+    if time_column is not None and not isinstance(time_column, str):
+        raise ValueError(
+            "Configuration error in anat.surface_reconstruction.longitudinal: "
+            f"time_column must be a string or null, got: "
+            f"{type(time_column).__name__}. "
+            "Please fix this in your configuration file."
+        )
 
 
 def validate_paths(
