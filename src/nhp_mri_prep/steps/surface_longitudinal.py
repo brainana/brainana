@@ -41,6 +41,7 @@ from fastsurfer_surfrecon.wrappers.longitudinal import (
     mri_robust_template,
 )
 
+from ..utils.bids import derive_output_name
 from ..utils.nextflow import config_section, config_value
 from .types import StepInput, StepOutput
 
@@ -602,7 +603,8 @@ def segment_and_backproject_base(
         bids_name: BIDS stem the published derivative and atlas filenames are
             derived from. Defaults to ``<base_subject_id>_T1w.nii.gz``, but
             ``sub-X_base`` is not a valid entity chain, so callers should pass
-            something canonical such as ``sub-X_acq-base_T1w.nii.gz``.
+            something canonical -- ``longitudinal_bids_name(..., "base")``, which
+            gives ``sub-X_space-base_T1w.nii.gz``.
 
     Returns:
         StepOutput with output_file=the skull-stripped base and additional_files
@@ -635,14 +637,15 @@ def segment_and_backproject_base(
         )
 
     bids_name = bids_name or f"{base_subject_id}_T1w.nii.gz"
-    bids_stem = bids_name.replace(".nii.gz", "").replace("_T1w", "").replace("_T2w", "")
 
     logger.info("Step: segmenting base template %s", base_nii)
     seg_result = apply_segmentation(
         imagef=base_nii,
         modal="anat",
         working_dir=seg_work,
-        output_name=f"{bids_stem}_desc-brain_T1w.nii.gz",
+        output_name=derive_output_name(
+            bids_name, suffix="T1w", set_entities={"desc": "brain"}
+        ),
         config=input.config,
         logger=logger,
     )
@@ -720,7 +723,12 @@ def segment_and_backproject_base(
                 input_file=additional["imagef_skullstripped"],
                 working_dir=reg_work,
                 config=input.config,
-                output_name=f"{bids_stem}_space-{template_name}_T1w.nii.gz",
+                # space is replaced, not appended: bids_name already carries
+                # space-base, and concatenating would have produced
+                # sub-X_space-base_space-NMT2Sym_T1w.
+                output_name=derive_output_name(
+                    bids_name, suffix="T1w", set_entities={"space": template_name}
+                ),
                 metadata={"subject_id": base_subject_id, "session_id": ""},
             ),
             template_file=Path(template_file),

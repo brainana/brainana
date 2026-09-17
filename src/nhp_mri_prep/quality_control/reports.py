@@ -144,6 +144,34 @@ SAME_STEP_FIGURE_PAIRS = {
     ("conform_fullfov_overlay", "conform_overlay"),
 }
 
+# The report's three figure sections: organized_snapshots key -> (HTML id, title).
+# One table because the nav builds its anchors from the same entry the section body
+# uses. They were two lists, and "field_mapping".title() is "Field_Mapping" while
+# the section rendered as "fieldmapping" -- so every B0 dropdown link pointed at an
+# id that did not exist.
+MODALITY_SECTIONS = {
+    "anatomical": ("Anatomical", "Structural"),
+    "functional": ("Functional", "Functional"),
+    "field_mapping": ("FieldMapping", "B₀ field mapping"),
+}
+
+# Second-level keys of the anatomical grouping -> the eyebrow shown above the block.
+# A session in the longitudinal stream carries two surface reconstructions: its own,
+# and the base-seeded one in the subject's base space. They sit in one group because
+# they describe the same session, so each needs saying which it is -- functional and
+# the fsnative atlases deliberately use the cross-sectional surfaces.
+ANAT_BLOCK_ORDER = ("T1w", "T1w:base", "T2w", "T2w:base")
+ANAT_BLOCK_EYEBROWS = {
+    "T1w": "T1w",
+    "T2w": "T2w",
+    "T1w:base": "T1w · longitudinal (base space)",
+    "T2w:base": "T2w · longitudinal (base space)",
+}
+
+# The frame that marks a longitudinal product. Its own entity value, so nothing has
+# to pattern-match a filename.
+LONGITUDINAL_SPACE = "base"
+
 SNAPSHOT_ORDER = [
     "conform_fullfov_overlay",
     "conform_overlay",
@@ -649,13 +677,11 @@ class HtmlGenerator:
             nav_items.append('<a href="#DataFindings">Data findings</a>')
 
         # Add modality sections with dropdowns if they have content
-        for modality, title in [
-            ("anatomical", "Structural"),
-            ("functional", "Functional"),
-            ("field_mapping", "B₀ field mapping"),
-        ]:
+        for modality, (section_id, title) in MODALITY_SECTIONS.items():
             if organized_snapshots[modality]:
-                section_prefix = modality
+                # Same derivation the section body uses (create_modality_section
+                # renders with section_id.lower()), so the anchors match.
+                section_prefix = section_id.lower()
                 groups = HtmlGenerator._group_snapshots_by_entities(
                     organized_snapshots[modality], section_prefix
                 )
@@ -665,7 +691,8 @@ class HtmlGenerator:
                     dropdown_items = []
                     for group_key in group_keys:
                         nav_id = f"{section_prefix}-{BidsEntityProcessor.clean_header_id(group_key)}"
-                        dropdown_items.append(f'<a href="#{nav_id}">{group_key}</a>')
+                        label = HtmlGenerator._group_nav_label(group_key)
+                        dropdown_items.append(f'<a href="#{nav_id}">{label}</a>')
                     dropdown_content = "\n".join(dropdown_items)
                     nav_items.append(
                         f"""<details class="nav-dd"><summary>{title} ▾</summary>
@@ -674,7 +701,7 @@ class HtmlGenerator:
 </div></details>"""
                     )
                 else:
-                    nav_items.append(f'<a href="#{modality.title()}">{title}</a>')
+                    nav_items.append(f'<a href="#{section_id}">{title}</a>')
 
         nav_items.extend(
             [
@@ -820,6 +847,19 @@ class HtmlGenerator:
         return HtmlGenerator.create_section(section_id, title, content)
 
     @staticmethod
+    def _group_nav_label(group_key: str) -> str:
+        """Dropdown text for a group, matching the chips its heading renders.
+
+        Only the odd subject-level group differs: its key is the internal
+        "sub-level", and the heading already reads "subject-level". The
+        longitudinal base lands in that group -- it spans every session, so it has
+        no ses entity -- which is what made the raw key visible in the nav.
+        """
+        if re.sub(r"<[^>]+>", "", group_key).strip().lower() == "sub-level":
+            return "subject-level"
+        return group_key
+
+    @staticmethod
     def _group_chips(group_key: str) -> str:
         """Render a group label as BIDS-style chips (e.g. `ses-001` `run-1` `task-rest`).
 
@@ -897,10 +937,11 @@ class HtmlGenerator:
                     html_parts.append(
                         f'<h2 class="group-head" id="{header_id}">{HtmlGenerator._group_chips(group_key)}</h2>'
                     )
-                for modality in ("T1w", "T2w"):
-                    if modality in modality_dict:
-                        html_parts.append(f'<div class="eyebrow">{modality}</div>')
-                        render_snapshot_blocks(modality_dict[modality])
+                for block_key in ANAT_BLOCK_ORDER:
+                    if block_key in modality_dict:
+                        eyebrow = ANAT_BLOCK_EYEBROWS.get(block_key, block_key)
+                        html_parts.append(f'<div class="eyebrow">{eyebrow}</div>')
+                        render_snapshot_blocks(modality_dict[block_key])
         else:
             for group_key, snapshots in snapshot_groups.items():
                 if group_key:
@@ -955,6 +996,10 @@ class HtmlGenerator:
                 else:
                     suf = _anat_suffix(filename, entities)
                     modality = suf if suf is not None else "T1w"
+                # Base-space figures share their session's group -- space is not part
+                # of the group key -- so the frame distinguishes them one level down.
+                if entities.get("space") == LONGITUDINAL_SPACE:
+                    modality = f"{modality}:{LONGITUDINAL_SPACE}"
                 if base_group_key not in groups:
                     groups[base_group_key] = {}
                 if modality not in groups[base_group_key]:
@@ -1081,6 +1126,12 @@ class HtmlGenerator:
                 if "entities" not in value:
                     continue
                 entities = value["entities"]
+                # A base template and its base-seeded reconstructions are derived
+                # from the session images already counted here -- they are neither
+                # acquired nor synthesized, and counting them made a two-session
+                # subject report "T1w images: Acquired 2 - After synthesis 5".
+                if entities.get("space") == LONGITUDINAL_SPACE:
+                    continue
                 image_id = tuple(
                     sorted(
                         (k, v) for k, v in entities.items() if k not in ["desc", "sub"]
@@ -1595,16 +1646,11 @@ def _generate_html_report(
     )
     status = HtmlGenerator.create_status_section(report_data)
     data_findings = HtmlGenerator.create_data_findings_section(report_data)
-    anatomical = HtmlGenerator.create_modality_section(
-        "Anatomical", report_data["organized_snapshots"]["anatomical"], "Structural"
-    )
-    functional = HtmlGenerator.create_modality_section(
-        "Functional", report_data["organized_snapshots"]["functional"]
-    )
-    field_mapping = HtmlGenerator.create_modality_section(
-        "FieldMapping",
-        report_data["organized_snapshots"]["field_mapping"],
-        "B₀ field mapping",
+    anatomical, functional, field_mapping = (
+        HtmlGenerator.create_modality_section(
+            section_id, report_data["organized_snapshots"][key], title
+        )
+        for key, (section_id, title) in MODALITY_SECTIONS.items()
     )
     about = HtmlGenerator.create_about_section(report_data)
     methods = HtmlGenerator.create_methods_section(report_data)

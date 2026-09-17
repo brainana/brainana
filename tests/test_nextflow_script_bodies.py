@@ -23,7 +23,9 @@ import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 MODULES = REPO / "modules" / "anatomical.nf"
-NF_FILES = sorted((REPO / "workflows").glob("*.nf")) + sorted((REPO / "modules").glob("*.nf"))
+NF_FILES = sorted((REPO / "workflows").glob("*.nf")) + sorted(
+    (REPO / "modules").glob("*.nf")
+)
 
 LONGITUDINAL_PROCESSES = [
     "ANAT_SURFACE_RECONSTRUCTION",
@@ -92,8 +94,10 @@ def test_keyword_arguments_match_the_functions_they_call(name):
     tree = ast.parse(BODIES[name])
     imported = {}
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith(
-            ("nhp_mri_prep", "fastsurfer")
+        if (
+            isinstance(node, ast.ImportFrom)
+            and node.module
+            and node.module.startswith(("nhp_mri_prep", "fastsurfer"))
         ):
             module = importlib.import_module(node.module)
             for alias in node.names:
@@ -183,7 +187,9 @@ def test_no_in_place_sort_on_a_range(path):
 
 def test_the_range_sort_pattern_actually_matches():
     """Guard against the regex silently matching nothing forever."""
-    assert _sorts_a_range_in_place("def order = (0..<ses_list.size()).sort { a, b -> 0 }")
+    assert _sorts_a_range_in_place(
+        "def order = (0..<ses_list.size()).sort { a, b -> 0 }"
+    )
     assert _sorts_a_range_in_place("(0..n).sort {")
     assert _sorts_a_range_in_place("x = (0 ..< n).sort(c)")
     # The fix must not read as the bug -- this is the pair a regex confuses.
@@ -192,6 +198,100 @@ def test_the_range_sort_pattern_actually_matches():
     )
     assert not _sorts_a_range_in_place("things.sort { it }")
     assert not _sorts_a_range_in_place("(names).sort { it }")
+
+
+# -------------------------------------------------------------------------------------------------
+# An output name is derived from the naming template, not from a staged product
+# -------------------------------------------------------------------------------------------------
+
+# This is the rule the func2target QC figure broke. It named itself from the
+# staged registered BOLD -- which already carried desc-preproc -- and spliced its
+# own desc in before the suffix, giving nine published figures with two desc-
+# tokens. parse_bids_entities keeps only the last, so the first was lost with no
+# error anywhere: QC figures all land in one flat sub-<id>/figures, every QC
+# process runs errorStrategy 'ignore', and publishDir defaults to overwrite:false.
+#
+# Two shapes are checked. Both have no offenders today; each is how the bug got in.
+
+# 1. Splicing a desc into a stem by string replacement. The API cannot see a desc
+#    that is already there when it arrives this way.
+_SPLICED_DESC = re.compile(r"""\.replace\(\s*['"][^'"]*['"]\s*,\s*f?['"][^'"]*_desc-""")
+
+# 2. Taking a stem from something that is not the run's naming template. The
+#    template comes from the raw data and carries no derivative entity; a staged
+#    file is a previous step's output and carries them all.
+_STEM_CALL = re.compile(r"get_filename_stem\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)")
+
+# The naming templates, and the names this pipeline builds from them.
+_NAMING_TEMPLATES = {"bids_name", "bids_naming_template", "bids_output_filename"}
+
+# Arguments whose stem is deliberately not an output name. Each is here with the
+# reason it cannot reintroduce the bug:
+#   transform_path -- parsed for a to-<label> token to recover a space name; the
+#                     stem never becomes a filename.
+#   mask_file      -- fed to replace_bids_space, which strips every existing
+#                     space entity before inserting, and adds no desc.
+_NOT_A_NAME = {"transform_path", "mask_file"}
+
+
+def _is_comment(line: str) -> bool:
+    stripped = line.strip()
+    return stripped.startswith("#") or stripped.startswith("//")
+
+
+@pytest.mark.parametrize("path", NF_FILES, ids=lambda p: p.name)
+def test_no_output_name_splices_a_desc_by_string_replacement(path):
+    offenders = [
+        f"{path.name}:{i}: {line.strip()}"
+        for i, line in enumerate(path.read_text().splitlines(), 1)
+        if not _is_comment(line) and _SPLICED_DESC.search(line)
+    ]
+    assert not offenders, (
+        "Set desc through the naming API -- derive_output_name(..., "
+        "set_entities={'desc': ...}) or create_bids_output_filename(..., "
+        "suffix='desc-...') -- both of which remove whatever the new entity "
+        "replaces. A replace cannot see a desc that is already in the stem:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+@pytest.mark.parametrize("path", NF_FILES, ids=lambda p: p.name)
+def test_an_output_stem_comes_from_the_naming_template(path):
+    offenders = []
+    for i, line in enumerate(path.read_text().splitlines(), 1):
+        if _is_comment(line):
+            continue
+        for argument in _STEM_CALL.findall(line):
+            if argument in _NAMING_TEMPLATES or argument in _NOT_A_NAME:
+                continue
+            offenders.append(f"{path.name}:{i}: {line.strip()}")
+    assert not offenders, (
+        "Derive output names from the run's naming template (bids_name), not from "
+        "a staged file. A staged file is a previous step's output, so it already "
+        "carries space- and desc- entities, and building on it stacks a second "
+        "one. If the stem genuinely is not becoming a filename, add the argument "
+        "to _NOT_A_NAME with the reason:\n  " + "\n  ".join(offenders)
+    )
+
+
+def test_the_naming_patterns_actually_match():
+    """Guard against either regex silently matching nothing forever."""
+    # The bug, as it was written.
+    assert _SPLICED_DESC.search(
+        "stem_with_desc = stem.replace('_bold', f'_desc-{desc_value}_bold', 1)"
+    )
+    assert _STEM_CALL.findall("stem = get_filename_stem(registered_file)") == [
+        "registered_file"
+    ]
+    # The fixes must not read as the bug -- these are the pairs a regex confuses.
+    assert not _SPLICED_DESC.search(
+        "qc_output_filename = derive_output_name(bids_name, suffix='bold', "
+        "set_entities=qc_entities)"
+    )
+    assert not _SPLICED_DESC.search("bids_prefix = original_stem.replace('_bold', '')")
+    assert _STEM_CALL.findall("original_stem = get_filename_stem(bids_name)") == [
+        "bids_name"
+    ]
 
 
 # -------------------------------------------------------------------------------------------------
@@ -207,7 +307,9 @@ def _processes_without_publish_dir(path):
         nxt = text.find("\nprocess ", match.start() + 1)
         block = text[match.start() : nxt if nxt != -1 else len(text)]
         # Directives only -- everything before the script body.
-        head = re.split(r"^\s*(?:script|shell|exec)\s*:", block, maxsplit=1, flags=re.M)[0]
+        head = re.split(
+            r"^\s*(?:script|shell|exec)\s*:", block, maxsplit=1, flags=re.M
+        )[0]
         if "publishDir" not in head:
             missing.append(match.group(1))
     return missing

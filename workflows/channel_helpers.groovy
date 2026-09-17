@@ -79,16 +79,29 @@ def matchSessions = { ses1, ses2 ->
 }
 
 /**
- * Filter predicate for T1w files (checks bids_name)
- * 
+ * Filter predicate for T1w files: the basename's BIDS suffix is T1w.
+ *
+ * Matches the suffix token rather than searching for 'T1w' anywhere in the string,
+ * which is what this used to do. bids_name is an absolute path, so that test also
+ * passed for '_space-T1w_..._bold.nii.gz', '_from-T1w_to-*_xfm', a
+ * '_desc-T1wT2wCombined_' name, and any BIDS root with 'T1w' in a directory
+ * component. This predicate gates performFuncAnatomicalSelection, where a false
+ * positive without a ses entity lands in the subject-level branch -- the highest
+ * priority -- and is then broadcast to every functional session of the subject.
+ * The invariant that functional never registers to a longitudinal surface is
+ * enforced by channel wiring; this keeps the filter from contradicting it.
+ *
  * @param sub Subject ID
  * @param ses Session ID
  * @param file File object
- * @param bids_name BIDS naming template string
- * @return true if file is T1w, false otherwise
+ * @param bids_name BIDS naming template string (may be an absolute path)
+ * @return true if the file's BIDS suffix is T1w, false otherwise
  */
 def isT1wFile = { sub, ses, file, bids_name ->
-    bids_name.toString().contains('T1w')
+    def base = new File(bids_name.toString()).name
+    def stem = base.replaceAll(/\.nii\.gz$/, '').replaceAll(/\.nii$/, '')
+    def tokens = stem.tokenize('_')
+    tokens && tokens[-1] == 'T1w'
 }
 
 /**

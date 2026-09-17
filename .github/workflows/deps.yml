@@ -19,6 +19,13 @@ on:
       - "uv.lock"
       - "src/**"
       - "tests/**"
+      # Most output naming lives in the .nf process bodies, and the suite checks
+      # them (test_nextflow_script_bodies compiles every body and resolves its
+      # imports; test_output_naming_contract pins the names they build). Without
+      # these paths a change confined to modules/ or workflows/ ran no tests at all.
+      - "modules/**"
+      - "workflows/**"
+      - "main.nf"
       - ".github/workflows/deps.yml"
   push:
     branches: [main]

@@ -23,6 +23,12 @@ from .templates import is_custom_template_path, space_label_for
 
 logger = get_logger(__name__)
 
+# The BIDS release the derivatives declare. Kept equal to the version
+# validate_bids tells users to put in their *input* dataset_description.json
+# (discover_bids_for_nextflow.py), so brainana asks nothing of its inputs that its
+# own output does not state.
+BIDS_VERSION = "1.8.0"
+
 
 def _generated_by() -> List[Dict[str, str]]:
     """The BIDS ``GeneratedBy`` block identifying this pipeline + version."""
@@ -240,6 +246,11 @@ def write_dataset_description(
 
     Records the pipeline (``GeneratedBy``) and the run's template source once for the
     whole dataset.
+
+    ``BIDSVersion`` is required at a dataset root, and the pipeline says so to its
+    users -- ``validate_bids`` tells them their *input* dataset needs it. Omitting
+    it from brainana's own output while declaring ``DatasetType: derivative`` left
+    the output failing a rule the pipeline enforces on its inputs.
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -247,6 +258,7 @@ def write_dataset_description(
 
     description: Dict[str, Any] = {
         "Name": name,
+        "BIDSVersion": BIDS_VERSION,
         "DatasetType": "derivative",
         "GeneratedBy": _generated_by(),
         "TemplateSource": template_source_block(output_space, resolved_template_path),

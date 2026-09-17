@@ -264,8 +264,9 @@ every session of a subject ends up sharing **one cortical mesh**.
   time**. Which was used is recorded in the summary (see
   :doc:`outputs`), because a rate is not interpretable without it.
 - **Quality control:** The base and each timepoint get the same surface QC
-  figures as a cross-sectional session, named with an ``acq-base`` or
-  ``acq-long`` entity so all three sit side by side in ``figures/``. The base
+  figures as a cross-sectional session, marked with ``space-base`` so all three
+  sit side by side in ``figures/``. A session's group in the report then holds
+  both its own surfaces and its base-seeded ones, each labelled. The base
   additionally records per-label Dice between its own segmentation and each
   session's, mapped into base space — a check on whether segmenting a robust
   average shifted the segmentation model's input domain enough to matter.

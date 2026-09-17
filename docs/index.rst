@@ -67,6 +67,7 @@ Contents
 
    processing
    outputs
+   output_naming
    anat_selection_for_func
    spaces_and_transforms
 

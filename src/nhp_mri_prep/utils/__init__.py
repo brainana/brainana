@@ -44,6 +44,11 @@ from .bids import (
     get_filename_stem,
     find_bids_metadata,
     BIDS_ENTITY_ORDER,
+    ENTITY_ROLES,
+    DECLARED_DEVIATIONS,
+    NamingConflictError,
+    derive_output_name,
+    validate_output_name,
 )
 from .nextflow import create_output_link
 from .gpu_device import resolve_device, get_device, setup_device
@@ -84,6 +89,11 @@ __all__ = [
     "get_filename_stem",
     "find_bids_metadata",
     "BIDS_ENTITY_ORDER",
+    "ENTITY_ROLES",
+    "DECLARED_DEVIATIONS",
+    "NamingConflictError",
+    "derive_output_name",
+    "validate_output_name",
     "create_output_link",
     "resolve_device",
     "get_device",

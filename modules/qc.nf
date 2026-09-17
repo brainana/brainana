@@ -732,59 +732,6 @@ EOF
     """
 }
 
-process QC_BIAS_CORRECTION_FUNC {
-    label 'cpu'
-    tag "${subject_id}_${session_id}_${run_identifier}"
-    errorStrategy 'ignore'
-    
-    publishDir "${params.output_dir}/sub-${subject_id}/figures",
-        mode: 'copy',
-        pattern: '*.png'
-    
-    input:
-    tuple val(subject_id), val(session_id), val(run_identifier), path(original_file), path(corrected_file), val(bids_naming_template)
-    path config_file
-    
-    output:
-    path "*.png", emit: qc_files
-    path "*.json", emit: metadata
-    
-    script:
-    """
-    \${PYTHON:-python3} <<EOF
-from nhp_mri_prep.steps.qc import qc_bias_correction
-from nhp_mri_prep.utils.bids import create_bids_output_filename
-from pathlib import Path
-
-# Load config
-from nhp_mri_prep.utils.nextflow import load_config, detect_modality, save_metadata
-config = load_config('${config_file}')
-
-# Get original file path (for BIDS filename generation)
-bids_naming_template = Path('${bids_naming_template}')
-
-# Generate BIDS-compliant QC output filename
-qc_output_filename = create_bids_output_filename(
-    original_file_path=bids_naming_template,
-    suffix='desc-biascorrect',
-    modality='bold'
-).replace('.nii.gz', '.png')
-
-# Generate QC
-result = qc_bias_correction(
-    original_file=Path('${original_file}'),
-    corrected_file=Path('${corrected_file}'),
-    output_path=Path(qc_output_filename),
-    modality='func',
-    config=config
-)
-
-# Save metadata
-save_metadata(result.metadata)
-EOF
-    """
-}
-
 
 process QC_CONFORM_FUNC {
     label 'cpu'
@@ -927,25 +874,21 @@ from nhp_mri_prep.utils.nextflow import load_config, detect_modality, save_metad
 from nhp_mri_prep.utils.templates import resolve_template
 config = load_config('${config_file}')
 
+# Template space label: "NMT2Sym:res-1" -> "NMT2Sym"; a custom template file path
+# -> "template", matching the space-<label> the registered outputs carry. Resolved
+# unconditionally because the output filename needs it, not only the file pick.
+from nhp_mri_prep.utils.templates import space_label_for
+effective_output_space = config.get('template', {}).get('output_space', 'NMT2Sym:res-05')
+template_name = space_label_for(effective_output_space)
+
 # Get registered file and reference file
-# Handle case where registered_file might contain multiple files (space-separated)
 registered_file_str = '${registered_file}'
 reference_file = Path('${reference_file}')
 
-# If registered_file contains spaces, it means multiple files were matched
-# Select the file in the final template space (not intermediate T1w space)
+# Sequential registration stages both T1w-space and template-space outputs, so the
+# slot can hold several files; pick the one in the final template space.
 if ' ' in registered_file_str:
-    # Split by space to get individual file paths
     file_paths = registered_file_str.split()
-    # Get template name from output_space (e.g., "NMT2Sym:res-1" -> "NMT2Sym";
-    # a custom template file path -> "template", matching the space-<label> outputs)
-    # Get effective_output_space from effective config file
-    from nhp_mri_prep.utils.nextflow import load_config
-    from nhp_mri_prep.utils.templates import space_label_for
-    config = load_config('${config_file}')
-    effective_output_space = config.get('template', {}).get('output_space', 'NMT2Sym:res-05')
-    template_name = space_label_for(effective_output_space)
-    # Find the file in template space (final registered file)
     registered_file = None
     for fp in file_paths:
         if f'space-{template_name}' in fp:
@@ -965,26 +908,29 @@ if not registered_file.exists():
 qc_modality = '${modality}' if '${modality}' else 'func2target'
 desc_value = 'func2anat' if qc_modality == 'func2anat' else 'func2target'
 
-# Get bids_name for filename construction
-bids_name = Path('${bids_name}') if '${bids_name}' else None
+# Naming template for the figure. Falls back to the staged file only if the
+# channel carried no template; derive_output_name re-sets desc either way, so the
+# fallback cannot stack a second one.
+bids_name = Path('${bids_name}') if '${bids_name}' else registered_file
 
-# Construct QC output filename
-# Keep input name and insert desc (no parse+rebuild) so custom entities (e.g. qcq) stay in order.
-from nhp_mri_prep.utils.bids import get_filename_stem, create_bids_output_filename
-if qc_modality == 'func2anat' and bids_name:
-    qc_output_filename = create_bids_output_filename(
-        original_file_path=bids_name,
-        suffix=f'desc-{desc_value}',
-        modality='bold'
-    ).replace('.nii.gz', '.png')
-else:
-    # Keep registered_file name, insert _desc-{desc_value} before _bold (no parse+rebuild)
-    stem = get_filename_stem(registered_file)
-    if '_bold' in stem:
-        stem_with_desc = stem.replace('_bold', f'_desc-{desc_value}_bold', 1)
-    else:
-        stem_with_desc = f"{stem}_desc-{desc_value}_bold"
-    qc_output_filename = stem_with_desc + '.png'
+# Construct QC output filename from the run's naming template. Both branches go
+# through derive_output_name, which inherits every entity the raw name carried
+# (custom ones such as test-xxx included, in place) and sets only what this step
+# owns. The func2target branch used to name itself from the staged registered
+# file instead -- that file already carried desc-preproc, so inserting a second
+# desc gave '..._desc-preproc_desc-func2target_bold.png', and parse_bids_entities
+# keeps only the last desc, silently dropping the first.
+from nhp_mri_prep.utils.bids import derive_output_name
+qc_entities = {'desc': desc_value}
+if qc_modality != 'func2anat':
+    # The final figure is in template space; say so, in the one space slot.
+    qc_entities['space'] = template_name
+qc_output_filename = derive_output_name(
+    bids_name,
+    suffix='bold',
+    set_entities=qc_entities,
+    extension='.png',
+)
 
 # Generate QC
 result = qc_registration(

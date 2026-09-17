@@ -21,7 +21,8 @@ include { ANAT_SURFACE_LONG_CHANGE_STATS } from '../modules/anatomical.nf'
 // Aliased: the base needs the same fsnative atlas projection the cross-sectional
 // sessions get. Only the base -- every timepoint shares its mesh, so the base's
 // vertex labels are theirs too, and a per-timepoint projection would collide with
-// the cross-sectional filenames (get_bids_prefix drops acq-).
+// the cross-sectional filenames (get_bids_prefix drops space-, so the frame that
+// distinguishes them is not in the stem it builds).
 include { ANAT_PROJECT_ATLASES_TO_SURFACE as ANAT_PROJECT_ATLASES_TO_SURFACE_BASE } from '../modules/anatomical.nf'
 // Aliased: a process can be invoked only once per workflow, and the base and
 // longitudinal directories need the same QC as the cross-sectional ones.
@@ -285,8 +286,8 @@ workflow SURF_RECON_WF {
                 .map { sub, base_id, base_dir -> [sub, base_id] }
 
             // ---- FAN OUT AGAIN: one longitudinal recon per session --------
-            // Each session's own BIDS stem, which the timepoint turns into its
-            // acq-long name.
+            // Each session's own BIDS stem, which the timepoint restamps into
+            // base space.
             def bids_by_subject = anat_for_surf_recon
                 .map { sub, ses, anat_file, bids_name -> [sub, ses, bids_name] }
 
@@ -407,11 +408,12 @@ workflow SURF_RECON_WF {
             // of them. Per-timepoint projections would be near-duplicates.
             //
             // They would also collide. anat_project_atlases_to_surface names its
-            // outputs through get_bids_prefix(), which keeps only sub/ses and
-            // drops acq-, so a per-timepoint projection would land on exactly the
-            // cross-sectional filenames in the same publish directory. The base
-            // is safe because it publishes to sub-X/anat/ while sessions publish
-            // to sub-X/ses-Y/anat/.
+            // outputs through get_bids_prefix(), which keeps only sub/ses, so a
+            // per-timepoint projection would land on exactly the cross-sectional
+            // filenames in the same publish directory. The base is safe twice
+            // over: it publishes to sub-X/anat/ while sessions publish to
+            // sub-X/ses-Y/anat/, and its atlases carry space-base -- taken from
+            // the base's own name, not from the stem get_bids_prefix builds.
             //
             // Gated on the atlas list actually being non-empty rather than on
             // registration_enabled/is_custom_template: this covers those cases

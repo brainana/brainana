@@ -8,8 +8,15 @@ collision is not an error, it is a missing figure.
 The first attempt at this was a pair of `^`-anchored Groovy regexes applied to
 ``bids_name``. That value is an absolute path (``create_synthesized_bids_filename``
 returns ``original_file.parent / basename`` for session-level jobs), so the
-anchors never matched, the acq- entity was never injected, and every longitudinal
-figure was silently dropped. Hence: one Python rule, and these tests.
+anchors never matched, the marker entity was never injected, and every
+longitudinal figure was silently dropped. Hence: one Python rule, and these tests.
+
+The marker is ``space-base``. It was ``acq-base`` / ``acq-long``, which was wrong
+in a way these tests could not express: ``acq`` is an identity entity the raw data
+owns, so the old rule *destroyed* a timepoint's real ``acq-mprage`` -- and the old
+test asserted that destruction as the contract (``"mprage" not in name``). A
+base-seeded reconstruction is in base space; ``space`` is brainana's slot for a
+frame, so nothing inherited has to be overwritten to say so.
 """
 
 import pytest
@@ -24,8 +31,13 @@ ABSOLUTE = "/data/bids/sub-01/ses-a/anat/sub-01_ses-a_T1w.nii.gz"
 WITH_ENTITIES = "sub-01_ses-a_acq-mprage_run-1_T1w.nii.gz"
 
 
-@pytest.mark.parametrize("kind, expected", [("base", "sub-01_acq-base_T1w.nii.gz"),
-                                            ("long", "sub-01_ses-a_acq-long_T1w.nii.gz")])
+@pytest.mark.parametrize(
+    "kind, expected",
+    [
+        ("base", "sub-01_space-base_T1w.nii.gz"),
+        ("long", "sub-01_ses-a_space-base_T1w.nii.gz"),
+    ],
+)
 def test_the_basic_shapes(kind, expected):
     assert longitudinal_bids_name(CROSS, kind) == expected
 
@@ -36,24 +48,42 @@ def test_an_absolute_path_gives_the_same_answer_as_a_basename(kind):
     assert longitudinal_bids_name(ABSOLUTE, kind) == longitudinal_bids_name(CROSS, kind)
 
 
-def test_an_existing_acq_is_replaced_not_doubled():
-    """Injecting rather than replacing would give sub-01_..._acq-long_acq-mprage."""
+def test_a_raw_acquisition_label_survives_a_timepoint():
+    """The reason the marker moved out of acq.
+
+    acq is an identity entity: it records how the scan was acquired, and only the
+    raw data may set it. The old rule overwrote it, so a subject scanned with two
+    protocols in one session lost the distinction and both timepoints resolved to
+    one filename -- which publishDir, running overwrite:false, turns into a
+    missing file rather than an error.
+    """
     name = longitudinal_bids_name(WITH_ENTITIES, "long")
+    assert "acq-mprage" in name
     assert name.count("acq-") == 1
-    assert "acq-long" in name and "mprage" not in name
+
+
+def test_only_one_space_entity_is_emitted():
+    """A timepoint whose input already declares a frame gets it replaced, not stacked.
+
+    Two space tokens would not survive a round trip: parse_bids_entities keeps the
+    last, so the first is silently dropped.
+    """
+    name = longitudinal_bids_name("sub-01_ses-a_space-scanner_T1w.nii.gz", "long")
+    assert name.count("space-") == 1
+    assert "space-base" in name
 
 
 def test_session_level_entities_survive_on_a_timepoint():
     """run- distinguishes real files; dropping it could collide two timepoints."""
     assert longitudinal_bids_name(WITH_ENTITIES, "long") == (
-        "sub-01_ses-a_acq-long_run-1_T1w.nii.gz"
+        "sub-01_ses-a_acq-mprage_run-1_space-base_T1w.nii.gz"
     )
 
 
 def test_entities_stay_in_canonical_bids_order():
-    """acq precedes run in BIDS_ENTITY_ORDER; create_bids_filename re-emits sorted."""
+    """Identity entities precede space in BIDS_ENTITY_ORDER; the rebuild re-sorts."""
     name = longitudinal_bids_name(WITH_ENTITIES, "long")
-    assert name.index("_acq-") < name.index("_run-")
+    assert name.index("_acq-") < name.index("_run-") < name.index("_space-")
 
 
 def test_the_base_name_does_not_depend_on_which_session_it_saw():
@@ -64,7 +94,7 @@ def test_the_base_name_does_not_depend_on_which_session_it_saw():
     """
     a = longitudinal_bids_name("sub-01_ses-a_run-1_T1w.nii.gz", "base")
     b = longitudinal_bids_name("sub-01_ses-b_acq-mprage_T1w.nii.gz", "base")
-    assert a == b == "sub-01_acq-base_T1w.nii.gz"
+    assert a == b == "sub-01_space-base_T1w.nii.gz"
 
 
 def test_two_sessions_get_different_longitudinal_names():

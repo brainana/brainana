@@ -1080,7 +1080,13 @@ process FUNC_APPLY_TRANSFORMS {
     output:
     // For BOLD: [sub, ses, run_id, registered_bold, registered_boldref, bids_template]
     // For mask: [sub, ses, run_id, registered_mask, registered_mask (duplicate), bids_template] (duplicate mask to match structure)
-    tuple val(subject_id), val(session_id), val(run_identifier), path("*space-*desc-*.nii.gz"), path("*space-*desc-*.nii.gz"), val(bids_name), emit: output
+    // The two slots carry distinct globs so each receives only its own suffix class.
+    // Declaring one glob twice gave BOTH slots the whole sorted match list, and
+    // '..._bold.nii.gz' sorts before '..._boldref.nii.gz' -- so the consumer that
+    // asked for the boldref was handed the 4D BOLD, and drew its func2target QC
+    // figure from it. Sequential mode still puts several files in a slot (T1w and
+    // template space); picking the template-space one is the consumer's job.
+    tuple val(subject_id), val(session_id), val(run_identifier), path("*space-*desc-*{_bold,_mask}.nii.gz"), path("*space-*desc-*{_boldref,_mask_dup}.nii.gz"), val(bids_name), emit: output
     // Reference file for QC: final target reference at appropriate resolution
     tuple val(subject_id), val(session_id), val(run_identifier), path("*target_final.nii.gz"), emit: reference
     // Intermediate output for sequential transforms QC: [sub, ses, run_id, func_tmean_anat, anat_reff, bids_name]

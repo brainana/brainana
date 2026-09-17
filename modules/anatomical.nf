@@ -835,13 +835,15 @@ process ANAT_SURFACE_BASE_ATLAS {
     // hang forever rather than skip a subject. Same choice as ANAT_SKULLSTRIPPING.
 
     // Base-space derivatives, mirroring what ANAT_SKULLSTRIPPING publishes per
-    // session. Named with acq-base so they sit beside the session ones without
-    // colliding, in canonical BIDS entity order.
+    // session. Named with space-base so they sit beside the session ones without
+    // colliding, in canonical BIDS entity order. The atlas directory is named for
+    // the same frame: its contents now say space-base, and a directory called
+    // atlas_space-T1w holding them would contradict the files inside it.
     publishDir "${params.output_dir}/sub-${subject_id}/anat",
         mode: 'copy',
         pattern: 'derivatives/*',
         saveAs: { f -> new File(f.toString()).name }
-    publishDir "${params.output_dir}/sub-${subject_id}/anat/atlas_space-T1w",
+    publishDir "${params.output_dir}/sub-${subject_id}/anat/atlas_space-base",
         mode: 'copy',
         pattern: 'atlas/*.{nii.gz,json,tsv,md,bib}',
         saveAs: { f -> new File(f.toString()).name }
@@ -886,7 +888,7 @@ process ANAT_SURFACE_BASE_ATLAS {
     \${PYTHON:-python3} <<EOF
 from nhp_mri_prep.steps.surface_longitudinal import segment_and_backproject_base
 from nhp_mri_prep.steps.types import StepInput
-from nhp_mri_prep.utils.bids import get_filename_stem, longitudinal_bids_name
+from nhp_mri_prep.utils.bids import derive_output_name, longitudinal_bids_name
 from nhp_mri_prep.utils.nextflow import load_config, save_metadata
 from nhp_mri_prep.utils.sidecar import write_derivative_sidecar
 from pathlib import Path
@@ -915,9 +917,11 @@ result = segment_and_backproject_base(
     ),
     base_nii=staged_nii[0],
     base_subject_id='${base_id}',
-    # sub-X_base is not a valid BIDS entity chain; acq-base is, and sorts
-    # canonically. One helper, so the derivatives below, the fsnative atlases and
-    # the QC figures cannot drift into three different names.
+    # sub-X_base is not a valid BIDS entity chain; space-base is, and sorts
+    # canonically. space rather than acq because the base IS a distinct frame,
+    # while acq is an identity entity the raw data owns. One helper, so the
+    # derivatives below, the fsnative atlases and the QC figures cannot drift into
+    # three different names.
     bids_name=base_bids_name,
 )
 
@@ -948,14 +952,25 @@ Path('derivatives').mkdir(exist_ok=True)
 base_sources = [str(staged_nii[0])]
 atlas_name = result.metadata.get('atlas_name')
 seg_suffix = ('atlas' + atlas_name) if atlas_name else 'segmentation'
-bids_prefix = get_filename_stem(base_bids_name).replace('_T1w', '').replace('_T2w', '')
+# One constructor, so every base derivative inherits space-base from the base's
+# own name instead of each line re-stating a frame. Concatenating '_space-T1w_'
+# here (as the per-session equivalents do) would have given these two space
+# entities, and parse keeps only the last -- the name would have claimed the
+# session frame it is not in.
+def base_derivative(suffix, extension='.nii.gz'):
+    return derive_output_name(
+        base_bids_name,
+        suffix=suffix,
+        set_entities={'desc': 'brain'},
+        extension=extension,
+    )
 
 derivative_names = [
-    ('imagef_skullstripped', bids_prefix + '_desc-brain_T1w.nii.gz', True, None),
-    ('brain_mask', bids_prefix + '_space-T1w_desc-brain_mask.nii.gz', None, 'Brain'),
-    ('segmentation', bids_prefix + '_space-T1w_desc-brain_' + seg_suffix + '.nii.gz', None, None),
-    ('hemimask', bids_prefix + '_space-T1w_desc-brain_hemimask.nii.gz', None, 'ROI'),
-    ('atlas_lut', bids_prefix + '_space-T1w_desc-brain_' + seg_suffix + '.tsv', None, None),
+    ('imagef_skullstripped', base_derivative('T1w'), True, None),
+    ('brain_mask', base_derivative('mask'), None, 'Brain'),
+    ('segmentation', base_derivative(seg_suffix), None, None),
+    ('hemimask', base_derivative('hemimask'), None, 'ROI'),
+    ('atlas_lut', base_derivative(seg_suffix, '.tsv'), None, None),
 ]
 for key, bids_filename, skull_stripped, roi_type in derivative_names:
     src = af.get(key)
@@ -1108,9 +1123,10 @@ process ANAT_SURFACE_RECONSTRUCTION_LONG {
     tuple val(subject_id), val(session_id), path("fastsurfer/${cross_id}_long"), emit: subject_dir
     tuple val(subject_id), val(session_id), path("actual_subject_id.txt"), emit: actual_subject_id
     tuple val(subject_id), val(session_id), path("metadata.json"), emit: metadata
-    // This timepoint's own stem, with acq-long replacing any acq- the session
-    // carried. Without it the QC figures land on exactly the cross-sectional
-    // filenames, in the same publish directory, and are dropped.
+    // This timepoint's own stem, restamped into base space. Every entity the
+    // session carried survives, its own acq- included -- only space is replaced,
+    // and space is brainana's to write. Without it the QC figures land on exactly
+    // the cross-sectional filenames, in the same publish directory, and are dropped.
     tuple val(subject_id), val(session_id), path("bids_name.txt"), emit: bids_name
 
     script:
@@ -2467,16 +2483,30 @@ brain_file = Path('${brain_file}')
 def replace_desc_with_preproc(filename):
     # [^_]+ stops at the first underscore so the modality token (e.g., _T1w, _T2w)
     # is preserved. Using \\w+ would greedily consume past the underscore and drop modality.
-    pattern = r'desc-[^_]+_'
-    replacement = 'space-T1w_desc-preproc_'
-    result = re.sub(pattern, replacement, str(filename))
-    return Path(result)
+    #
+    # count=1, and any existing space entity is dropped first: the replacement
+    # carries a space token of its own, so an unbounded sub over a name with two
+    # desc- tokens injected two space-T1w, and an input already in space-scanner
+    # came out as space-scanner_space-T1w_desc-preproc. Both are names whose first
+    # space value parse_bids_entities would silently discard.
+    stem = str(filename)
+    for ext in ('.nii.gz', '.nii'):
+        if stem.endswith(ext):
+            stem, tail = stem[: -len(ext)], ext
+            break
+    else:
+        tail = ''
+    stem = re.sub(r'_space-[A-Za-z0-9.-]+', '', stem)
+    result = re.sub(r'desc-[^_]+_', 'space-T1w_desc-preproc_', stem, count=1)
+    return Path(result + tail)
 
 _VALID_PREPROC_SUFFIXES = (
     '_T1w.nii.gz', '_T2w.nii.gz',
     '_T1w_brain.nii.gz', '_T2w_brain.nii.gz',
     '_space-T1w_desc-preproc_T1w.nii.gz',
+    '_space-T1w_desc-preproc_T2w.nii.gz',
     '_space-T1w_desc-preproc_T1w_brain.nii.gz',
+    '_space-T1w_desc-preproc_T2w_brain.nii.gz',
 )
 
 def validate_preproc_modality(name, source):
