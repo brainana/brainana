@@ -19,8 +19,9 @@ Output directory layout
 
 |
 
-The diagram above is the canonical layout. How the entities in these names are
-chosen — which one means what, and why — is :doc:`output_naming`.
+The diagram above is the canonical layout. Every name carries the entities the
+raw file already had, plus one entity per thing brainana has to say about the
+product, and a BIDS suffix.
 
 .. rubric:: Filename placeholders used below
 
@@ -191,7 +192,7 @@ When surface reconstruction is enabled, FreeSurfer-compatible outputs are writte
 
 .. rubric:: Longitudinal stream (``anat.synthesis_level: "session_longitudinal"``)
 
-With the longitudinal stream enabled (see :ref:`longitudinal-surface-stream`), two further kinds of subject directory appear alongside the cross-sectional ones, which are still produced and are still what functional outputs are registered to:
+With the longitudinal stream enabled (see :doc:`synthesis_level`), two further kinds of subject directory appear alongside the cross-sectional ones, which are still produced and are still what functional outputs are registered to:
 
 - ``fastsurfer/sub-<id>_base/`` — the within-subject base template: one unbiased average of the subject's sessions, reconstructed once. Its ``mri/transforms/`` holds the timepoint-to-base transforms (and their inverses).
 - ``fastsurfer/sub-<id>_ses-<id>_long/`` — one per session, reconstructed in base space and seeded from the base, so every timepoint shares the base's vertex numbering.
@@ -204,7 +205,11 @@ Because the meshes correspond vertex-for-vertex, within-subject rates of change 
 - ``sub-<id>_base/scripts/long.qdec.table.dat`` — a FreeSurfer qdec table, for feeding these outputs to FreeSurfer's own longitudinal tools.
 - ``sub-<id>_base/scripts/base_segmentation_agreement.json`` — per-label Dice between the base's own segmentation and each session's, mapped into base space. A diagnostic, not a gate; low values are the signal that the base's surfaces deserve a closer look.
 
-Base-space derivatives, atlases and QC figures are marked with ``space-base``, so they sit beside the cross-sectional ones without colliding: ``sub-<id>/anat/sub-<id>_space-base_desc-brain_T1w.nii.gz``, ``sub-<id>/anat/atlas_space-base/atlas-<name>_space-base_sub-<id>.nii.gz``, and ``figures/sub-<id>[_ses-<id>_run-<n>]_space-base_desc-surfReconTissueSeg_T1w.png``. ``space`` rather than ``acq``, because that is what the distinction is — a base-seeded reconstruction lives in the subject's base space, which is the same reason the functional and fsnative-atlas streams keep using the cross-sectional trees. ``acq`` describes how a scan was acquired and belongs to the raw data; writing a stream marker there destroyed a timepoint's own ``acq-`` label and made one session look like two in the QC report.
+Base-space derivatives, atlases and QC figures are marked with ``space-base``, so they sit beside the cross-sectional ones without colliding:
+
+- ``sub-<id>/anat/sub-<id>_space-base_desc-brain_T1w.nii.gz``
+- ``sub-<id>/anat/atlas_space-base/atlas-<name>_space-base_sub-<id>.nii.gz``
+- ``figures/sub-<id>[_ses-<id>_run-<n>]_space-base_desc-surfReconTissueSeg_T1w.png``
 
 Quality control report
 ----------------------

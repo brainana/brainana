@@ -104,36 +104,20 @@ When T1w images exist across multiple sessions, the
 - **``synthesis_level: "subject"`` (default)**
 
   All T1w images across sessions are combined into a single
-  **subject-level** T1w. Every functional session of
-  the subject uses this one shared T1w. This setting is suitable for **cross-sectional**
-  studies where sessions for a subject are assumed to be equivalent.
+  **subject-level** T1w, and every functional session of the subject uses that
+  one shared T1w.
 
 - **``synthesis_level: "session"``**
 
-  Each session retains its own T1w. Functional runs in a session that
-  has a T1w use it directly. Functional runs in a session without a T1w
-  fall back to the T1w from the lexicographically first other session of
-  the same subject. This setting is suitable for **longitudinal
-  studies** where each session's T1w should be treated independently.
+  Each session retains its own T1w. Functional runs in a session that has a T1w
+  use it directly. Functional runs in a session without a T1w fall back to the
+  T1w from the lexicographically first other session of the same subject.
 
 - **``synthesis_level: "session_longitudinal"``**
 
   Anatomical selection is **identical to** ``"session"`` — every row in the
   chart above resolves the same way, and the functional stream is unaffected.
-  What it adds happens later, inside surface reconstruction: a within-subject
-  base template per subject, and a per-session reconstruction seeded from it,
-  so all of a subject's surfaces share one mesh. See
-  :ref:`longitudinal-surface-stream`.
+  What it adds happens later, inside surface reconstruction.
 
-  Choose it when you intend to measure **within-subject change** over time.
-  It needs at least two sessions with anatomy per subject, and
-  ``anat.surface_reconstruction.enabled``; subjects with a single session are
-  processed cross-sectionally and skipped by the longitudinal stream.
-
-  .. note::
-
-     Functional outputs deliberately keep using the **cross-sectional**
-     surfaces. A longitudinal reconstruction lives in base space, while
-     projecting functional data onto a surface assumes agreement with that
-     session's own volumes — so using the longitudinal meshes there would
-     misregister by exactly the timepoint-to-base transform.
+For what each level produces, and when to choose which, see
+:doc:`synthesis_level`.

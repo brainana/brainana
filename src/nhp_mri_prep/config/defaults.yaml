@@ -30,9 +30,9 @@ anat:
   #   per session, so surfaces share one mesh across timepoints. Requires
   #   anat.surface_reconstruction.enabled and >=2 sessions with anatomy.
   conform:
-    enabled: true  # HIGILY RECOMMENDED: bool: conform input image to template space using FLIRT rigid registration
+    enabled: true  # HIGHLY RECOMMENDED: bool: conform input image to template space using FLIRT rigid registration
   skullstripping_segmentation:
-    enabled: true  # HIGILY RECOMMENDED: bool: perform brain extraction and segmentation
+    enabled: true  # HIGHLY RECOMMENDED: bool: perform brain extraction and segmentation
     method: "fastSurferCNN" 
     fastSurferCNN:
       gpu_device: "auto"  # int (>= -1) or "auto": GPU device ID (-1 = CPU, "auto" = auto-select)
@@ -60,7 +60,7 @@ anat:
 func:
   coreg_runs_within_session: true
   conform:
-    enabled: true  # HIGILY RECOMMENDED: bool: conform functional tmean image to target space using FLIRT rigid registration
+    enabled: true  # HIGHLY RECOMMENDED: bool: conform functional tmean image to target space using FLIRT rigid registration
   slice_timing_correction:
     enabled: true  # bool: perform slice timing correction
     repetition_time: null  # float: repetition time in seconds, or null (auto-detect from metadata)
@@ -94,7 +94,7 @@ func:
     bspline_fitting: 100  # int: N4 B-spline mesh resolution (ANTs -b), e.g. 100
     rescale_mean_to_100: true  # bool: rescale image mean intensity to 100
   skullstripping:
-    enabled: true  # HIGILY RECOMMENDED: bool: perform brain extraction
+    enabled: true  # HIGHLY RECOMMENDED: bool: perform brain extraction
 
 registration:
   anat2template_xfm_type: "syn"  # str: transform type for anat->template ("translation", "rigid", "affine", or "syn")

@@ -102,9 +102,6 @@
             padding: 0;
             padding-left: 24px;
         }
-        .step {
-            padding-left: 24px;
-        }
         .param-row {
             display: flex;
             align-items: center;
@@ -118,7 +115,8 @@
             display: flex;
             align-items: center;
         }
-        .param-check input[type="checkbox"] { margin: 0; }
+        .param-check input[type="checkbox"],
+        .param-control input[type="checkbox"] { margin: 0; }
         .param-row label {
             flex: 0 0 auto;
             font-weight: 600;
@@ -153,6 +151,11 @@
             display: block;
         }
         .param-block .help-text { margin-bottom: 0; }
+        /* help-text-list: one option per line, indented under the opening line so the
+           list reads as subordinate to it. Used only where the option text does not
+           itself say what the option does (verbose, synthesis_level, dof, cost,
+           ref_vol, xfm_type, interpolation); one line everywhere else. */
+        .help-text-list { padding-left: 1.6em; text-indent: -1.6em; }
         input[type="text"], textarea {
             padding: 6px 8px;
             border: 1px solid #b8b8b8;
@@ -163,12 +166,23 @@
         textarea { width: 100%; }
         select { min-width: 180px; }
         input[type="number"].short { width: 100px; }
+        /* Layout: .param-block = flat keys; .step = nested pipeline modules.
+           Dividers separate a section's top-level entries: one under each module,
+           and one closing the section's leading flat keys (anat: synthesis_level |
+           conform | ...). A section that is all flat keys draws none. */
         .step {
             margin-bottom: 20px;
             padding-bottom: 20px;
             border-bottom: 1px solid #d0d0d0;
         }
         .step:last-child { border-bottom: none; padding-bottom: 0; margin-bottom: 0; }
+        /* The first module after a section's leading flat keys draws its own top
+           divider, so those keys close instead of sharing the module's band. */
+        .section > .param-block + .step {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #d0d0d0;
+        }
         .step .param-row { margin-bottom: 0; }
         .step .help-text { margin-top: 2px; margin-bottom: 0; }
         .generator-section {
@@ -200,16 +214,16 @@
         .advanced-settings .advanced-settings {
             margin-left: 24px;
         }
-        #anat_fastSurferCNN_options {
+        .advanced-subgroup {
             margin-left: 0;
         }
-        #anat_fastSurferCNN_options h4 {
+        .advanced-subgroup-title {
             font-size: 16px;
             font-weight: 600;
             font-family: inherit;
-            margin-left: 30px;  /* 22px param-check + 8px gap = align with param-row label */
+            margin: 12px 0 8px 30px;  /* 22px param-check + 8px gap = align with param-row label */
         }
-        #anat_fastSurferCNN_options > .param-block {
+        .advanced-subgroup > .param-block {
             margin-left: 24px;
         }
         button {
@@ -258,7 +272,6 @@
             margin-top: 16px;
         }
         .hidden { display: none; }
-        label.option-bold { font-weight: 600; }
     </style>
 <style id="bn-design-system">
 /* brainana design system — unify the config generator with the QC report / brand.
@@ -299,7 +312,10 @@ input[type="text"],textarea,select,.nav-search{
   box-shadow:0 0 0 3px rgba(255,242,122,.55) !important;}
 .param-row label{color:var(--bn-ink) !important;}
 .help-text,.error,.advanced-toggle{color:var(--bn-muted) !important;}
+.help-text strong{color:var(--bn-ink) !important;font-weight:600;}
 .step{border-bottom:1px solid var(--bn-border) !important;}
+.step:last-child{border-bottom:none !important;}
+.section > .param-block + .step{border-top:1px solid var(--bn-border) !important;}
 .generator-section{border-top:3px solid var(--bn-accent) !important;}
 .save-location,.yaml-output{background:var(--bn-surface) !important;border:1px solid var(--bn-border) !important;
   border-radius:var(--bn-r-card) !important;}
@@ -339,6 +355,8 @@ button#generate:hover{filter:brightness(.95);}
     <h1>Configuration Generator</h1>
     
     <form id="configForm">
+        <!-- Layout: .param-block = flat keys; .step = nested pipeline modules. Dividers
+             separate top-level entries: one per module, one closing a section's leading flat keys. -->
         <!-- General Settings -->
         <h2 id="general">general</h2>
         <div class="section">
@@ -354,13 +372,16 @@ button#generate:hover{filter:brightness(.95);}
                         </select>
                     </span>
                 </div>
-                <span class="help-text">(logging level: 0=ERROR, 1=INFO, 2=DEBUG)</span>
+                <span class="help-text help-text-list">(logging level:<br>
+                    <strong>0</strong> = errors only;<br>
+                    <strong>1</strong> = normal progress;<br>
+                    <strong>2</strong> = debug detail)</span>
             </div>
             <div class="param-block">
                 <div class="param-row">
-                    <span class="param-check"><input type="checkbox" id="general_anat_only" name="general_anat_only"></span>
-                    <label for="general_anat_only" class="option-bold">anat_only</label>
-                    <span class="param-control"></span>
+                    <span class="param-check"></span>
+                    <label for="general_anat_only">anat_only</label>
+                    <span class="param-control"><input type="checkbox" id="general_anat_only" name="general_anat_only"></span>
                 </div>
                 <span class="help-text">(process anatomical data only; skip functional)</span>
             </div>
@@ -382,9 +403,9 @@ button#generate:hover{filter:brightness(.95);}
             <div class="param-block">
                 <div class="param-row">
                     <span class="param-check"></span>
-                    <label for="bids_subjects">subjects</label>
+                    <label for="bids_filtering_subjects">subjects</label>
                     <span class="param-control">
-                        <input type="text" id="bids_subjects" name="bids_subjects" placeholder='e.g., "01", "02"'>
+                        <input type="text" id="bids_filtering_subjects" name="bids_filtering_subjects" placeholder='e.g., "01", "02"'>
                     </span>
                 </div>
                 <span class="help-text">(comma-separated list; leave empty for all)</span>
@@ -392,9 +413,9 @@ button#generate:hover{filter:brightness(.95);}
             <div class="param-block">
                 <div class="param-row">
                     <span class="param-check"></span>
-                    <label for="bids_sessions">sessions</label>
+                    <label for="bids_filtering_sessions">sessions</label>
                     <span class="param-control">
-                        <input type="text" id="bids_sessions" name="bids_sessions" placeholder='e.g., "01", "02"'>
+                        <input type="text" id="bids_filtering_sessions" name="bids_filtering_sessions" placeholder='e.g., "01", "02"'>
                     </span>
                 </div>
                 <span class="help-text">(comma-separated list; leave empty for all)</span>
@@ -402,9 +423,9 @@ button#generate:hover{filter:brightness(.95);}
             <div class="param-block">
                 <div class="param-row">
                     <span class="param-check"></span>
-                    <label for="bids_tasks">tasks</label>
+                    <label for="bids_filtering_tasks">tasks</label>
                     <span class="param-control">
-                        <input type="text" id="bids_tasks" name="bids_tasks" placeholder='e.g., "rest", "task"'>
+                        <input type="text" id="bids_filtering_tasks" name="bids_filtering_tasks" placeholder='e.g., "rest", "task"'>
                     </span>
                 </div>
                 <span class="help-text">(comma-separated list; leave empty for all)</span>
@@ -412,9 +433,9 @@ button#generate:hover{filter:brightness(.95);}
             <div class="param-block">
                 <div class="param-row">
                     <span class="param-check"></span>
-                    <label for="bids_runs">runs</label>
+                    <label for="bids_filtering_runs">runs</label>
                     <span class="param-control">
-                        <input type="text" id="bids_runs" name="bids_runs" placeholder='e.g., "01", "02"'>
+                        <input type="text" id="bids_filtering_runs" name="bids_filtering_runs" placeholder='e.g., "01", "02"'>
                     </span>
                 </div>
                 <span class="help-text">(comma-separated list; leave empty for all)</span>
@@ -461,7 +482,10 @@ button#generate:hover{filter:brightness(.95);}
                         </select>
                     </span>
                 </div>
-                <span class="help-text">(T1w/T2w synthesis when multiple images exist: "subject" = cross-session, "session" = within-session, "session_longitudinal" = "session" plus a within-subject base template and base-seeded longitudinal surfaces; needs surface_reconstruction.enabled and &gt;=2 sessions)</span>
+                <span class="help-text help-text-list">(T1w/T2w synthesis when multiple images exist:<br>
+                    <strong>"subject"</strong> = cross-session — one shared T1w per subject;<br>
+                    <strong>"session"</strong> = within-session — each session is independent;<br>
+                    <strong>"session_longitudinal"</strong> = same anatomical choice as <strong>"session"</strong>, plus a within-subject common (base) template and base-seeded longitudinal surfaces; needs surface_reconstruction.enabled and &gt;=2 sessions)</span>
             </div>
             <div class="step">
                 <div class="param-row">
@@ -473,32 +497,32 @@ button#generate:hover{filter:brightness(.95);}
             </div>
             <div class="step">
                 <div class="param-row">
-                    <span class="param-check"><input type="checkbox" id="anat_skullstripping_enabled" name="anat_skullstripping_enabled" checked></span>
-                    <label for="anat_skullstripping_enabled">skullstripping_segmentation</label>
+                    <span class="param-check"><input type="checkbox" id="anat_skullstripping_segmentation_enabled" name="anat_skullstripping_segmentation_enabled" checked></span>
+                    <label for="anat_skullstripping_segmentation_enabled">skullstripping_segmentation</label>
                     <span class="param-control"></span>
                 </div>
                 <span class="help-text">(HIGHLY RECOMMENDED: brain extraction and segmentation)</span>
                 <div class="advanced-toggle" onclick="toggleAdvanced(this)">advanced settings</div>
-                <div class="advanced-settings" id="anat_skullstripping_advanced">
+                <div class="advanced-settings" id="anat_skullstripping_segmentation_advanced">
                     <div class="param-block">
                         <div class="param-row">
                             <span class="param-check"></span>
-                            <label for="anat_skullstripping_method">method</label>
+                            <label for="anat_skullstripping_segmentation_method">method</label>
                             <span class="param-control">
-                                <select id="anat_skullstripping_method" name="anat_skullstripping_method">
+                                <select id="anat_skullstripping_segmentation_method" name="anat_skullstripping_segmentation_method">
                                     <option value="fastSurferCNN" selected>fastSurferCNN</option>
                                 </select>
                             </span>
                         </div>
                     </div>
-                    <div id="anat_fastSurferCNN_options">
-                        <h4>fastSurferCNN</h4>
+                    <div id="anat_skullstripping_segmentation_fastSurferCNN_options" class="advanced-subgroup">
+                        <h4 class="advanced-subgroup-title">fastSurferCNN</h4>
                         <div class="param-block">
                             <div class="param-row">
                                 <span class="param-check"></span>
-                                <label for="anat_fastSurferCNN_batch_size">batch_size</label>
+                                <label for="anat_skullstripping_segmentation_fastSurferCNN_batch_size">batch_size</label>
                                 <span class="param-control">
-                                    <input type="number" id="anat_fastSurferCNN_batch_size" name="anat_fastSurferCNN_batch_size" value="8" min="1">
+                                    <input type="number" id="anat_skullstripping_segmentation_fastSurferCNN_batch_size" name="anat_skullstripping_segmentation_fastSurferCNN_batch_size" value="8" min="1">
                                 </span>
                             </div>
                             <span class="help-text">(inference batch size, ≥1)</span>
@@ -506,9 +530,9 @@ button#generate:hover{filter:brightness(.95);}
                         <div class="param-block">
                             <div class="param-row">
                                 <span class="param-check"></span>
-                                <label for="anat_fastSurferCNN_plane_weight_coronal">plane_weight_coronal</label>
+                                <label for="anat_skullstripping_segmentation_fastSurferCNN_plane_weight_coronal">plane_weight_coronal</label>
                                 <span class="param-control">
-                                    <input type="number" id="anat_fastSurferCNN_plane_weight_coronal" name="anat_fastSurferCNN_plane_weight_coronal" value="0.4" step="0.1" min="0" max="1">
+                                    <input type="number" id="anat_skullstripping_segmentation_fastSurferCNN_plane_weight_coronal" name="anat_skullstripping_segmentation_fastSurferCNN_plane_weight_coronal" value="0.4" step="0.1" min="0" max="1">
                                 </span>
                             </div>
                             <span class="help-text">(coronal plane weight, 0–1)</span>
@@ -516,9 +540,9 @@ button#generate:hover{filter:brightness(.95);}
                         <div class="param-block">
                             <div class="param-row">
                                 <span class="param-check"></span>
-                                <label for="anat_fastSurferCNN_plane_weight_axial">plane_weight_axial</label>
+                                <label for="anat_skullstripping_segmentation_fastSurferCNN_plane_weight_axial">plane_weight_axial</label>
                                 <span class="param-control">
-                                    <input type="number" id="anat_fastSurferCNN_plane_weight_axial" name="anat_fastSurferCNN_plane_weight_axial" value="0.4" step="0.1" min="0" max="1">
+                                    <input type="number" id="anat_skullstripping_segmentation_fastSurferCNN_plane_weight_axial" name="anat_skullstripping_segmentation_fastSurferCNN_plane_weight_axial" value="0.4" step="0.1" min="0" max="1">
                                 </span>
                             </div>
                             <span class="help-text">(axial plane weight, 0–1)</span>
@@ -526,18 +550,18 @@ button#generate:hover{filter:brightness(.95);}
                         <div class="param-block">
                             <div class="param-row">
                                 <span class="param-check"></span>
-                                <label for="anat_fastSurferCNN_plane_weight_sagittal">plane_weight_sagittal</label>
+                                <label for="anat_skullstripping_segmentation_fastSurferCNN_plane_weight_sagittal">plane_weight_sagittal</label>
                                 <span class="param-control">
-                                    <input type="number" id="anat_fastSurferCNN_plane_weight_sagittal" name="anat_fastSurferCNN_plane_weight_sagittal" value="0.2" step="0.1" min="0" max="1">
+                                    <input type="number" id="anat_skullstripping_segmentation_fastSurferCNN_plane_weight_sagittal" name="anat_skullstripping_segmentation_fastSurferCNN_plane_weight_sagittal" value="0.2" step="0.1" min="0" max="1">
                                 </span>
                             </div>
                             <span class="help-text">(sagittal plane weight, 0–1)</span>
                         </div>
                         <div class="param-block">
                             <div class="param-row">
-                                <span class="param-check"><input type="checkbox" id="anat_fastSurferCNN_fix_V1_WM" name="anat_fastSurferCNN_fix_V1_WM" checked></span>
-                                <label for="anat_fastSurferCNN_fix_V1_WM">fix_V1_WM</label>
-                                <span class="param-control"></span>
+                                <span class="param-check"></span>
+                                <label for="anat_skullstripping_segmentation_fastSurferCNN_fix_V1_WM">fix_V1_WM</label>
+                                <span class="param-control"><input type="checkbox" id="anat_skullstripping_segmentation_fastSurferCNN_fix_V1_WM" name="anat_skullstripping_segmentation_fastSurferCNN_fix_V1_WM" checked></span>
                             </div>
                             <span class="help-text">(fix thin V1 white matter by registering template V1 WM to subject space)</span>
                         </div>
@@ -587,9 +611,9 @@ button#generate:hover{filter:brightness(.95);}
                     </div>
                     <div class="param-block">
                         <div class="param-row">
-                            <span class="param-check"><input type="checkbox" id="anat_bias_correction_rescale_mean_to_100" name="anat_bias_correction_rescale_mean_to_100" checked></span>
+                            <span class="param-check"></span>
                             <label for="anat_bias_correction_rescale_mean_to_100">rescale_mean_to_100</label>
-                            <span class="param-control"></span>
+                            <span class="param-control"><input type="checkbox" id="anat_bias_correction_rescale_mean_to_100" name="anat_bias_correction_rescale_mean_to_100" checked></span>
                         </div>
                         <span class="help-text">(rescale mean intensity to 100)</span>
                     </div>
@@ -606,57 +630,63 @@ button#generate:hover{filter:brightness(.95);}
                 <div class="advanced-settings" id="anat_surface_reconstruction_advanced">
                     <div class="param-block">
                         <div class="param-row">
-                            <span class="param-check"><input type="checkbox" id="anat_surface_reconstruction_use_t1wt2wcombined" name="anat_surface_reconstruction_use_t1wt2wcombined"></span>
+                            <span class="param-check"></span>
                             <label for="anat_surface_reconstruction_use_t1wt2wcombined">use_t1wt2wcombined</label>
-                            <span class="param-control"></span>
+                            <span class="param-control"><input type="checkbox" id="anat_surface_reconstruction_use_t1wt2wcombined" name="anat_surface_reconstruction_use_t1wt2wcombined"></span>
                         </div>
                         <span class="help-text">(use T1w and T2w combined (enhanced T1w) image if available)</span>
                     </div>
-                    <div class="param-block">
-                        <div class="param-row">
-                            <span class="param-check"></span>
-                            <label>longitudinal</label>
-                            <span class="param-control"></span>
+                    <div id="anat_surface_reconstruction_longitudinal_options" class="advanced-subgroup">
+                        <h4 class="advanced-subgroup-title">longitudinal</h4>
+                        <span class="help-text">(the within-subject longitudinal stream; requires synthesis_level "session_longitudinal")</span>
+                        <div class="param-block">
+                            <div class="param-row">
+                                <span class="param-check"></span>
+                                <label for="anat_surface_reconstruction_longitudinal_iscale">iscale</label>
+                                <span class="param-control"><input type="checkbox" id="anat_surface_reconstruction_longitudinal_iscale" name="anat_surface_reconstruction_longitudinal_iscale"></span>
+                            </div>
+                            <span class="help-text">(model intensity scaling between timepoints when building the base template)</span>
                         </div>
-                        <span class="help-text">(only used when synthesis_level is "session_longitudinal")</span>
-                        <div class="param-row">
-                            <span class="param-check"><input type="checkbox" id="anat_surface_reconstruction_longitudinal_iscale" name="anat_surface_reconstruction_longitudinal_iscale"></span>
-                            <label for="anat_surface_reconstruction_longitudinal_iscale">iscale</label>
-                            <span class="param-control"></span>
+                        <div class="param-block">
+                            <div class="param-row">
+                                <span class="param-check"></span>
+                                <label for="anat_surface_reconstruction_longitudinal_subsample">subsample</label>
+                                <span class="param-control">
+                                    <input type="number" id="anat_surface_reconstruction_longitudinal_subsample" name="anat_surface_reconstruction_longitudinal_subsample" value="" step="1" min="1" placeholder="null">
+                                </span>
+                            </div>
+                            <span class="help-text">(subsample threshold for large volumes; blank = off)</span>
                         </div>
-                        <span class="help-text">(model intensity scaling between timepoints when building the base template)</span>
-                        <div class="param-row">
-                            <span class="param-check"></span>
-                            <label for="anat_surface_reconstruction_longitudinal_subsample">subsample</label>
-                            <span class="param-control">
-                                <input type="number" id="anat_surface_reconstruction_longitudinal_subsample" name="anat_surface_reconstruction_longitudinal_subsample" value="" step="1" min="1" placeholder="null">
-                            </span>
+                        <div class="param-block">
+                            <div class="param-row">
+                                <span class="param-check"></span>
+                                <label for="anat_surface_reconstruction_longitudinal_max_cbv_dist">max_cbv_dist</label>
+                                <span class="param-control">
+                                    <input type="number" id="anat_surface_reconstruction_longitudinal_max_cbv_dist" name="anat_surface_reconstruction_longitudinal_max_cbv_dist" value="3.5" step="0.1" min="0">
+                                </span>
+                            </div>
+                            <span class="help-text">(how far a timepoint's surface may move from the base; lower reduces variance but damps real change)</span>
                         </div>
-                        <span class="help-text">(subsample threshold for large volumes; blank = off)</span>
-                        <div class="param-row">
-                            <span class="param-check"></span>
-                            <label for="anat_surface_reconstruction_longitudinal_max_cbv_dist">max_cbv_dist</label>
-                            <span class="param-control">
-                                <input type="number" id="anat_surface_reconstruction_longitudinal_max_cbv_dist" name="anat_surface_reconstruction_longitudinal_max_cbv_dist" value="3.5" step="0.1" min="0">
-                            </span>
+                        <div class="param-block">
+                            <div class="param-row">
+                                <span class="param-check"></span>
+                                <label for="anat_surface_reconstruction_longitudinal_pial_blend_weight">pial_blend_weight</label>
+                                <span class="param-control">
+                                    <input type="number" id="anat_surface_reconstruction_longitudinal_pial_blend_weight" name="anat_surface_reconstruction_longitudinal_pial_blend_weight" value="0.25" step="0.05" min="0" max="1">
+                                </span>
+                            </div>
+                            <span class="help-text">(blend of the longitudinal pial pass toward this timepoint's own white surface)</span>
                         </div>
-                        <span class="help-text">(how far a timepoint's surface may move from the base; lower reduces variance but damps real change)</span>
-                        <div class="param-row">
-                            <span class="param-check"></span>
-                            <label for="anat_surface_reconstruction_longitudinal_pial_blend_weight">pial_blend_weight</label>
-                            <span class="param-control">
-                                <input type="number" id="anat_surface_reconstruction_longitudinal_pial_blend_weight" name="anat_surface_reconstruction_longitudinal_pial_blend_weight" value="0.25" step="0.05" min="0" max="1">
-                            </span>
+                        <div class="param-block">
+                            <div class="param-row">
+                                <span class="param-check"></span>
+                                <label for="anat_surface_reconstruction_longitudinal_time_column">time_column</label>
+                                <span class="param-control">
+                                    <input type="text" id="anat_surface_reconstruction_longitudinal_time_column" name="anat_surface_reconstruction_longitudinal_time_column" value="" placeholder="null (auto: age, then acq_time)">
+                                </span>
+                            </div>
+                            <span class="help-text">(column in sub-XX_sessions.tsv giving each session's time; blank = auto-detect. Without one, rates are per scan, not per unit time)</span>
                         </div>
-                        <span class="help-text">(blend of the longitudinal pial pass toward this timepoint's own white surface)</span>
-                        <div class="param-row">
-                            <span class="param-check"></span>
-                            <label for="anat_surface_reconstruction_longitudinal_time_column">time_column</label>
-                            <span class="param-control">
-                                <input type="text" id="anat_surface_reconstruction_longitudinal_time_column" name="anat_surface_reconstruction_longitudinal_time_column" value="" placeholder="null (auto: age, then acq_time)">
-                            </span>
-                        </div>
-                        <span class="help-text">(column in sub-XX_sessions.tsv giving each session's time; blank = auto-detect. Without one, rates are per scan, not per unit time)</span>
                     </div>
                 </div>
             </div>
@@ -665,11 +695,11 @@ button#generate:hover{filter:brightness(.95);}
         <!-- Functional Processing -->
         <h2 id="func">func</h2>
         <div class="section">
-            <div class="step">
+            <div class="param-block">
                 <div class="param-row">
-                    <span class="param-check"><input type="checkbox" id="func_coreg_runs_within_session" name="func_coreg_runs_within_session" checked></span>
+                    <span class="param-check"></span>
                     <label for="func_coreg_runs_within_session">coreg_runs_within_session</label>
-                    <span class="param-control"></span>
+                    <span class="param-control"><input type="checkbox" id="func_coreg_runs_within_session" name="func_coreg_runs_within_session" checked></span>
                 </div>
                 <span class="help-text">(coregister all runs within each session before other steps)</span>
             </div>
@@ -689,7 +719,7 @@ button#generate:hover{filter:brightness(.95);}
                 </div>
                 <span class="help-text">(apply slice timing correction)</span>
                 <div class="advanced-toggle" onclick="toggleAdvanced(this)">advanced settings</div>
-                <div class="advanced-settings" id="func_slice_timing_advanced">
+                <div class="advanced-settings" id="func_slice_timing_correction_advanced">
                     <div class="param-block">
                         <div class="param-row">
                             <span class="param-check"></span>
@@ -771,7 +801,10 @@ button#generate:hover{filter:brightness(.95);}
                                 </select>
                             </span>
                         </div>
-                        <span class="help-text">(degrees of freedom: 6, 9, or 12)</span>
+                        <span class="help-text help-text-list">(degrees of freedom for the within-run realignment:<br>
+                            <strong>6</strong> = rigid (translation + rotation);<br>
+                            <strong>9</strong> = rigid + scaling;<br>
+                            <strong>12</strong> = full affine)</span>
                     </div>
                     <div class="param-block">
                         <div class="param-row">
@@ -788,7 +821,10 @@ button#generate:hover{filter:brightness(.95);}
                                 </select>
                             </span>
                         </div>
-                        <span class="help-text">(registration cost function)</span>
+                        <span class="help-text help-text-list">(cost function for realignment:<br>
+                            <strong>mutualinfo</strong>, <strong>normmi</strong> = information-based, robust across contrasts;<br>
+                            <strong>corratio</strong>, <strong>normcorr</strong>, <strong>woods</strong> = intensity-ratio based;<br>
+                            <strong>leastsq</strong> = for images of identical contrast only)</span>
                     </div>
                     <div class="param-block">
                         <div class="param-row">
@@ -808,7 +844,10 @@ button#generate:hover{filter:brightness(.95);}
                                 <input type="text" id="func_motion_correction_ref_vol" name="func_motion_correction_ref_vol" value="mid">
                             </span>
                         </div>
-                        <span class="help-text">(reference volume: index, "Tmean", or "mid")</span>
+                        <span class="help-text help-text-list">(volume every other volume is aligned to:<br>
+                            <strong>mid</strong> = the middle volume;<br>
+                            <strong>Tmean</strong> = the run's temporal mean;<br>
+                            <strong>an integer</strong> = that volume index)</span>
                     </div>
                     <div class="param-block">
                         <div class="param-row">
@@ -863,9 +902,9 @@ button#generate:hover{filter:brightness(.95);}
                     </div>
                     <div class="param-block">
                         <div class="param-row">
-                            <span class="param-check"><input type="checkbox" id="func_despike_localedit" name="func_despike_localedit" checked></span>
+                            <span class="param-check"></span>
                             <label for="func_despike_localedit">localedit</label>
-                            <span class="param-control"></span>
+                            <span class="param-control"><input type="checkbox" id="func_despike_localedit" name="func_despike_localedit" checked></span>
                         </div>
                         <span class="help-text">(use local editing)</span>
                     </div>
@@ -965,9 +1004,9 @@ button#generate:hover{filter:brightness(.95);}
                     </div>
                     <div class="param-block">
                         <div class="param-row">
-                            <span class="param-check"><input type="checkbox" id="func_bias_correction_rescale_mean_to_100" name="func_bias_correction_rescale_mean_to_100" checked></span>
+                            <span class="param-check"></span>
                             <label for="func_bias_correction_rescale_mean_to_100">rescale_mean_to_100</label>
-                            <span class="param-control"></span>
+                            <span class="param-control"><input type="checkbox" id="func_bias_correction_rescale_mean_to_100" name="func_bias_correction_rescale_mean_to_100" checked></span>
                         </div>
                         <span class="help-text">(rescale mean intensity to 100)</span>
                     </div>
@@ -999,7 +1038,11 @@ button#generate:hover{filter:brightness(.95);}
                         </select>
                     </span>
                 </div>
-                <span class="help-text">(transform for anatomical to template)</span>
+                <span class="help-text help-text-list">(anatomical to template &mdash; transform model:<br>
+                    <strong>translation</strong> = shift only;<br>
+                    <strong>rigid</strong> = shift + rotation;<br>
+                    <strong>affine</strong> = rigid + scaling and shearing;<br>
+                    <strong>syn</strong> = affine followed by nonlinear SyN)</span>
             </div>
             <div class="param-block">
                 <div class="param-row">
@@ -1014,7 +1057,11 @@ button#generate:hover{filter:brightness(.95);}
                         </select>
                     </span>
                 </div>
-                <span class="help-text">(transform for functional to anatomical)</span>
+                <span class="help-text help-text-list">(functional to anatomical &mdash; transform model:<br>
+                    <strong>translation</strong> = shift only;<br>
+                    <strong>rigid</strong> = shift + rotation;<br>
+                    <strong>affine</strong> = rigid + scaling and shearing;<br>
+                    <strong>syn</strong> = affine followed by nonlinear SyN)</span>
             </div>
             <div class="param-block">
                 <div class="param-row">
@@ -1029,7 +1076,11 @@ button#generate:hover{filter:brightness(.95);}
                         </select>
                     </span>
                 </div>
-                <span class="help-text">(transform for functional to template)</span>
+                <span class="help-text help-text-list">(functional to template &mdash; transform model:<br>
+                    <strong>translation</strong> = shift only;<br>
+                    <strong>rigid</strong> = shift + rotation;<br>
+                    <strong>affine</strong> = rigid + scaling and shearing;<br>
+                    <strong>syn</strong> = affine followed by nonlinear SyN)</span>
             </div>
             <div class="param-block">
                 <div class="param-row">
@@ -1050,21 +1101,23 @@ button#generate:hover{filter:brightness(.95);}
                         </select>
                     </span>
                 </div>
-                <span class="help-text">(resampling interpolation method)</span>
+                <span class="help-text help-text-list">(resampling interpolation:<br>
+                    <strong>Linear</strong>, <strong>BSpline</strong>, <strong>Gaussian</strong>, the <strong>*WindowedSinc</strong> kernels = continuous data (images);<br>
+                    <strong>NearestNeighbor</strong>, <strong>GenericLabel</strong>, <strong>MultiLabel</strong> = label data, which must not be blended)</span>
             </div>
             <div class="param-block">
                 <div class="param-row">
-                    <span class="param-check"><input type="checkbox" id="registration_enable_fireants" name="registration_enable_fireants" checked></span>
+                    <span class="param-check"></span>
                     <label for="registration_enable_fireants">enable_fireants</label>
-                    <span class="param-control"></span>
+                    <span class="param-control"><input type="checkbox" id="registration_enable_fireants" name="registration_enable_fireants" checked></span>
                 </div>
                 <span class="help-text">(attempt FireANTs for syn registration; fallback to ANTs if unavailable)</span>
             </div>
             <div class="param-block">
                 <div class="param-row">
-                    <span class="param-check"><input type="checkbox" id="registration_keep_func_resolution" name="registration_keep_func_resolution" checked></span>
+                    <span class="param-check"></span>
                     <label for="registration_keep_func_resolution">keep_func_resolution</label>
-                    <span class="param-control"></span>
+                    <span class="param-control"><input type="checkbox" id="registration_keep_func_resolution" name="registration_keep_func_resolution" checked></span>
                 </div>
                 <span class="help-text">(preserve native functional resolution when resampling)</span>
             </div>
@@ -1204,13 +1257,25 @@ button#generate:hover{filter:brightness(.95);}
         }
 
         function updateConditionalVisibility() {
-            const anatMethod = document.getElementById('anat_skullstripping_method').value;
+            const anatMethod = document.getElementById('anat_skullstripping_segmentation_method').value;
             
-            document.getElementById('anat_fastSurferCNN_options').classList.toggle('hidden', anatMethod !== 'fastSurferCNN');
+            document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_options').classList.toggle('hidden', anatMethod !== 'fastSurferCNN');
             // func.skullstripping doesn't have method or fastSurferCNN options
+
+            // The longitudinal knobs are read only when both conditions hold, which is
+            // also what the Python validator requires of the pair.
+            const longitudinalActive =
+                document.getElementById('anat_synthesis_level').value === 'session_longitudinal' &&
+                document.getElementById('anat_surface_reconstruction_enabled').checked;
+            document.getElementById('anat_surface_reconstruction_longitudinal_options')
+                .classList.toggle('hidden', !longitudinalActive);
         }
 
-        // Initialize conditional visibility
+        // Initialize conditional visibility, and keep it current: every input this reads
+        // has to re-run it, or the panel reflects the page's initial state forever.
+        ['anat_skullstripping_segmentation_method', 'anat_synthesis_level', 'anat_surface_reconstruction_enabled']
+            .forEach(id => document.getElementById(id)
+                .addEventListener('change', updateConditionalVisibility));
         updateConditionalVisibility();
 
         // Validation functions matching Python validation
@@ -1328,6 +1393,40 @@ button#generate:hover{filter:brightness(.95);}
             
             validateBiasCorrection(config.anat.bias_correction, 'anat');
             validateBiasCorrection(config.func.bias_correction, 'func');
+            
+            // Validate the longitudinal stream. Mirrors validate_anat_config and
+            // validate_longitudinal_config in config_validation.py: these knobs are read
+            // hours into a run, inside tasks that swallow their own errors, so a bad value
+            // has to be named here rather than produce a subject that reconstructs nothing.
+            function validateLongitudinal(anat) {
+                const surfRecon = anat.surface_reconstruction || {};
+                
+                if (anat.synthesis_level === 'session_longitudinal' && !surfRecon.enabled) {
+                    errors.push("anat.synthesis_level 'session_longitudinal' requires anat.surface_reconstruction.enabled: true -- the longitudinal stream is part of surface reconstruction");
+                }
+                
+                const long = surfRecon.longitudinal;
+                if (!long) return;
+                
+                if (typeof long.iscale !== 'boolean') {
+                    errors.push("anat.surface_reconstruction.longitudinal.iscale must be boolean");
+                }
+                if (long.subsample !== null && (!Number.isInteger(long.subsample) || long.subsample <= 0)) {
+                    errors.push("anat.surface_reconstruction.longitudinal.subsample must be a positive integer or null");
+                }
+                if (typeof long.max_cbv_dist !== 'number' || !(long.max_cbv_dist > 0)) {
+                    errors.push("anat.surface_reconstruction.longitudinal.max_cbv_dist must be > 0");
+                }
+                if (typeof long.pial_blend_weight !== 'number' ||
+                    long.pial_blend_weight < 0 || long.pial_blend_weight > 1) {
+                    errors.push("anat.surface_reconstruction.longitudinal.pial_blend_weight must be between 0 and 1");
+                }
+                if (long.time_column !== null && typeof long.time_column !== 'string') {
+                    errors.push("anat.surface_reconstruction.longitudinal.time_column must be a string or null");
+                }
+            }
+            
+            validateLongitudinal(config.anat);
             
             // Validate registration
             const validInterpolations = [
@@ -1514,10 +1613,10 @@ button#generate:hover{filter:brightness(.95);}
             }
 
             // BIDS filtering
-            config.bids_filtering.subjects = parseListInput(document.getElementById('bids_subjects').value);
-            config.bids_filtering.sessions = parseListInput(document.getElementById('bids_sessions').value);
-            config.bids_filtering.tasks = parseListInput(document.getElementById('bids_tasks').value);
-            config.bids_filtering.runs = parseListInput(document.getElementById('bids_runs').value);
+            config.bids_filtering.subjects = parseListInput(document.getElementById('bids_filtering_subjects').value);
+            config.bids_filtering.sessions = parseListInput(document.getElementById('bids_filtering_sessions').value);
+            config.bids_filtering.tasks = parseListInput(document.getElementById('bids_filtering_tasks').value);
+            config.bids_filtering.runs = parseListInput(document.getElementById('bids_filtering_runs').value);
             
             // Template
             config.template.output_space = document.getElementById('template_output_space').value || defaults.template.output_space;
@@ -1526,15 +1625,15 @@ button#generate:hover{filter:brightness(.95);}
             config.anat.synthesis_level = document.getElementById('anat_synthesis_level').value;
             config.anat.conform.enabled = document.getElementById('anat_conform_enabled').checked;
             
-            config.anat.skullstripping_segmentation.enabled = document.getElementById('anat_skullstripping_enabled').checked;
-            config.anat.skullstripping_segmentation.method = document.getElementById('anat_skullstripping_method').value;
+            config.anat.skullstripping_segmentation.enabled = document.getElementById('anat_skullstripping_segmentation_enabled').checked;
+            config.anat.skullstripping_segmentation.method = document.getElementById('anat_skullstripping_segmentation_method').value;
             if (config.anat.skullstripping_segmentation.method === 'fastSurferCNN') {
                 config.anat.skullstripping_segmentation.fastSurferCNN.gpu_device = config.general.gpu_device;
-                config.anat.skullstripping_segmentation.fastSurferCNN.batch_size = parseInt(document.getElementById('anat_fastSurferCNN_batch_size').value);
-                config.anat.skullstripping_segmentation.fastSurferCNN.plane_weight_coronal = parseFloat(document.getElementById('anat_fastSurferCNN_plane_weight_coronal').value);
-                config.anat.skullstripping_segmentation.fastSurferCNN.plane_weight_axial = parseFloat(document.getElementById('anat_fastSurferCNN_plane_weight_axial').value);
-                config.anat.skullstripping_segmentation.fastSurferCNN.plane_weight_sagittal = parseFloat(document.getElementById('anat_fastSurferCNN_plane_weight_sagittal').value);
-                config.anat.skullstripping_segmentation.fastSurferCNN.fix_V1_WM = document.getElementById('anat_fastSurferCNN_fix_V1_WM').checked;
+                config.anat.skullstripping_segmentation.fastSurferCNN.batch_size = parseInt(document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_batch_size').value);
+                config.anat.skullstripping_segmentation.fastSurferCNN.plane_weight_coronal = parseFloat(document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_plane_weight_coronal').value);
+                config.anat.skullstripping_segmentation.fastSurferCNN.plane_weight_axial = parseFloat(document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_plane_weight_axial').value);
+                config.anat.skullstripping_segmentation.fastSurferCNN.plane_weight_sagittal = parseFloat(document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_plane_weight_sagittal').value);
+                config.anat.skullstripping_segmentation.fastSurferCNN.fix_V1_WM = document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_fix_V1_WM').checked;
             }
             
             config.anat.bias_correction.enabled = document.getElementById('anat_bias_correction_enabled').checked;

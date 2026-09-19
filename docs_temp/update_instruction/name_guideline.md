@@ -55,8 +55,8 @@ collapsed the nav back to one entry per session with no report change at all.
 3. **The constructor** — `derive_output_name()` / `create_bids_output_filename()`.
 4. **The validator** — `validate_output_name()`, plus
    `scripts/check_output_naming.py` for a whole tree.
-5. **The published docs** — `docs/output_naming.rst` (the rule) and
-   `docs/outputs.rst` (the actual filenames).
+5. **The published docs** — `docs/outputs.rst` (the actual filenames). The rule
+   itself is not published; it lives in `ENTITY_ROLES` and this guideline.
 6. **`brainana-viewer`'s data contract** — `docs/data-contract.md` in that repo.
    It names specific output shapes; two of the deviations in Part 3 exist for it.
 

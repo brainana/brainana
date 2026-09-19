@@ -71,6 +71,40 @@ def test_generator_covers_every_default_key():
     )
 
 
+# anat.skullstripping_segmentation.fastSurferCNN.gpu_device has no field of its
+# own on purpose: the generator mirrors general.gpu_device into it, so exposing a
+# second control for the same device would let the two disagree.
+GENERATOR_FIELDLESS_KEYS = {
+    "anat.skullstripping_segmentation.fastSurferCNN.gpu_device",
+}
+
+
+def test_generator_field_ids_mirror_config_paths():
+    """A generator field's id must be its config path with dots as underscores.
+
+    test_generator_covers_every_default_key is satisfied by the leaf *name*
+    appearing anywhere in the file, so ids drifted from the paths they stand for:
+    ``bids_subjects`` for ``bids_filtering.subjects``, ``anat_fastSurferCNN_*``
+    for keys two levels deeper than that. Nothing was broken by it, but reading
+    or editing the collection code meant guessing which convention a given field
+    followed -- the same guesswork that shipped ``session_longitudinal`` with no
+    ``<option>``. Pinning the convention keeps the next field honest.
+    """
+    html = GENERATOR.read_text()
+    missing = sorted(
+        path
+        for path, _ in _leaf_keys(load_yaml_config(DEFAULTS))
+        if path not in GENERATOR_FIELDLESS_KEYS
+        and f'id="{path.replace(".", "_")}"' not in html
+    )
+    assert not missing, (
+        "config_generator.html has no field whose id is the config path for: "
+        + ", ".join(missing)
+        + ". Name each input id after its full path (dots -> underscores), or add "
+        "it to GENERATOR_FIELDLESS_KEYS with the reason it has no control."
+    )
+
+
 @pytest.mark.parametrize("synthesis_level", VALID_SYNTHESIS_LEVELS)
 def test_every_synthesis_level_validates(synthesis_level):
     """Every documented value must pass, so the enum cannot silently narrow."""
