@@ -15,10 +15,12 @@ from pathlib import Path
 
 import pytest
 
-REPO = Path(__file__).resolve().parent.parent.parent
-S15_SOURCE = REPO / "src" / "fastsurfer_surfrecon" / "stages" / "s15_surface_placement.py"
-
 from fastsurfer_surfrecon.wrappers.mris import mris_place_surface
+
+REPO = Path(__file__).resolve().parent.parent.parent
+S15_SOURCE = (
+    REPO / "src" / "fastsurfer_surfrecon" / "stages" / "s15_surface_placement.py"
+)
 
 
 class _Recorder:

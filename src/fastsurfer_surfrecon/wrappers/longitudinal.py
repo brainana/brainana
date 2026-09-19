@@ -171,9 +171,7 @@ def mri_robust_template(
         cmd += ["--fixtp"]
 
     expected = [template] + ([Path(x) for x in ltas] if ltas else [])
-    logger.info(
-        "Building robust template from %d volume(s) -> %s", len(movs), template
-    )
+    logger.info("Building robust template from %d volume(s) -> %s", len(movs), template)
     run_fs_command(
         cmd,
         log_file=log_file,

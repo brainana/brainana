@@ -499,13 +499,16 @@ def build_base_template(
     # timepoint is silently misaligned -- so check here, before the GPU
     # segmentation and the multi-hour reconstruction, rather than discovering it
     # per timepoint afterwards.
-    for name, other in (("norm_template", norm_template), ("mask_template", mask_template)):
+    for name, other in (
+        ("norm_template", norm_template),
+        ("mask_template", mask_template),
+    ):
         mismatch = describe_geometry_mismatch(
             base_orig, other, labels=("the base's orig.mgz", name)
         )
         if mismatch:
             raise RuntimeError(
-                f"mri_robust_template's passes did not agree on a grid.\n\n"
+                "mri_robust_template's passes did not agree on a grid.\n\n"
                 + mismatch
                 + "\n\nThe timepoint-to-base transforms were solved in the pass "
                 "that produced norm_template, so they target its grid, not the "
@@ -921,9 +924,7 @@ def reconstruct_base(
     working_dir = Path(input.working_dir)
     subjects_dir = working_dir / "fastsurfer"
 
-    if not config_value(
-        input.config, "anat.surface_reconstruction.enabled", True
-    ):
+    if not config_value(input.config, "anat.surface_reconstruction.enabled", True):
         logger.info("Step: base reconstruction skipped (disabled in configuration)")
         return StepOutput(
             output_file=base_dir,
@@ -1060,9 +1061,7 @@ def run_long_timepoint(
     subjects_dir = Path(input.working_dir) / "fastsurfer"
     long_subject_id = long_subject_id or f"{cross_subject_id}_long"
 
-    if not config_value(
-        input.config, "anat.surface_reconstruction.enabled", True
-    ):
+    if not config_value(input.config, "anat.surface_reconstruction.enabled", True):
         # anat_surface_reconstruction() makes this check for the cross-sectional
         # path; this function calls ReconSurfPipeline directly, so it has to make
         # it too or the knob would apply to some paths and not others.
@@ -1078,9 +1077,7 @@ def run_long_timepoint(
         input.config, "anat.skullstripping_segmentation.atlas_name", "ARM2"
     )
     threads = config_value(input.config, "processing.threads", 1)
-    long_cfg = config_section(
-        input.config, "anat.surface_reconstruction.longitudinal"
-    )
+    long_cfg = config_section(input.config, "anat.surface_reconstruction.longitudinal")
 
     logger.info(
         "Longitudinal reconstruction of %s from base %s",
@@ -1107,9 +1104,7 @@ def run_long_timepoint(
         cross_subject_id=cross_subject_id,
         tp_to_base_lta=Path(tp_to_base_lta),
         long_max_cbv_dist=config_value(long_cfg, "max_cbv_dist", 3.5, float),
-        long_pial_blend_weight=config_value(
-            long_cfg, "pial_blend_weight", 0.25, float
-        ),
+        long_pial_blend_weight=config_value(long_cfg, "pial_blend_weight", 0.25, float),
     )
     ReconSurfPipeline(recon_config).run()
 
@@ -1125,6 +1120,7 @@ def run_long_timepoint(
             "subjects_dir": str(subjects_dir),
         },
     )
+
 
 # ---------------------------------------------------------------------------
 # Within-subject change statistics
@@ -1495,9 +1491,9 @@ def collect_change_stats(
             }
             missing = [i for i, p in paths.items() if not p.exists()]
             if missing:
-                summary["skipped"][f"{hemi}.{measure}"] = (
-                    f"missing in {', '.join(missing)}"
-                )
+                summary["skipped"][
+                    f"{hemi}.{measure}"
+                ] = f"missing in {', '.join(missing)}"
                 continue
 
             stack = [_read_morph(paths[i]) for i in long_ids]
@@ -1544,9 +1540,9 @@ def collect_change_stats(
             if stats_path.exists():
                 per_tp[long_id] = parse_aparc_stats(stats_path)
         if len(per_tp) < 2:
-            summary["skipped"][f"{hemi}.roi"] = (
-                f"{stats_name} present in {len(per_tp)} timepoint(s); need 2"
-            )
+            summary["skipped"][
+                f"{hemi}.roi"
+            ] = f"{stats_name} present in {len(per_tp)} timepoint(s); need 2"
             continue
 
         # Only the timepoints that actually had a stats file. Iterating long_ids
@@ -1572,9 +1568,7 @@ def collect_change_stats(
                 continue
             ttc = tt - tt.mean()
             for column in roi_columns:
-                y = np.array(
-                    [per_tp[i][roi][column] for i in stats_ids], dtype=float
-                )
+                y = np.array([per_tp[i][roi][column] for i in stats_ids], dtype=float)
                 slope = float((ttc * (y - y.mean())).sum() / (ttc**2).sum())
                 mean = float(y.mean())
                 pct = 100.0 * slope / mean if mean != 0 else 0.0

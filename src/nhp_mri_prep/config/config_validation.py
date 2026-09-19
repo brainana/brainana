@@ -675,7 +675,11 @@ def validate_longitudinal_config(config: Dict[str, Any]) -> None:
 
     subsample = config.get("subsample")
     if subsample is not None:
-        if isinstance(subsample, bool) or not isinstance(subsample, int) or subsample <= 0:
+        if (
+            isinstance(subsample, bool)
+            or not isinstance(subsample, int)
+            or subsample <= 0
+        ):
             raise ValueError(
                 "Configuration error in anat.surface_reconstruction.longitudinal: "
                 f"subsample must be a positive integer or null, got: {subsample!r}. "
@@ -688,9 +692,11 @@ def validate_longitudinal_config(config: Dict[str, Any]) -> None:
     # problem this function exists to avoid.
     max_cbv_dist = config.get("max_cbv_dist")
     if max_cbv_dist is not None:
-        if isinstance(max_cbv_dist, bool) or not isinstance(
-            max_cbv_dist, (int, float)
-        ) or max_cbv_dist <= 0:
+        if (
+            isinstance(max_cbv_dist, bool)
+            or not isinstance(max_cbv_dist, (int, float))
+            or max_cbv_dist <= 0
+        ):
             raise ValueError(
                 "Configuration error in anat.surface_reconstruction.longitudinal: "
                 f"max_cbv_dist must be a positive number, got: {max_cbv_dist!r}. "
@@ -699,8 +705,10 @@ def validate_longitudinal_config(config: Dict[str, Any]) -> None:
 
     blend = config.get("pial_blend_weight")
     if blend is not None:
-        if isinstance(blend, bool) or not isinstance(blend, (int, float)) or not (
-            0.0 <= blend <= 1.0
+        if (
+            isinstance(blend, bool)
+            or not isinstance(blend, (int, float))
+            or not (0.0 <= blend <= 1.0)
         ):
             raise ValueError(
                 "Configuration error in anat.surface_reconstruction.longitudinal: "

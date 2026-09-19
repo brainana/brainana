@@ -70,6 +70,7 @@ def _write_vol(
     )
     nib.save(img, str(path))
 
+
 # Every base surface the seed table reads, plus the two placement anchors.
 BASE_SURFACES = sorted(set(_SURFACE_SEEDS.values()))
 
@@ -177,9 +178,9 @@ def test_geometry_stages_will_not_rerun_after_seeding(seeded):
     for stage_cls in GEOMETRY_STAGES:
         for hemi in ("lh", "rh"):
             stage = stage_cls(config, sd, hemi)
-            assert stage.is_disabled() or stage.should_skip(), (
-                f"{stage_cls.__name__} ({hemi}) would re-run after seeding"
-            )
+            assert (
+                stage.is_disabled() or stage.should_skip()
+            ), f"{stage_cls.__name__} ({hemi}) would re-run after seeding"
 
 
 def test_seeding_also_satisfies_skip_rules_without_the_disable_flag(seeded):

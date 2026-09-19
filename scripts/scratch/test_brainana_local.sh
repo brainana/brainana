@@ -17,7 +17,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # ========================
 # Test parameters (edit paths/config here)
-version=2.2.0
+version=2.1.0
 custom_template_f=""
 
 bids_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/dataset_devtest

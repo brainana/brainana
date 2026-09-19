@@ -57,15 +57,28 @@ RUN apt-get update && \
 COPY --from=ghcr.io/astral-sh/uv:0.5.14 /uv /uvx /bin/
 
 WORKDIR /opt/brainana
-COPY pyproject.toml uv.lock setup.cfg ./
-COPY . .
 
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv
+
+# Dependencies first, resolved from the lock alone. Keeping the source tree out of
+# this layer is what makes it cacheable: with `COPY . .` above the sync, any edit in
+# the repo invalidated it and, through /opt/venv, the FireANTs CUDA compile in the
+# next stage -- the slowest layer in the build.
+#
+# There is deliberately no `|| uv pip install -e '.[full]'` fallback. It turned any
+# transient sync failure into a silent unpinned resolution at build time, which also
+# drops [tool.uv] override-dependencies and with it the simpleitk>=2.3.0 override
+# that exists because fireants==1.5.0 hard-pins simpleitk==2.2.1.
+COPY pyproject.toml uv.lock setup.cfg README.md ./
 RUN mkdir -p /opt/brainana/tmp && \
     uv venv /opt/venv && \
-    TMPDIR=/opt/brainana/tmp uv sync --python /opt/venv/bin/python --extra full --frozen --no-cache || \
-    TMPDIR=/opt/brainana/tmp uv pip install --no-cache -e '.[full]' && \
+    TMPDIR=/opt/brainana/tmp uv sync --python /opt/venv/bin/python --extra full \
+        --frozen --no-cache --no-install-project && \
     rm -rf /opt/brainana/tmp
+
+# Then the project itself, on top of the cached dependency layer.
+COPY . .
+RUN uv sync --python /opt/venv/bin/python --extra full --frozen --no-cache
 
 # Clean venv: remove caches and test dirs (~1-2 GB savings)
 RUN find /opt/venv -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null; \
@@ -110,7 +123,10 @@ ENV TORCH_CUDA_ARCH_LIST="7.0;7.5;8.0;8.6;8.9;9.0+PTX"
 
 COPY --from=python-builder /opt/venv /opt/venv
 
-RUN git clone --depth 1 https://github.com/rohitrango/FireANTs.git /tmp/FireANTs && \
+# Pinned to the tag matching fireants==1.5.0 in uv.lock. Unpinned, this cloned
+# whatever the default branch pointed at on build day, so the compiled fused_ops
+# kernels could drift out of ABI agreement with the wheel in /opt/venv.
+RUN git clone --depth 1 --branch v1.5.0 https://github.com/rohitrango/FireANTs.git /tmp/FireANTs && \
     cd /tmp/FireANTs/fused_ops && \
     /opt/venv/bin/python setup.py build_ext && \
     /opt/venv/bin/python setup.py install && \
@@ -142,6 +158,13 @@ ARG AFNI_TARBALL=linux_rocky_8.tgz
 # surface the exact Docker image tag in QC reports and configs.
 ARG BRAINANA_VERSION=unknown
 ENV BRAINANA_IMAGE_TAG=${BRAINANA_VERSION}
+# get_version() returns BRAINANA_IMAGE_TAG first and "unknown" is non-empty, so it
+# never falls back to pyproject.toml -- a forgotten build-arg would stamp "unknown"
+# into every sidecar, dataset_description.json and QC report. Fail loudly instead.
+RUN if [ "${BRAINANA_VERSION}" = "unknown" ]; then \
+        echo "ERROR: pass --build-arg BRAINANA_VERSION=<X.Y.Z> (or =dev for a throwaway build)." >&2; \
+        exit 1; \
+    fi
 
 # Install uv (pinned version for reproducibility)
 COPY --from=ghcr.io/astral-sh/uv:0.5.14 /uv /uvx /bin/
@@ -348,7 +371,7 @@ if [ "$PS1" ]; then\n\
     echo "--------------------------------------------------------------------------------"\n\
     echo "Usage Examples:"\n\
     echo "  ./run_brainana.sh run main.nf --bids_dir /data --output_dir /output"\n\
-    echo "  (Config generator: open docs/_static/config_generator.html in a browser)"\n\
+    echo "  (Config generator: https://brainana.readthedocs.io/en/stable/_static/config_generator.html)"\n\
     echo "================================================================================"\n\
 fi\n' \
     "${FSLDIR}" "${AFNI_HOME}" "${AFNIPATH}" "${ANTSPATH}" "${FREESURFER_HOME}" "${FS_LICENSE}" \
@@ -426,7 +449,7 @@ HEALTHCHECK --interval=60s --timeout=10s --start-period=5s --retries=3 \
 LABEL org.opencontainers.image.title="brainana" \
       org.opencontainers.image.description="Macaque MRI preprocessing pipeline" \
       org.opencontainers.image.version="${BRAINANA_VERSION}" \
-      org.opencontainers.image.source="https://github.com/xingyu-liu/brainana"
+      org.opencontainers.image.source="https://github.com/brainana/brainana"
 
 ENTRYPOINT ["/opt/brainana/entrypoint.sh"]
 CMD ["/input", "/output"]

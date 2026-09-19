@@ -80,7 +80,17 @@ setup_pipeline_identity() {
         return
     fi
 
-    if ! chown -R "${PIPELINE_UID}:${PIPELINE_GID}" "$work_dir" 2>/dev/null; then
+    # This ran unconditionally on every start. A resumed run's work tree is tens of GB
+    # and can be millions of inodes, so `chown -R` spent minutes doing nothing before
+    # the pipeline printed anything. Skip it when the tree root already carries the
+    # target ownership, which holds for every resume after the first launch.
+    # Caveat: a tree left half-owned by an interrupted chown is not repaired here --
+    # delete the work dir to force a clean pass.
+    local work_dir_owner
+    work_dir_owner="$(stat -c '%u:%g' "$work_dir" 2>/dev/null || echo '')"
+    if [ "$work_dir_owner" = "${PIPELINE_UID}:${PIPELINE_GID}" ]; then
+        : # already owned by the pipeline user
+    elif ! chown -R "${PIPELINE_UID}:${PIPELINE_GID}" "$work_dir" 2>/dev/null; then
         echo "WARNING: Could not chown work dir $work_dir to ${PIPELINE_UID}:${PIPELINE_GID}" >&2
         echo "         (e.g. NFS root_squash); work files may stay root-owned." >&2
     fi
@@ -219,37 +229,53 @@ case "${1:-}" in
         ;;
 esac
 
-INPUT_DIR="${1:-/input}"
-OUTPUT_DIR="${2:-/output}"
+# Positionals are optional, and must not swallow a leading flag. CMD supplies
+# "/input /output", but ANY user argument replaces CMD wholesale, so
+# `docker run <image> --anat_only` arrives as $1="--anat_only". That used to be
+# taken as the input directory and rejected with the misleading
+# "Input directory not found: --anat_only". Only a non-flag token is consumed as a
+# positional; "bash"/"sh" still land in INPUT_DIR and are intercepted further below.
+INPUT_DIR="/input"
+OUTPUT_DIR="/output"
+i=1
+if [ $# -ge $i ] && [[ "${!i}" != -* ]]; then
+    INPUT_DIR="${!i}"
+    i=$((i + 1))
+    if [ $# -ge $i ] && [[ "${!i}" != -* ]]; then
+        OUTPUT_DIR="${!i}"
+        i=$((i + 1))
+    fi
+fi
 
 CONFIG="$DEFAULT_CONFIG"
 WORK_DIR=""
 RESUME_BY_DEFAULT=1
 EXTRA_ARGS=()
 FS_LICENSE_PATH=""
-i=3
 while [ $i -le $# ]; do
-    arg="${!i}"
-    # Underscore is the canonical connector; hyphenated spellings are accepted as
-    # aliases for backward compatibility (see run_brainana.sh for the general
-    # normalizer that covers flags forwarded to Nextflow).
+    # Underscore is the canonical connector. normalize_flag() (flags.sh) maps the
+    # hyphenated aliases onto it for every name in known_flags.txt, so only canonical
+    # spellings need matching below. Both spellings used to be hardcoded here AND in
+    # run_brainana.sh, so the two alias tables could drift apart. If known_flags.txt is
+    # missing, flags.sh already warns and normalization degrades to a pass-through.
+    arg="$(normalize_flag "${!i}")"
     if [[ "$arg" == --config=* ]] || [[ "$arg" == --config_file=* ]]; then
         CONFIG="${arg#*=}"
     elif [[ "$arg" == --config ]] || [[ "$arg" == --config_file ]]; then
         ((i++))
         [ $i -le $# ] && CONFIG="${!i}"
-    elif [[ "$arg" == --work_dir=* ]] || [[ "$arg" == --work-dir=* ]]; then
+    elif [[ "$arg" == --work_dir=* ]]; then
         WORK_DIR="${arg#*=}"
-    elif [[ "$arg" == -w ]] || [[ "$arg" == --work_dir ]] || [[ "$arg" == --work-dir ]]; then
+    elif [[ "$arg" == -w ]] || [[ "$arg" == --work_dir ]]; then
         ((i++))
         [ $i -le $# ] && WORK_DIR="${!i}"
-    elif [[ "$arg" == --no_resume ]] || [[ "$arg" == --no-resume ]]; then
+    elif [[ "$arg" == --no_resume ]]; then
         RESUME_BY_DEFAULT=0
-    elif [[ "$arg" == --freesurfer_license=* ]] || [[ "$arg" == --freesurfer-license=* ]]; then
+    elif [[ "$arg" == --freesurfer_license=* ]]; then
         # Consumed here into FS_LICENSE (below); NOT forwarded to Nextflow, which has
         # no freesurfer_license param — forwarding it would only create an unused param.
         FS_LICENSE_PATH="${arg#*=}"
-    elif [[ "$arg" == --freesurfer_license ]] || [[ "$arg" == --freesurfer-license ]]; then
+    elif [[ "$arg" == --freesurfer_license ]]; then
         ((i++))
         [ $i -le $# ] && FS_LICENSE_PATH="${!i}"
     else

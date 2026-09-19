@@ -59,7 +59,9 @@ def long_tree(tmp_path):
         d = tmp_path / long_id
         for hemi in ("lh", "rh"):
             # thickness = 2.0 + 0.1*t, uniform across vertices
-            _write_morph(d / "surf" / f"{hemi}.thickness", np.full(N_VERTS, 2.0 + 0.1 * time))
+            _write_morph(
+                d / "surf" / f"{hemi}.thickness", np.full(N_VERTS, 2.0 + 0.1 * time)
+            )
             _write_morph(d / "surf" / f"{hemi}.area", np.full(N_VERTS, 1.0))
             _write_morph(d / "surf" / f"{hemi}.curv", np.zeros(N_VERTS))
             _stats_file(
@@ -284,9 +286,7 @@ class TestCollectChangeStats:
         base, long_dirs = long_tree
         collect_change_stats(base, long_dirs)
         assert (base / "scripts" / "long.qdec.table.dat").exists()
-        summary = json.loads(
-            (base / "stats" / "long.change-stats.json").read_text()
-        )
+        summary = json.loads((base / "stats" / "long.change-stats.json").read_text())
         assert len(summary["timepoints"]) == 3
         assert summary["times"]["sub-01_ses-004_long"] == 4.0
 
@@ -367,7 +367,9 @@ class TestCollectChangeStats:
         )
         assert summary["time_source"] == "session label"
 
-    def test_time_source_says_scan_order_for_unparseable_labels(self, tmp_path, long_tree):
+    def test_time_source_says_scan_order_for_unparseable_labels(
+        self, tmp_path, long_tree
+    ):
         """ses-preop and friends carry no number, so the rate is per scan."""
         _, long_dirs = long_tree
         base = tmp_path / "sub-02_base"

@@ -55,7 +55,9 @@ def _declared_processes(paths):
     names = set()
     for path in paths:
         names |= set(
-            re.findall(r"^process\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{", path.read_text(), re.M)
+            re.findall(
+                r"^process\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{", path.read_text(), re.M
+            )
         )
     return names
 
@@ -66,7 +68,10 @@ def _aliased_processes(paths):
     for path in paths:
         text = path.read_text()
         names |= set(
-            re.findall(r"include\s*\{\s*[A-Za-z_][A-Za-z0-9_]*\s+as\s+([A-Za-z_][A-Za-z0-9_]*)\s*\}", text)
+            re.findall(
+                r"include\s*\{\s*[A-Za-z_][A-Za-z0-9_]*\s+as\s+([A-Za-z_][A-Za-z0-9_]*)\s*\}",
+                text,
+            )
         )
     return names
 
@@ -123,9 +128,7 @@ def test_surface_reconstruction_family_shares_one_selector():
         "ANAT_SURFACE_BASE_RECON",
     ]
     selectors = _selectors()
-    per_member = {
-        name: {s for s in selectors if _matches(name, s)} for name in family
-    }
+    per_member = {name: {s for s in selectors if _matches(name, s)} for name in family}
     missing = [n for n, sels in per_member.items() if not sels]
     assert not missing, f"no selector for {missing}"
     shared = set.intersection(*per_member.values())
@@ -140,11 +143,7 @@ def test_qc_aliases_share_their_originals_selector():
     selectors = _selectors()
     for original in ("QC_SURF_RECON_TISSUE_SEG", "QC_CORTICAL_SURF_AND_MEASURES"):
         alias = f"{original}_LONG"
-        shared = {
-            s
-            for s in selectors
-            if _matches(original, s) and _matches(alias, s)
-        }
+        shared = {s for s in selectors if _matches(original, s) and _matches(alias, s)}
         assert shared, (
             f"{alias} is not covered by the same selector as {original}; it would "
             f"fall through to the 1 CPU / 2 GB default"

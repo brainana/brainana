@@ -186,9 +186,7 @@ class TestRobustTemplateIscale:
         calls = self._recorder(monkeypatch)
         movs = [tmp_path / "a.mgz", tmp_path / "b.mgz"]
         scales = [tmp_path / "a.txt", tmp_path / "b.txt"]
-        mri_robust_template(
-            movs=movs, template=tmp_path / "t.mgz", iscaleout=scales
-        )
+        mri_robust_template(movs=movs, template=tmp_path / "t.mgz", iscaleout=scales)
         argv = calls[0]
         assert "--iscale" in argv
         i = argv.index("--iscaleout")
@@ -201,8 +199,12 @@ class TestRobustTemplateIscale:
         movs = [tmp_path / "a.mgz", tmp_path / "b.mgz"]
         scales = [tmp_path / "a.txt", tmp_path / "b.txt"]
         mri_robust_template(
-            movs=movs, template=tmp_path / "t.mgz", ixforms=scales, iscalein=scales,
-            noit=True, sat=None,
+            movs=movs,
+            template=tmp_path / "t.mgz",
+            ixforms=scales,
+            iscalein=scales,
+            noit=True,
+            sat=None,
         )
         argv = calls[0]
         i = argv.index("--iscalein")

@@ -30,7 +30,13 @@ DOTTED = "anat.surface_reconstruction.longitudinal"
 
 @pytest.mark.parametrize(
     "config",
-    [{}, {"anat": None}, {"anat": {}}, NULL_SECTION, {"anat": {"surface_reconstruction": 7}}],
+    [
+        {},
+        {"anat": None},
+        {"anat": {}},
+        NULL_SECTION,
+        {"anat": {"surface_reconstruction": 7}},
+    ],
 )
 def test_missing_or_null_sections_read_as_empty(config):
     assert config_section(config, DOTTED) == {}

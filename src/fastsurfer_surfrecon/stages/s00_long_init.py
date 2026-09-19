@@ -39,7 +39,6 @@ What is deliberately *not* seeded matters as much as what is:
 import json
 import logging
 import shutil
-from pathlib import Path
 
 from .base import PipelineStage, StageOutputError
 from ..utils.geometry import describe_geometry_mismatch, volume_geometry
@@ -124,9 +123,7 @@ class LongTimepointInit(PipelineStage):
         ]
         outputs += [self.sd.mri(v) for v in _BASE_VOLUMES]
         for hemi in ("lh", "rh"):
-            outputs += [
-                self.sd.hemi_surf(hemi, dst) for dst in _SURFACE_SEEDS
-            ]
+            outputs += [self.sd.hemi_surf(hemi, dst) for dst in _SURFACE_SEEDS]
         return outputs
 
     # ------------------------------------------------------------------
@@ -322,9 +319,7 @@ class LongTimepointInit(PipelineStage):
                 stage = stage_cls(self.config, self.sd, hemi)
                 if stage.should_skip():
                     continue
-                missing = [
-                    str(p) for p in stage.expected_outputs() if not p.exists()
-                ]
+                missing = [str(p) for p in stage.expected_outputs() if not p.exists()]
                 problems.append(
                     f"{class_name} ({hemi}) is not satisfied by the seeds"
                     + (f"; missing: {', '.join(missing)}" if missing else "")
