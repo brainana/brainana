@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from .config import ReconSurfConfig
 from .io.subjects_dir import SubjectsDir
 from .stages import (
+    LongTimepointInit,
     # Volume stages
     VolumePrep,
     BiasCorrection,
@@ -159,8 +160,16 @@ class ReconSurfPipeline:
     # ------------------------------------------------------------------
 
     def volume_stages(self) -> list:
-        """Volume-processing stages, in execution order (s01-s07b)."""
+        """Volume-processing stages, in execution order (s00-s07b).
+
+        LongTimepointInit is first and disables itself unless
+        config.longitudinal, so a cross-sectional run is unaffected. It must
+        stay first: ordering.py derives VOLUME_STEPS from stage filenames, so
+        "s00" sorts ahead of "s01" and test_volume_stage_order_matches_step_list
+        asserts this list agrees with that order.
+        """
         return [
+            LongTimepointInit(self.config, self.sd),
             VolumePrep(self.config, self.sd),
             BiasCorrection(self.config, self.sd),
             MaskAseg(self.config, self.sd),

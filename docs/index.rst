@@ -67,6 +67,7 @@ Contents
 
    processing
    outputs
+   synthesis_level
    anat_selection_for_func
    spaces_and_transforms
 

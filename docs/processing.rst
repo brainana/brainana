@@ -214,6 +214,28 @@ maps.
 - **Outputs:** FreeSurfer-compatible subject directories under ``fastsurfer/``.
 
 
+3.1 Longitudinal stream (``session_longitudinal``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Setting ``anat.synthesis_level: "session_longitudinal"`` adds a second pass on
+top of the per-session reconstruction above: an unbiased within-subject base
+template, plus a base-seeded reconstruction per session, so every session of a
+subject shares **one cortical mesh** and thickness can be differenced vertex by
+vertex across timepoints.
+
+- **When:** ``anat.synthesis_level: "session_longitudinal"``, which also
+  requires ``anat.surface_reconstruction.enabled``. Subjects with fewer than two
+  sessions carrying anatomy are skipped.
+- **Outputs:** ``fastsurfer/sub-<id>_base/`` and
+  ``fastsurfer/sub-<id>_ses-<id>_long/``, plus per-vertex and per-ROI change
+  statistics written into the base directory.
+- Functional processing and the fsnative atlas outputs continue to use the
+  **cross-sectional** reconstructions.
+
+The two phases, the time variable behind the change statistics, the tuning knobs
+and the QC outputs are described in :doc:`synthesis_level`.
+
+
 4. Functional processing
 ------------------------
 
@@ -471,6 +493,7 @@ For outputs and directory layout, see :doc:`outputs`.
 
 .. seealso::
 
+   - :doc:`synthesis_level` — how a subject's anatomy is combined across sessions
    - :doc:`anat_selection_for_func` — how the T1w reference for fMRI is selected
    - :doc:`spaces_and_transforms` — spaces and transforms
 

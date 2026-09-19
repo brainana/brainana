@@ -1,10 +1,10 @@
 fs_license=/mnt/DataDrive3/xliu/prep_test/freesurfer_license.txt
-version=2.1.1
+version=3.0.0
 
 # # ------------------------------------------------------------
 # # # 1. devtest
 bids_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/dataset_devtest
-output_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/dataset_devtest_docker_v${version}
+output_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/dataset_devtest_docker_v${version}_sub
 config_f=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/config_res-1.yaml
 
 # # ------------------------------------------------------------

@@ -19,6 +19,19 @@ on:
       - "uv.lock"
       - "src/**"
       - "tests/**"
+      # Most output naming lives in the .nf process bodies, and the suite checks
+      # them (test_nextflow_script_bodies compiles every body and resolves its
+      # imports; test_output_naming_contract pins the names they build). Without
+      # these paths a change confined to modules/ or workflows/ ran no tests at all.
+      - "modules/**"
+      - "workflows/**"
+      - "main.nf"
+      # Read by the suite but not previously triggering it: a PR touching only
+      # one of these ran zero tests. test_process_resources parses the resource
+      # selectors in nextflow.config; test_config_consistency parses the config
+      # generator and cross-checks it against defaults.yaml.
+      - "nextflow.config"
+      - "docs/_static/config_generator.html"
       - ".github/workflows/deps.yml"
   push:
     branches: [main]

@@ -12,9 +12,28 @@ from dataclasses import dataclass
 import json
 
 
-# Standard BIDS entity order. 'others' is a placeholder: any entity not in this
-# list is emitted at the 'others' position (move 'others' to control custom entity order).
+# Canonical emission order for brainana output names. 'others' is a placeholder:
+# any entity not in this list is emitted at the 'others' position (move 'others'
+# to control custom entity order).
+#
+# Every entity brainana itself writes must appear here. An entity that is absent
+# falls into the 'others' slot, which sits *before* space/desc -- so a name that
+# round-trips through parse_bids_entities + create_bids_filename would come back
+# reordered. That is why ``stat`` and ``hemi`` are listed: without them a tSNR map
+# rebuilt from its own entities became ``_stat-tsnr_desc-preproc_`` instead of
+# ``_desc-preproc_stat-tsnr_``.
+#
+# Positions are the ones brainana and docs/outputs.rst already publish, NOT the
+# abstract BIDS order, because published names are a consumer contract:
+#   * ``hemi`` after ``space`` -- atlas-<n>_space-fsnative_hemi-L_<prefix>.func.gii,
+#     which brainana-viewer discovers by that exact shape.
+#   * ``stat`` after ``desc`` -- <prefix>_space-T1w_desc-preproc_stat-tsnr_boldmap.
+#   * ``atlas`` first -- atlas-<n>_space-<sp>_sub-<id>.nii.gz. Subject-last is a
+#     declared deviation (see DECLARED_DEVIATIONS); leading ``atlas-`` is what the
+#     viewer and utils/templates.py glob on.
+# See docs_temp/update_instruction/name_guideline.md before moving any of them.
 BIDS_ENTITY_ORDER = [
+    "atlas",
     "sub",
     "ses",
     "task",
@@ -30,10 +49,88 @@ BIDS_ENTITY_ORDER = [
     "part",
     "recording",
     "others",
+    "from",
+    "to",
+    "mode",
     "space",
+    "res",
+    "den",
+    "hemi",
     "split",
     "desc",
+    "stat",
 ]
+
+# What each entity means, and who is allowed to write it. The rule this table
+# encodes: brainana copies identity entities from the raw data and never sets
+# them; every concern of its own gets exactly one named slot.
+#
+# This is the table that rules out the bug it was written for. The longitudinal
+# stream used to mark its products with ``acq-base`` / ``acq-long``, but ``acq``
+# is an identity entity -- the same dev-test dataset carries a real ``acq-test``
+# from raw data. So a stream marker and an acquisition label were indistinguishable,
+# a timepoint's own ``acq`` was destroyed, and the QC report (which groups figures
+# by identity entities) read one session as two. The marker now lives in ``space``,
+# which is what the distinction actually is: a base-seeded reconstruction is in
+# base space.
+ENTITY_ROLES: Dict[str, str] = {
+    # identity -- inherited from the raw file. brainana copies, never sets.
+    "sub": "identity",
+    "ses": "identity",
+    "task": "identity",
+    "acq": "identity",
+    "ce": "identity",
+    "dir": "identity",
+    "rec": "identity",
+    "run": "identity",
+    "echo": "identity",
+    "flip": "identity",
+    "inv": "identity",
+    "mt": "identity",
+    "part": "identity",
+    "recording": "identity",
+    # frame -- which reference frame the data are in. Written by brainana.
+    "space": "frame",
+    "from": "frame",
+    "to": "frame",
+    "mode": "frame",
+    "res": "frame",
+    "den": "frame",
+    "hemi": "frame",
+    # variant -- which processing variant this is. Written by brainana, once.
+    "desc": "variant",
+    "split": "variant",
+    # product -- what kind of product this is. Written by brainana.
+    "atlas": "product",
+    "stat": "product",
+}
+
+IDENTITY_ROLE = "identity"
+
+# Deviations from BIDS that brainana publishes deliberately, with the consumer
+# that depends on each. validate_output_name() reports these as declared rather
+# than as violations. Do not "fix" one without changing its consumer first.
+DECLARED_DEVIATIONS: Dict[str, str] = {
+    "brain_suffix_tail": (
+        "A '_brain' token after the modality suffix "
+        "(<prefix>_space-T1w_desc-preproc_T1w_brain.nii.gz). Not a BIDS suffix, so "
+        "no BIDS parser can read it back -- including this repo's own input "
+        "validator. Kept because brainana-viewer's data contract names it in the "
+        "base-volume fallback chain, and docs/outputs.rst publishes it."
+    ),
+    "atlas_subject_last": (
+        "Atlas outputs lead with 'atlas-<name>' and carry 'sub-' last "
+        "(atlas-ARM1_space-T1w_sub-01_ses-001.nii.gz). Kept because atlas discovery "
+        "in brainana-viewer, utils/templates.py and steps/anatomical.py all match on "
+        "the leading 'atlas-' token."
+    ),
+    "unknown_raw_entity": (
+        "An entity brainana does not know, inherited verbatim from the raw data "
+        "(e.g. 'test-xxx'). Preserved rather than dropped: dropping it would "
+        "collapse two runs that differ only by that entity onto one filename, and "
+        "publishDir runs with overwrite:false, so that is a silently missing file."
+    ),
+}
 
 # Final `_`-separated BIDS suffix tokens before extension (MRI anat/func/dwi).
 # Not exhaustive for every BIDS derivative; unknown tails are left unchanged.
@@ -62,9 +159,63 @@ def _strip_modality_suffix(stem: str) -> str:
     return stem
 
 
-def _suffix_has_space_entity(suffix: str) -> bool:
-    """True if *suffix* adds a BIDS ``space`` token (``space-...`` or ``_space-...``)."""
-    return suffix.startswith("space-") or "_space-" in suffix
+# One ``key-value`` token. Values admit '.' so ``res-0.5`` survives as one token.
+_ENTITY_TOKEN_RE = re.compile(r"([a-zA-Z]+)-([A-Za-z0-9.-]+)")
+
+# Extensions brainana publishes, longest-first so '.surf.gii' beats '.gii'. Used by
+# validate_output_name to find the suffix; get_filename_stem handles the NIfTI ones.
+_PUBLISHED_EXTENSIONS: tuple[str, ...] = tuple(
+    sorted(
+        (
+            ".surf.gii",
+            ".func.gii",
+            ".shape.gii",
+            ".label.gii",
+            ".gii",
+            ".png",
+            ".svg",
+            ".json",
+            ".tsv",
+            ".csv",
+            ".mat",
+            ".h5",
+            ".bib",
+            ".md",
+            ".dat",
+            ".txt",
+            ".html",
+            ".mgz",
+            ".mgh",
+            ".lta",
+        ),
+        key=len,
+        reverse=True,
+    )
+)
+
+
+def _suffix_entity_keys(suffix: str) -> list[str]:
+    """Entity keys a *suffix* introduces, in the order it introduces them.
+
+    ``'space-T1w_desc-preproc'`` -> ``['space', 'desc']``; ``'T1w'`` -> ``[]``.
+    """
+    keys = []
+    for token in suffix.split("_"):
+        match = _ENTITY_TOKEN_RE.fullmatch(token)
+        if match and match.group(1) not in keys:
+            keys.append(match.group(1))
+    return keys
+
+
+def _strip_entities(stem: str, keys) -> str:
+    """Remove every ``_<key>-<value>`` segment for *keys* from a filename stem.
+
+    The leading ``_`` is required, so a stem-initial entity (``sub-01_...``,
+    ``atlas-ARM1_...``) is never eaten.
+    """
+    for key in keys:
+        stem = re.sub(rf"_{re.escape(key)}-[A-Za-z0-9.-]+", "", stem)
+    return stem
 
 
 def replace_bids_space(stem: str, new_space: str) -> str:
@@ -235,10 +386,14 @@ def create_bids_filename(
 
     for entity in BIDS_ENTITY_ORDER:
         if entity == "others":
-            # Emit all custom entities (not in standard list) in sorted order
-            custom = sorted(set(entities.keys()) - standard_entities)
-            for k in custom:
-                components.append(f"{k}-{entities[k]}")
+            # Emit unknown entities in the order the caller gave them, which for a
+            # dict from parse_bids_entities is the order they appeared in the
+            # filename. Sorting them here instead made the two naming paths
+            # disagree: create_bids_output_filename preserves an inherited
+            # entity's position, this one alphabetised it.
+            for k in entities:
+                if k not in standard_entities:
+                    components.append(f"{k}-{entities[k]}")
         elif entity in entities:
             components.append(f"{entity}-{entities[entity]}")
 
@@ -277,9 +432,8 @@ def create_bids_output_filename(
     Returns:
         BIDS-compliant output filename
 
-    When *suffix* introduces a ``space`` entity (``space-...`` or contains ``_space-``),
-    any existing ``_space-*`` segments are removed from the prefix first so names do not
-    stack two space entities.
+    Any entity the *suffix* introduces is removed from the prefix first, so a name
+    never stacks the same entity twice (``space-A_space-B``, ``desc-a_desc-b``).
 
     Examples:
         >>> create_bids_output_filename('sub-032309_ses-001_T1w.nii.gz', 'desc-preproc', 'T1w')
@@ -299,20 +453,26 @@ def create_bids_output_filename(
     # Get the filename stem from the original file (e.g., 'sub-032309_ses-001_T1w')
     original_stem = get_filename_stem(original_file_path)
 
-    # Remove the modality suffix from the stem (e.g., 'sub-032309_ses-001_T1w' -> 'sub-032309_ses-001')
-    # This matches the old behavior: bids_prefix_wo_modality = bids_prefix.replace(f"_{modality}", "")
-    bids_prefix_wo_modality = original_stem.replace(f"_{modality}", "")
+    # Drop the input's own suffix. A recognized modality token at the *end* of the
+    # stem is stripped as a whole token, longest-first, so a '_boldref' input asked
+    # for modality 'bold' loses '_boldref' rather than the '_bold' inside it --
+    # which is what turned 'sub-01_ses-001_boldref' into 'sub-01_ses-001ref'.
+    stripped = _strip_modality_suffix(original_stem)
+    if stripped != original_stem:
+        bids_prefix_wo_modality = stripped
+    else:
+        # No recognized trailing token (e.g. the declared '_T1w_brain' tail, whose
+        # last token is '_brain'). Fall back to the historical replace so those
+        # names keep the shape docs/outputs.rst publishes.
+        bids_prefix_wo_modality = original_stem.replace(f"_{modality}", "")
 
-    # If the replacement didn't work (modality not found), try boldref fallback
-    if bids_prefix_wo_modality == original_stem:
-        if modality == "boldref" and "_bold" in original_stem:
-            bids_prefix_wo_modality = original_stem.replace("_bold", "")
-        # else: fallback — use original_stem as-is
-
-    # Avoid ``..._space-A_space-B_...``: when this step's suffix introduces a new
-    # ``space`` entity, drop any existing ``_space-*`` from the prefix first.
-    if _suffix_has_space_entity(suffix):
-        bids_prefix_wo_modality = _strip_space_entities(bids_prefix_wo_modality)
+    # Never stack an entity the suffix is about to set. Previously this de-duplicated
+    # ``space`` only, which is why a ``desc-preproc`` input given a ``desc-func2target``
+    # suffix produced two ``desc-`` tokens -- and parse_bids_entities keeps only the
+    # last, so the round trip silently dropped ``preproc``.
+    bids_prefix_wo_modality = _strip_entities(
+        bids_prefix_wo_modality, _suffix_entity_keys(suffix)
+    )
 
     # Create the new filename: prefix + suffix + modality + extension
     # This matches: f"{bids_prefix_wo_modality}_desc-preproc_{modality}.nii.gz"
@@ -401,6 +561,291 @@ def create_synthesized_bids_filename(
     return bids_filename, bids_path_for_downstream
 
 
+def longitudinal_bids_name(bids_name: Union[str, Path], kind: str) -> str:
+    """Filename the base template or a longitudinal timepoint publishes under.
+
+    The two longitudinal streams write derivatives, atlases and QC figures beside
+    the cross-sectional ones, into directories that carry no extra level to
+    separate them -- QC figures in particular all land in ``sub-<id>/figures``.
+    So the *filename* is the only thing keeping them apart, and it has to be
+    derived once, here, rather than by regex at each call site.
+
+    Args:
+        bids_name: A session's BIDS name. May be an absolute path: callers get
+            this from ``create_synthesized_bids_filename``, whose session-level
+            branch returns a full path, and an earlier regex-based version of
+            this logic was anchored with ``^`` and therefore never fired at all.
+        kind: ``"base"`` or ``"long"``.
+
+    Returns:
+        A bare filename (no directory), which is what every consumer wants --
+        ``create_bids_output_filename`` and ``get_bids_prefix`` both take the
+        basename anyway.
+
+    Raises:
+        ValueError: If *kind* is unknown, or *bids_name* has no ``sub`` entity.
+
+    The marker is the ``space`` entity, because that is what the distinction is: a
+    base-seeded reconstruction lives in the subject's base space, which is already
+    the documented reason the functional and fsnative-atlas streams keep using the
+    cross-sectional trees. It used to be ``acq``, which was wrong twice over --
+    ``acq`` is an identity entity inherited from the raw data, so a timepoint's own
+    ``acq-mprage`` was destroyed and two acquisitions in one session collapsed onto
+    one filename; and consumers that group by identity entities (the QC report)
+    read one session as two.
+
+    Examples:
+        >>> longitudinal_bids_name('sub-01_ses-a_T1w.nii.gz', 'base')
+        'sub-01_space-base_T1w.nii.gz'
+        >>> longitudinal_bids_name('sub-01_ses-a_acq-mprage_run-1_T1w.nii.gz', 'long')
+        'sub-01_ses-a_acq-mprage_run-1_space-base_T1w.nii.gz'
+    """
+    if kind not in ("base", "long"):
+        raise ValueError(f"kind must be 'base' or 'long', got {kind!r}")
+
+    name = Path(str(bids_name)).name
+    parsed = parse_bids_entities(name)
+    if "sub" not in parsed:
+        raise ValueError(
+            f"Cannot derive a longitudinal name from {bids_name!r}: no sub- entity."
+        )
+
+    modality = next(
+        (t for t in _BIDS_MODALITY_SUFFIX_TOKENS if name.endswith(f"_{t}.nii.gz")),
+        "T1w",
+    )
+
+    if kind == "base":
+        # Only sub. The base spans every session, so ses -- and any session-level
+        # entity such as run- or rec- -- would be inherited from whichever session
+        # happened to sort first, which makes the base's name depend on an
+        # ordering that means nothing. Keeping it to sub also makes this identical
+        # to the space-base prefix the base's derivatives already publish under, so
+        # the two name families agree by construction rather than by coincidence.
+        entities = {"sub": parsed["sub"], "space": "base"}
+        return create_bids_filename(entities, suffix=modality, extension=".nii.gz")
+
+    # Every identity entity the session carried, including its own acq-, minus the
+    # derivative-only desc. Only space is replaced, and space is brainana's to
+    # write -- routed through derive_output_name so that if this ever moves to
+    # another slot, the identity-entity check catches it here rather than in a
+    # published tree.
+    return derive_output_name(
+        name,
+        suffix=modality,
+        set_entities={"space": "base"},
+        drop_entities=("desc",),
+        extension=".nii.gz",
+    )
+
+
+class NamingConflictError(ValueError):
+    """An output name would overwrite an inherited entity, or carry one twice.
+
+    Raised rather than silently resolved because both outcomes are data loss that
+    nothing downstream can detect: an overwritten identity entity erases what the
+    scanner recorded, and a duplicated key is dropped by parse_bids_entities (it
+    keeps the last), so the name no longer round-trips.
+    """
+
+
+def derive_output_name(
+    source: Union[str, Path],
+    *,
+    suffix: str,
+    set_entities: Optional[Dict[str, str]] = None,
+    drop_entities: tuple[str, ...] = (),
+    extension: str = ".nii.gz",
+) -> str:
+    """Build one output name from an input name plus the entities this step sets.
+
+    The single constructor for brainana output names. It copies the source's
+    entities, applies *set_entities*, and emits the result in
+    ``BIDS_ENTITY_ORDER`` -- refusing, rather than resolving, the two ways a name
+    loses information:
+
+    * setting an ``identity`` entity (``ENTITY_ROLES``) that the source already
+      carries with a different value. Identity entities describe what was
+      acquired; brainana copies them and has nothing to say about them. This is
+      the check that rejects the ``acq-base`` / ``acq-long`` marker the
+      longitudinal stream used to write over a timepoint's real ``acq-mprage``.
+    * emitting any key twice.
+
+    Args:
+        source: The input name or path whose entities are inherited. Only the
+            basename is read.
+        suffix: The BIDS suffix, one token (``'T1w'``, ``'bold'``, ``'mask'``).
+            Entities belong in *set_entities*, not here.
+        set_entities: Entities this step writes, e.g.
+            ``{"space": "base", "desc": "preproc"}``.
+        drop_entities: Entity keys to remove from the inherited set. Use it for
+            an entity that stops being true of the output -- a session-level
+            product dropping ``run``, say.
+        extension: File extension, ``'.nii.gz'`` by default.
+
+    Returns:
+        A bare filename, in canonical entity order.
+
+    Raises:
+        NamingConflictError: On an identity-entity conflict, or a duplicate key.
+        ValueError: If *suffix* is empty or carries an entity token.
+
+    Examples:
+        >>> derive_output_name('sub-01_ses-a_run-1_T1w.nii.gz',
+        ...                    suffix='T1w', set_entities={'space': 'base'})
+        'sub-01_ses-a_run-1_space-base_T1w.nii.gz'
+
+        >>> derive_output_name('sub-01_ses-a_space-NMT2Sym_desc-preproc_bold.nii.gz',
+        ...                    suffix='bold', set_entities={'desc': 'func2target'})
+        'sub-01_ses-a_space-NMT2Sym_desc-func2target_bold.nii.gz'
+
+        >>> derive_output_name('sub-01_ses-a_acq-mprage_T1w.nii.gz',
+        ...                    suffix='T1w', set_entities={'acq': 'long'})
+        Traceback (most recent call last):
+            ...
+        nhp_mri_prep.utils.bids.NamingConflictError: ...
+    """
+    if not suffix:
+        raise ValueError("suffix is required; an output name needs a BIDS suffix.")
+    if _suffix_entity_keys(suffix):
+        raise ValueError(
+            f"suffix {suffix!r} carries an entity token. Pass entities in "
+            "set_entities so they can be ordered and conflict-checked."
+        )
+
+    name = Path(str(source)).name
+    entities = dict(parse_bids_entities(name))
+    for key in drop_entities:
+        entities.pop(key, None)
+
+    for key, value in (set_entities or {}).items():
+        current = entities.get(key)
+        if (
+            current is not None
+            and current != value
+            and ENTITY_ROLES.get(key) == IDENTITY_ROLE
+        ):
+            raise NamingConflictError(
+                f"Refusing to set {key}-{value} on {name!r}: it already carries "
+                f"{key}-{current}, and {key!r} is an identity entity inherited from "
+                f"the raw data. Pick a slot brainana owns (see ENTITY_ROLES), or "
+                f"drop it explicitly via drop_entities if it is genuinely no longer true."
+            )
+        entities[key] = value
+
+    return create_bids_filename(entities, suffix=suffix, extension=extension)
+
+
+def validate_output_name(name: Union[str, Path]) -> list[str]:
+    """Check one published name against the output-naming contract.
+
+    Returns a list of violation strings -- empty when the name is clean. The
+    deliberate deviations in ``DECLARED_DEVIATIONS`` are not reported: they are
+    published on purpose and consumers depend on them.
+
+    Checks:
+
+    1. No entity key appears twice (``parse_bids_entities`` keeps only the last,
+       so a repeated key is silently dropped information).
+    2. Entities are emitted in ``BIDS_ENTITY_ORDER`` -- or, for the atlas tree,
+       in its own declared shape (``atlas-<name>_space-<frame>_...``).
+    3. Exactly one suffix token.
+
+    It checks *shape*, not meaning: it cannot tell that a marker went into the
+    wrong slot, only that the result is well formed. Slot choice is enforced where
+    names are built, by ``derive_output_name``.
+
+    Args:
+        name: A published filename or path. Only the basename is checked.
+
+    Returns:
+        Violations, most structural first. Declared deviations are omitted.
+
+    Examples:
+        >>> validate_output_name('sub-01_ses-a_space-T1w_desc-preproc_T1w.nii.gz')
+        []
+        >>> validate_output_name('sub-01_space-NMT2Sym_desc-preproc_desc-func2target_bold.png')
+        ["duplicate entity 'desc' (values: preproc, func2target); parse keeps only the last"]
+        >>> # declared: subject-last atlas names, and the '_brain' suffix tail
+        >>> validate_output_name('atlas-ARM1_space-T1w_sub-01.nii.gz')
+        []
+    """
+    basename = Path(str(name)).name
+    stem = get_filename_stem(basename)
+    # Strip the extension explicitly rather than cutting at the last dot: an entity
+    # value may contain one (res-0.5), and '.surf.gii' is two segments.
+    for dotted in _PUBLISHED_EXTENSIONS:
+        if stem.endswith(dotted):
+            stem = stem[: -len(dotted)]
+            break
+
+    tokens = stem.split("_")
+    entity_tokens = [(t, _ENTITY_TOKEN_RE.fullmatch(t)) for t in tokens]
+    keys = [m.group(1) for _, m in entity_tokens if m]
+    suffix_tokens = [t for t, m in entity_tokens if not m]
+
+    violations: list[str] = []
+
+    # 1. duplicate keys
+    seen: Dict[str, list] = {}
+    for _, match in entity_tokens:
+        if match:
+            seen.setdefault(match.group(1), []).append(match.group(2))
+    for key, vals in seen.items():
+        if len(vals) > 1:
+            violations.append(
+                f"duplicate entity {key!r} (values: {', '.join(vals)}); "
+                "parse keeps only the last"
+            )
+
+    # 2. canonical order. The atlas tree publishes sub- last on purpose, so a name
+    # led by atlas- is exempt from the general order check
+    # (DECLARED_DEVIATIONS['atlas_subject_last']) -- but the convention has a shape
+    # of its own, and it is load-bearing: every atlas consumer, brainana-viewer
+    # included, discovers these by 'atlas-<name>_space-*'. So check that instead.
+    # Without this the exemption was a hole: a rename that moved space- to the end
+    # of an atlas name passed validation and was caught only by diffing a real
+    # output tree against the previous run.
+    if stem.startswith("atlas-"):
+        if "space" in keys and keys[:2] != ["atlas", "space"]:
+            violations.append(
+                f"atlas name must read atlas-<name>_space-<frame>_...: got "
+                f"{'_'.join(keys)}"
+            )
+    else:
+        others = BIDS_ENTITY_ORDER.index("others")
+        positions = [
+            BIDS_ENTITY_ORDER.index(k) if k in BIDS_ENTITY_ORDER else others
+            for k in keys
+        ]
+        if positions != sorted(positions):
+            violations.append(
+                f"entities out of canonical order: {'_'.join(keys)} "
+                "(see BIDS_ENTITY_ORDER)"
+            )
+
+    # 3. one suffix token. A trailing '_brain' is declared
+    # (DECLARED_DEVIATIONS['brain_suffix_tail']).
+    if len(suffix_tokens) > 1:
+        declared_tail = (
+            len(suffix_tokens) == 2
+            and suffix_tokens[-1] == "brain"
+            and suffix_tokens[0] in _BIDS_MODALITY_SUFFIX_TOKENS
+        )
+        if not declared_tail:
+            violations.append(
+                f"multi-token suffix {'_'.join(suffix_tokens)!r}; "
+                "a BIDS name carries exactly one suffix"
+            )
+
+    # An entity brainana does not know is not checked further: it came from the raw
+    # data and is declared (DECLARED_DEVIATIONS['unknown_raw_entity']). That every
+    # entity brainana *does* write has a role is an invariant of the two tables,
+    # pinned by tests/test_output_naming_contract.py rather than re-checked here.
+
+    return violations
+
+
 def get_bids_prefix(
     bids_name: Union[str, Path],
     run_identifier: Optional[str] = None,
@@ -418,6 +863,13 @@ def get_bids_prefix(
         bids_name: Original BIDS filename or path
         run_identifier: Run identifier string (empty/None for session-level)
         session_level: Force session-level even if run_identifier is provided
+
+    Note:
+        The session-level branch drops ``space``. A caller naming a product whose
+        frame is not the session's own (the longitudinal base) must therefore take
+        the frame from the source separately -- see ``anat_backproject_atlases``,
+        which reads ``space`` off *bids_name* and puts it in the one ``space`` slot
+        its names carry.
 
     Returns:
         BIDS prefix without trailing modality suffix (e.g. ``_T1w``, ``_bold``,
@@ -450,10 +902,9 @@ def get_bids_prefix(
         # Session-level: keep only sub and ses entities
         parsed = parse_bids_entities(str(bids_name))
         filtered_entities = {}
-        if "sub" in parsed:
-            filtered_entities["sub"] = parsed["sub"]
-        if "ses" in parsed:
-            filtered_entities["ses"] = parsed["ses"]
+        for key in ("sub", "ses"):
+            if key in parsed:
+                filtered_entities[key] = parsed[key]
 
         # Create prefix without suffix
         prefix = create_bids_filename(filtered_entities, "", extension="")

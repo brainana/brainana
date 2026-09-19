@@ -26,7 +26,7 @@ Overview
        D -->|one ses only| E(["That ses's T1w"])
        D -->|multiple ses| H{"anat.<br/>synthesis_level?"}
        H -->|"subject (default)"| I(["Subject-level T1w<br/><i>shared by all func ses</i>"])
-       H -->|session| J(["Same-ses T1w<br/><i>or lexicographically first<br/>other ses, if absent</i>"])
+       H -->|"session<br/>session_longitudinal"| J(["Same-ses T1w<br/><i>or lexicographically first<br/>other ses, if absent</i>"])
 
        classDef result fill:#ecfdf5,stroke:#059669,color:#064e3b
        classDef proc   fill:#eff6ff,stroke:#3b82f6,color:#1e3a8a
@@ -98,20 +98,26 @@ When T1w images exist across multiple sessions, the
 .. code-block:: yaml
 
    anat:
-     synthesis_level: "subject"   # default — or "session"
+     synthesis_level: "subject"   # default — or "session", "session_longitudinal"
 
 
 - **``synthesis_level: "subject"`` (default)**
 
   All T1w images across sessions are combined into a single
-  **subject-level** T1w. Every functional session of
-  the subject uses this one shared T1w. This setting is suitable for **cross-sectional**
-  studies where sessions for a subject are assumed to be equivalent.
+  **subject-level** T1w, and every functional session of the subject uses that
+  one shared T1w.
 
 - **``synthesis_level: "session"``**
 
-  Each session retains its own T1w. Functional runs in a session that
-  has a T1w use it directly. Functional runs in a session without a T1w
-  fall back to the T1w from the lexicographically first other session of
-  the same subject. This setting is suitable for **longitudinal
-  studies** where each session's T1w should be treated independently.
+  Each session retains its own T1w. Functional runs in a session that has a T1w
+  use it directly. Functional runs in a session without a T1w fall back to the
+  T1w from the lexicographically first other session of the same subject.
+
+- **``synthesis_level: "session_longitudinal"``**
+
+  Anatomical selection is **identical to** ``"session"`` — every row in the
+  chart above resolves the same way, and the functional stream is unaffected.
+  What it adds happens later, inside surface reconstruction.
+
+For what each level produces, and when to choose which, see
+:doc:`synthesis_level`.

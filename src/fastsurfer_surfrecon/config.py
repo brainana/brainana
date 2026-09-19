@@ -271,6 +271,65 @@ class ReconSurfConfig(BaseModel):
     log_file: Optional[Path] = Field(default=None, description="Log file path")
     verbose: int = Field(ge=0, le=2, description="Verbosity level (0-2)")
 
+    # --- Longitudinal stream (FreeSurfer -long equivalent) -------------------
+    # These identify *what run this is*, not how to tune it, which is why they
+    # live here and not on ProcessingConfig. All three default, so every
+    # existing config file and caller keeps working unchanged.
+    longitudinal: bool = Field(
+        default=False,
+        description=(
+            "Longitudinal timepoint run: surfaces are inherited from "
+            "base_subject_id and s08-s12 (tessellation..topology fix) are skipped."
+        ),
+    )
+    base_subject_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "Within-subject base template subject id inside subjects_dir "
+            "(e.g. sub-001_base). Required when longitudinal is True."
+        ),
+    )
+    tp_to_base_lta: Optional[Path] = Field(
+        default=None,
+        description=(
+            "Rigid LTA mapping this timepoint's cross-sectional space to base "
+            "space, from mri_robust_template. Required when longitudinal is True."
+        ),
+    )
+    cross_subject_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "This timepoint's cross-sectional subject id inside subjects_dir "
+            "(e.g. sub-001_ses-01). Its mri/orig.mgz is resampled into base "
+            "space. Required when longitudinal is True. Named explicitly rather "
+            "than derived from subject_id so the library does not depend on the "
+            "pipeline's directory-naming convention."
+        ),
+    )
+    # How tightly a timepoint's surfaces are anchored to the base. These trade
+    # bias for variance -- a tighter cap reduces across-timepoint noise but also
+    # damps genuine change -- so they are configurable rather than baked in.
+    # Defaults are recon-all -long's own values.
+    long_max_cbv_dist: float = Field(
+        default=3.5,
+        gt=0,
+        description=(
+            "Maximum distance a longitudinal timepoint's surface may move from "
+            "the base during placement (recon-all -long uses 3.5). Ignored "
+            "unless longitudinal is True."
+        ),
+    )
+    long_pial_blend_weight: float = Field(
+        default=0.25,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "How far the longitudinal pial pass is blended toward this "
+            "timepoint's own white surface (recon-all -long uses .25). Ignored "
+            "unless longitudinal is True."
+        ),
+    )
+
     @property
     def cmd_log_file(self) -> Path:
         """Path to fastsurfer_recon.cmd file (logs all commands)."""
@@ -290,7 +349,9 @@ class ReconSurfConfig(BaseModel):
             return v
         return Path(v).expanduser().resolve()
 
-    @field_validator("mask", "log_file", "freesurfer_home", mode="before")
+    @field_validator(
+        "mask", "log_file", "freesurfer_home", "tp_to_base_lta", mode="before"
+    )
     @classmethod
     def resolve_optional_path(cls, v: Path | str | None) -> Path | None:
         """Resolve optional paths to absolute."""
@@ -342,6 +403,68 @@ class ReconSurfConfig(BaseModel):
 
         return self
 
+    @model_validator(mode="after")
+    def validate_longitudinal(self) -> "ReconSurfConfig":
+        """Validate the longitudinal stream is fully specified, or not requested.
+
+        Failing here is deliberate and important: a longitudinal run whose base
+        is missing does not error later, it silently degrades into a
+        cross-sectional run on a half-seeded tree, which looks like a success
+        and produces surfaces with no cross-timepoint correspondence.
+        """
+        if not self.longitudinal:
+            # Flag off: the two companions are meaningless. Say so rather than
+            # ignoring them, since a typo'd flag name would otherwise be silent.
+            if any(
+                v is not None
+                for v in (
+                    self.base_subject_id,
+                    self.tp_to_base_lta,
+                    self.cross_subject_id,
+                )
+            ):
+                raise ValueError(
+                    "base_subject_id / tp_to_base_lta / cross_subject_id were "
+                    "given but longitudinal is False. Set longitudinal=True to "
+                    "run the longitudinal stream, or drop these fields."
+                )
+            return self
+
+        if self.base_subject_id is None:
+            raise ValueError(
+                "longitudinal=True requires base_subject_id (the within-subject "
+                "base template's directory name inside subjects_dir)."
+            )
+        if self.tp_to_base_lta is None:
+            raise ValueError(
+                "longitudinal=True requires tp_to_base_lta (this timepoint's "
+                "cross-sectional -> base transform from mri_robust_template)."
+            )
+        if self.cross_subject_id is None:
+            raise ValueError(
+                "longitudinal=True requires cross_subject_id (this timepoint's "
+                "cross-sectional subject id, whose orig.mgz is resampled into "
+                "base space)."
+            )
+        if self.base_subject_id == self.subject_id:
+            raise ValueError(
+                f"base_subject_id must differ from subject_id (both are "
+                f"{self.subject_id!r}); a timepoint cannot seed itself."
+            )
+
+        base_dir = self.subjects_dir / self.base_subject_id
+        if not base_dir.is_dir():
+            raise ValueError(f"Base subject directory not found: {base_dir}")
+        cross_dir = self.subjects_dir / self.cross_subject_id
+        if not cross_dir.is_dir():
+            raise ValueError(
+                f"Cross-sectional subject directory not found: {cross_dir}"
+            )
+        if not self.tp_to_base_lta.exists():
+            raise ValueError(f"tp_to_base_lta not found: {self.tp_to_base_lta}")
+
+        return self
+
     @property
     def subject_dir(self) -> Path:
         """Get the subject's directory."""
@@ -371,6 +494,20 @@ class ReconSurfConfig(BaseModel):
     def scripts_dir(self) -> Path:
         """Get the subject's scripts directory."""
         return self.subject_dir / "scripts"
+
+    @property
+    def base_subject_dir(self) -> Optional[Path]:
+        """The within-subject base template's directory, or None if not longitudinal."""
+        if self.base_subject_id is None:
+            return None
+        return self.subjects_dir / self.base_subject_id
+
+    @property
+    def cross_subject_dir(self) -> Optional[Path]:
+        """This timepoint's cross-sectional directory, or None if not longitudinal."""
+        if self.cross_subject_id is None:
+            return None
+        return self.subjects_dir / self.cross_subject_id
 
     @property
     def hires(self) -> bool:

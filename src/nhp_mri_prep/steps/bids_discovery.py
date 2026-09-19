@@ -201,6 +201,18 @@ def discover_bids_dataset(
         "synthesis_level", "session"
     )  # Default to "session"
 
+    # "session_longitudinal" discovers exactly like "session": one anatomical
+    # per session. Its extra work -- the within-subject base template and the
+    # base-seeded longitudinal reconstructions -- happens later, inside
+    # SURF_RECON_WF, and is built from the per-session FreeSurfer trees rather
+    # than from raw BIDS images. There is deliberately no third kind of
+    # synthesis job here: emitting one would push the base through the
+    # ANAT_SYNTHESIS -> CONFORM -> BIAS -> SKULLSTRIP chain, where it does not
+    # belong, and a subject-level anatomical row alongside per-session rows
+    # would then be picked up as the highest-priority functional reference and
+    # silently redirect every functional session to the base.
+    cross_session_synthesis = synthesis_level == "subject"
+
     # Discover anatomical files (always discover, regardless of anat_only setting)
     for sub in target_subjects:
         # Get sessions for this subject
@@ -213,7 +225,7 @@ def discover_bids_dataset(
             sub_sessions = [s for s in sub_sessions if s in sessions]
 
         # For "subject" mode: collect all anatomical files across sessions first
-        if synthesis_level == "subject":
+        if cross_session_synthesis:
             # Collect all anatomical files across all sessions for this subject
             all_t1w_files = []  # List of (session, file) tuples
             all_t2w_files = []  # List of (session, file) tuples

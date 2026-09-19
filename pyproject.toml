@@ -164,9 +164,9 @@ docs = [
 # Install: apt install connectome-workbench (Debian/Ubuntu) or see https://humanconnectome.org/software/connectome-workbench
 
 [project.urls]
-Homepage = "https://github.com/xingyu-liu/brainana"
+Homepage = "https://github.com/brainana/brainana"
 Documentation = "https://brainana.readthedocs.io"
-Repository = "https://github.com/xingyu-liu/brainana"
+Repository = "https://github.com/brainana/brainana"
 
 [tool.uv]
 # fireants 1.5.0 hard-pins simpleitk==2.2.1, which isn't on PyPI for all platforms.

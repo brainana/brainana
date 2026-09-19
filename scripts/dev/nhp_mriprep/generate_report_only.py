@@ -1,5 +1,6 @@
 # %%
 import glob
+import os
 import sys
 from pathlib import Path
 
@@ -16,7 +17,15 @@ except ImportError:
     )
 
 # %%
-dataset_dir = "/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/dataset_devtest_local_v2.1.1_gpu1"
+# Dataset to report on. Defaults to the QC report example bundled in the repo;
+# override with argv[1] or BRAINANA_REPORT_DIR (the latter also works in Jupyter).
+_repo_root = Path(__file__).resolve().parents[3]
+_default_dataset = _repo_root / "docs" / "_static" / "QCreport_example"
+dataset_dir = (
+    sys.argv[1]
+    if len(sys.argv) > 1
+    else os.environ.get("BRAINANA_REPORT_DIR", str(_default_dataset))
+)
 
 # %%
 # get sub dir list

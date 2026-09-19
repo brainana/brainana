@@ -100,6 +100,7 @@ def scratch_targets() -> list:
         )
     return targets
 
+
 NOTEBOOK = "examples/BrainanaLite.ipynb"
 CHANGELOG = "CHANGELOG.md"
 
@@ -133,7 +134,7 @@ def current_version() -> str:
     text = (REPO / "pyproject.toml").read_text(encoding="utf-8")
     match = re.search(r'^version = "([^"]+)"$', text, re.MULTILINE)
     if not match:
-        sys.exit("error: could not find `version = \"...\"` in pyproject.toml")
+        sys.exit('error: could not find `version = "..."` in pyproject.toml')
     return match.group(1)
 
 
@@ -197,7 +198,9 @@ def plan_changelog(new: str, today: str) -> list:
         print(f"  = {CHANGELOG}: [{new}] section already present")
         return []
     if "## [Unreleased]" not in text:
-        print(f"  ! {CHANGELOG}: no '## [Unreleased]' heading — add the section by hand")
+        print(
+            f"  ! {CHANGELOG}: no '## [Unreleased]' heading — add the section by hand"
+        )
         return []
 
     updated = text.replace(
@@ -205,7 +208,11 @@ def plan_changelog(new: str, today: str) -> list:
         f"## [Unreleased]\n\n\n## [{new}] - {today}\n",
         1,
     )
-    return [Change(path, "new release heading", "[Unreleased]", f"[{new}] - {today}", updated)]
+    return [
+        Change(
+            path, "new release heading", "[Unreleased]", f"[{new}] - {today}", updated
+        )
+    ]
 
 
 def leftovers(old: str) -> list:

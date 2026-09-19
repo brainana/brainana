@@ -76,6 +76,15 @@ class SphericalProjection(HemisphereStage):
         if not sphere.exists():
             shutil.copy(qsphere_nofix, sphere)
 
+    def is_disabled(self) -> bool:
+        """Longitudinal timepoints inherit this geometry from the base template.
+
+        See stages/s00_long_init.py: the base's surfaces are seeded into this
+        timepoint, so recomputing them here would discard the shared topology
+        that makes cross-timepoint vertex correspondence exact.
+        """
+        return self.config.longitudinal
+
     def expected_outputs(self) -> list:
         """Both spheres this stage writes.
 

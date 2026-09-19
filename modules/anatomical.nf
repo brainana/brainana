@@ -554,11 +554,18 @@ process ANAT_SURFACE_RECONSTRUCTION {
     tuple val(subject_id), val(session_id), path("fastsurfer/sub-${subject_id}*"), emit: subject_dir
     tuple val(subject_id), val(session_id), path("actual_subject_id.txt"), emit: actual_subject_id
     tuple val(subject_id), val(session_id), path("metadata.json"), emit: metadata
+    // The few small volumes a within-subject base template is built from, so
+    // ANAT_SURFACE_BASE_TEMPLATE can stage those instead of N whole 1-2 GB
+    // FreeSurfer trees. Optional: with errorStrategy 'ignore' a failed session
+    // emits nothing at all, and the base process reconciles what arrives
+    // against the expected count rather than relying on Nextflow to notice.
+    tuple val(subject_id), val(session_id), path("base_inputs/*"), optional: true, emit: base_inputs
     
     script:
     """
     \${PYTHON:-python3} <<EOF
 from nhp_mri_prep.steps.anatomical import anat_surface_reconstruction
+from nhp_mri_prep.steps.surface_longitudinal import collect_base_inputs
 from nhp_mri_prep.steps.types import StepInput
 from nhp_mri_prep.utils.nextflow import (
     load_config, normalize_session_id, save_metadata
@@ -662,8 +669,685 @@ if not expected_path.exists():
 with open('actual_subject_id.txt', 'w') as f:
     f.write(actual_subject_id)
 
+# Collect the volumes a longitudinal base template would need. Always emitted:
+# it is cheap (four small conformed volumes), and gating it on synthesis_level
+# would mean adding a process input -- which changes this task's hash and forces
+# every cross-sectional reconstruction to re-run on -resume against existing work
+# directories. Not worth it for the I/O it saves.
+try:
+    collect_base_inputs(expected_path, Path('base_inputs'), actual_subject_id)
+except Exception as exc:
+    # Never fail an otherwise-good cross-sectional reconstruction over this.
+    # If a longitudinal run then finds a timepoint missing, the base process
+    # reports the shortfall by name.
+    print(f"WARNING: could not collect base inputs for {actual_subject_id}: {exc}")
+
 # Save metadata
 save_metadata(result.metadata)
+EOF
+    """
+}
+
+/*
+ * Within-subject base template, stage 1 of 3 (session_longitudinal).
+ *
+ * Robust-averages every session into a common unbiased space and emits the
+ * timepoint-to-base transforms. CPU-only and deliberately separate from the
+ * segmentation that follows: that one needs a GPU, and the reconstruction after
+ * it runs for hours -- doing all three in one task made a multi-hour CPU job
+ * hold a gpu_queue token, starving every other GPU consumer.
+ */
+process ANAT_SURFACE_BASE_TEMPLATE {
+    label 'cpu'
+    tag "${subject_id}_base"
+    errorStrategy 'ignore'
+
+    // This tree is incomplete until ANAT_SURFACE_BASE_RECON has run, so nothing
+    // here should be published -- but `enabled: false` with a real path, rather
+    // than no publishDir at all. nextflow.config sets a process-wide default of
+    // `publishDir = [mode: 'copy', overwrite: false]` with no path, which a
+    // process that declares none inherits verbatim; the task then dies while
+    // being finalized with "Target path for directive publishDir cannot be
+    // null". Same idiom as ANAT_BIAS_CORRECTION.
+    publishDir "${params.output_dir}/sub-${subject_id}/anat",
+        mode: 'copy',
+        enabled: false
+
+    input:
+    tuple val(subject_id), val(cross_ids_csv), val(expected_count), path(base_inputs, stageAs: 'base_inputs/*')
+    path config_file
+
+    output:
+    // Not published: this tree is incomplete until ANAT_SURFACE_BASE_RECON has
+    // run. Only that stage publishes it.
+    tuple val(subject_id), val("sub-${subject_id}_base"), path("fastsurfer/sub-${subject_id}_base"), emit: base_dir
+    tuple val(subject_id), path("base_nii/*_T1w.nii.gz"), emit: base_nii
+    tuple val(subject_id), path("transforms/*_to_*.lta"), emit: tp_to_base_ltas
+    tuple val(subject_id), path("metadata.json"), emit: metadata
+
+    script:
+    """
+    \${PYTHON:-python3} <<EOF
+from nhp_mri_prep.steps.surface_longitudinal import build_base_template
+from nhp_mri_prep.steps.types import StepInput
+from nhp_mri_prep.utils.nextflow import config_value, load_config, save_metadata
+from pathlib import Path
+import shutil
+
+config = load_config('${config_file}')
+
+# Comma-separated rather than JSON: JSON's double quotes would need escaping
+# through both the Groovy string and the shell heredoc.
+cross_ids = [s for s in '${cross_ids_csv}'.split(',') if s]
+expected_count = int('${expected_count}') if '${expected_count}' else None
+
+staged = Path('base_inputs')
+timepoint_dirs = {}
+for cross_id in cross_ids:
+    d = staged / cross_id
+    if d.is_dir():
+        timepoint_dirs[cross_id] = d
+    else:
+        print('WARNING: no staged base inputs for timepoint ' + cross_id)
+
+if len(timepoint_dirs) < 2:
+    raise RuntimeError(
+        'A within-subject base template needs at least 2 timepoints; got '
+        + str(len(timepoint_dirs)) + ' of an expected ' + str(expected_count)
+        + ' for sub-${subject_id}. Check the cross-sectional surface '
+        + 'reconstruction logs: it runs with errorStrategy ignore, so a failed '
+        + 'session contributes nothing without failing the run.'
+    )
+
+base_subject_id = 'sub-${subject_id}_base'
+
+result = build_base_template(
+    StepInput(
+        input_file=staged,
+        working_dir=Path('work'),
+        config=config,
+        output_name='surface_base_template',
+        metadata={'subject_id': 'sub-${subject_id}'},
+    ),
+    timepoint_dirs=timepoint_dirs,
+    base_subject_id=base_subject_id,
+    expected_timepoints=expected_count,
+    iscale=bool(config_value(config, 'anat.surface_reconstruction.longitudinal.iscale', False)),
+    subsample=config_value(config, 'anat.surface_reconstruction.longitudinal.subsample'),
+)
+
+# Move the partial base into the declared output location.
+# The NIfTI's name, resolved BEFORE the move below: additional_files points into
+# work/, which is about to stop existing.
+base_nii_name = Path(result.additional_files['base_nii']).name
+
+# Move, not copy: both sides live in this task's work directory, so this is a
+# rename on one filesystem rather than a second 1-2 GB of I/O. Safe because
+# work/ is declared by no output: block -- Nextflow hashes inputs and only
+# requires the *declared* path to exist afterwards, and publishDir copies from
+# there either way. (The staged inputs above are a different matter: those
+# symlink into upstream tasks' work dirs and must stay real copies.)
+expected_path = Path('fastsurfer') / base_subject_id
+expected_path.parent.mkdir(parents=True, exist_ok=True)
+if expected_path.resolve() != result.output_file.resolve():
+    # rmtree first: shutil.move into an existing directory nests instead of
+    # replacing.
+    if expected_path.exists():
+        shutil.rmtree(expected_path)
+    shutil.move(str(result.output_file), str(expected_path))
+if not expected_path.exists():
+    raise FileNotFoundError('Base template not found at ' + str(expected_path))
+
+# The transforms and the NIfTI travel as their own outputs so the next stages can
+# stage just what they need instead of the whole tree. Read from expected_path,
+# which is where they live now.
+Path('transforms').mkdir(exist_ok=True)
+for lta in sorted((expected_path / 'mri' / 'transforms').glob('*_to_*.lta')):
+    shutil.copy2(lta, Path('transforms') / lta.name)
+
+Path('base_nii').mkdir(exist_ok=True)
+shutil.copy2(expected_path / 'mri' / base_nii_name, Path('base_nii') / base_nii_name)
+
+save_metadata(result.metadata)
+EOF
+    """
+}
+
+/*
+ * Within-subject base template, stage 2 of 3.
+ *
+ * Segments the base and backprojects the template atlases onto its grid. The
+ * only GPU stage in the longitudinal stream, and short: a CNN segmentation plus
+ * one template registration.
+ *
+ * The atlas backprojection is what closes the ARM6 parity gap. ARM6 never comes
+ * from segmentation; without it the base -- and every timepoint seeded from it --
+ * loses the claustrum fix AND the ARM2 thin-WM enhancement that feeds
+ * wm.mgz/filled.mgz.
+ */
+process ANAT_SURFACE_BASE_ATLAS {
+    label 'gpu'
+    tag "${subject_id}_base"
+
+    // Deliberately NOT errorStrategy 'ignore': this stage holds a token from
+    // gpu_queue and returns it via gpu_token, and 'ignore' would let a failed
+    // task swallow its token. gpu_queue is never closed, so the pipeline would
+    // hang forever rather than skip a subject. Same choice as ANAT_SKULLSTRIPPING.
+
+    // Base-space derivatives, mirroring what ANAT_SKULLSTRIPPING publishes per
+    // session. Named with space-base so they sit beside the session ones without
+    // colliding, in canonical BIDS entity order. The atlas directory is named for
+    // the same frame: its contents now say space-base, and a directory called
+    // atlas_space-T1w holding them would contradict the files inside it.
+    publishDir "${params.output_dir}/sub-${subject_id}/anat",
+        mode: 'copy',
+        pattern: 'derivatives/*',
+        saveAs: { f -> new File(f.toString()).name }
+    publishDir "${params.output_dir}/sub-${subject_id}/anat/atlas_space-base",
+        mode: 'copy',
+        pattern: 'atlas/*.{nii.gz,json,tsv,md,bib}',
+        saveAs: { f -> new File(f.toString()).name }
+
+    input:
+    tuple val(subject_id), val(base_id), path(base_nii, stageAs: 'base_nii/*')
+    path config_file
+    val gpu_id
+
+    output:
+    // Fixed names chosen here rather than globbed: apply_segmentation writes
+    // brain_segmentation.nii.gz / brain_mask.nii.gz, which no pattern derived
+    // from the BIDS stem would match, and a glob that silently matches nothing
+    // fails the whole stage.
+    tuple val(subject_id), path("seg/segmentation.nii.gz"), emit: segmentation
+    tuple val(subject_id), path("seg/brain_mask.nii.gz"), emit: brain_mask
+    // arity 0..* so a custom template (no bundled atlases) or disabled
+    // registration yields no ARM6 without failing the task -- exactly the
+    // cross-sectional behaviour.
+    tuple val(subject_id), path("arm6/*.nii.gz", arity: '0..*'), emit: arm6_atlas
+    tuple val(subject_id), path("atlas/*.nii.gz", arity: '0..*'), emit: atlases
+    path "derivatives/*", arity: '0..*', emit: derivatives
+    path "atlas/*.{json,tsv,md,bib}", arity: '0..*', emit: sidecars
+    tuple val(subject_id), path("metadata.json"), emit: metadata
+    // The stem every base-derived output is named from, emitted so the workflow
+    // does not have to rebuild it by regex. See longitudinal_bids_name().
+    tuple val(subject_id), path("bids_name.txt"), emit: bids_name
+    val gpu_id, emit: gpu_token
+
+    script:
+    """
+    # GPU assignment (gpu_id is 'none' when workflow GPU scheduling is disabled,
+    # e.g. CPU mode). Without this the task uses whichever device torch picks, so
+    # multi-GPU tasks collide and CPU-mode runs still hit the GPU.
+    if [ "${gpu_id}" != "none" ]; then
+        export CUDA_VISIBLE_DEVICES=${gpu_id}
+        echo "[GPU Assignment] Task ${task.index} -> GPU ${gpu_id} (of ${params.gpu_count} available)"
+    else
+        export CUDA_VISIBLE_DEVICES=""
+    fi
+
+    \${PYTHON:-python3} <<EOF
+from nhp_mri_prep.steps.surface_longitudinal import segment_and_backproject_base
+from nhp_mri_prep.steps.types import StepInput
+from nhp_mri_prep.utils.bids import derive_output_name, longitudinal_bids_name
+from nhp_mri_prep.utils.nextflow import load_config, save_metadata
+from nhp_mri_prep.utils.sidecar import write_derivative_sidecar
+from pathlib import Path
+import shutil
+
+config = load_config('${config_file}')
+
+base_bids_name = longitudinal_bids_name('sub-${subject_id}_T1w.nii.gz', 'base')
+with open('bids_name.txt', 'w') as f:
+    f.write(base_bids_name)
+
+staged_nii = sorted(Path('base_nii').glob('*_T1w.nii.gz'))
+if len(staged_nii) != 1:
+    raise FileNotFoundError(
+        'Expected exactly one staged base NIfTI, found '
+        + str([p.name for p in staged_nii])
+    )
+
+result = segment_and_backproject_base(
+    StepInput(
+        input_file=staged_nii[0],
+        working_dir=Path('work'),
+        config=config,
+        output_name='surface_base_atlas',
+        metadata={'subject_id': 'sub-${subject_id}', 'session_id': ''},
+    ),
+    base_nii=staged_nii[0],
+    base_subject_id='${base_id}',
+    # sub-X_base is not a valid BIDS entity chain; space-base is, and sorts
+    # canonically. space rather than acq because the base IS a distinct frame,
+    # while acq is an identity entity the raw data owns. One helper, so the
+    # derivatives below, the fsnative atlases and the QC figures cannot drift into
+    # three different names.
+    bids_name=base_bids_name,
+)
+
+af = result.additional_files
+
+# Outputs the reconstruction stage consumes.
+Path('seg').mkdir(exist_ok=True)
+shutil.copy2(af['segmentation'], Path('seg') / 'segmentation.nii.gz')
+shutil.copy2(af['brain_mask'], Path('seg') / 'brain_mask.nii.gz')
+
+Path('arm6').mkdir(exist_ok=True)
+if af.get('arm6_atlas'):
+    shutil.copy2(af['arm6_atlas'], Path('arm6') / Path(af['arm6_atlas']).name)
+
+# Backprojected atlases + their sidecars, published beside the session ones.
+Path('atlas').mkdir(exist_ok=True)
+atlas_dir = result.metadata.get('atlas_dir')
+if atlas_dir and Path(atlas_dir).is_dir():
+    for f in sorted(Path(atlas_dir).iterdir()):
+        if f.is_file():
+            shutil.copy2(f, Path('atlas') / f.name)
+
+# Published derivatives, mirroring ANAT_SKULLSTRIPPING's per-session set.
+Path('derivatives').mkdir(exist_ok=True)
+# Renamed to BIDS, exactly as ANAT_SKULLSTRIPPING does for its per-session
+# equivalents -- apply_segmentation's own filenames (brain_mask.nii.gz, ...) are
+# work-dir internals and must not reach the output tree.
+base_sources = [str(staged_nii[0])]
+atlas_name = result.metadata.get('atlas_name')
+seg_suffix = ('atlas' + atlas_name) if atlas_name else 'segmentation'
+# One constructor, so every base derivative inherits space-base from the base's
+# own name instead of each line re-stating a frame. Concatenating '_space-T1w_'
+# here (as the per-session equivalents do) would have given these two space
+# entities, and parse keeps only the last -- the name would have claimed the
+# session frame it is not in.
+def base_derivative(suffix, extension='.nii.gz'):
+    return derive_output_name(
+        base_bids_name,
+        suffix=suffix,
+        set_entities={'desc': 'brain'},
+        extension=extension,
+    )
+
+derivative_names = [
+    ('imagef_skullstripped', base_derivative('T1w'), True, None),
+    ('brain_mask', base_derivative('mask'), None, 'Brain'),
+    ('segmentation', base_derivative(seg_suffix), None, None),
+    ('hemimask', base_derivative('hemimask'), None, 'ROI'),
+    ('atlas_lut', base_derivative(seg_suffix, '.tsv'), None, None),
+]
+for key, bids_filename, skull_stripped, roi_type in derivative_names:
+    src = af.get(key)
+    if not src:
+        continue
+    dst = Path('derivatives') / bids_filename
+    shutil.copy2(src, dst)
+    if dst.name.endswith(('.nii.gz', '.nii')):
+        try:
+            write_derivative_sidecar(
+                dst,
+                skull_stripped=skull_stripped,
+                roi_type=roi_type,
+                sources=base_sources,
+                extra={'Atlas': atlas_name} if key == 'segmentation' and atlas_name else None,
+            )
+        except Exception as exc:
+            print('WARNING: could not write sidecar for ' + dst.name + ': ' + str(exc))
+
+save_metadata(result.metadata)
+EOF
+    """
+}
+
+/*
+ * Within-subject base template, stage 3 of 3.
+ *
+ * Reconstructs the base's surfaces. CPU-only and long-running, so it is sized
+ * like ANAT_SURFACE_RECONSTRUCTION and holds no GPU token.
+ */
+process ANAT_SURFACE_BASE_RECON {
+    label 'cpu'
+    tag "${subject_id}_base"
+    errorStrategy 'ignore'
+
+    publishDir "${params.output_dir}/fastsurfer",
+        mode: 'copy',
+        pattern: 'fastsurfer/**',
+        saveAs: { f -> f.replace('fastsurfer/', '') }
+
+    input:
+    tuple val(subject_id), val(base_id), path(base_dir, stageAs: 'staged_base/*'), path(base_nii, stageAs: 'base_nii/*'), path(segmentation), path(brain_mask), path(arm6, stageAs: 'arm6/*')
+    path config_file
+
+    output:
+    tuple val(subject_id), val(base_id), path("fastsurfer/${base_id}"), emit: base_dir
+    tuple val(subject_id), path("metadata.json"), emit: metadata
+
+    script:
+    """
+    \${PYTHON:-python3} <<EOF
+from nhp_mri_prep.steps.surface_longitudinal import reconstruct_base
+from nhp_mri_prep.steps.types import StepInput
+from nhp_mri_prep.utils.nextflow import load_config, save_metadata
+from pathlib import Path
+import shutil
+
+config = load_config('${config_file}')
+base_id = '${base_id}'
+
+# ReconSurfPipeline addresses one SUBJECTS_DIR, so rebuild a work-local one from
+# the staged partial base.
+subjects_dir = Path('work') / 'fastsurfer'
+subjects_dir.mkdir(parents=True, exist_ok=True)
+staged = Path('staged_base') / base_id
+if not staged.is_dir():
+    candidates = [p for p in Path('staged_base').iterdir() if p.is_dir()]
+    if len(candidates) != 1:
+        raise FileNotFoundError(
+            'Expected one staged base directory, found '
+            + str([p.name for p in candidates])
+        )
+    staged = candidates[0]
+work_base = subjects_dir / base_id
+if not work_base.exists():
+    shutil.copytree(staged, work_base, symlinks=False, dirs_exist_ok=True)
+
+staged_nii = sorted(Path('base_nii').glob('*_T1w.nii.gz'))
+if len(staged_nii) != 1:
+    raise FileNotFoundError(
+        'Expected exactly one staged base NIfTI, found '
+        + str([p.name for p in staged_nii])
+    )
+
+# A custom template or disabled registration yields no ARM6; the directory is
+# then empty and the reconstruction proceeds without it, exactly as a
+# cross-sectional run does.
+arm6_files = sorted(Path('arm6').glob('*.nii.gz')) if Path('arm6').is_dir() else []
+arm6_atlas = arm6_files[0] if arm6_files else None
+
+result = reconstruct_base(
+    StepInput(
+        input_file=staged_nii[0],
+        working_dir=Path('work'),
+        config=config,
+        output_name='surface_base_recon',
+        metadata={'subject_id': base_id, 'session_id': ''},
+    ),
+    base_dir=work_base,
+    base_nii=staged_nii[0],
+    base_subject_id=base_id,
+    segmentation_file=Path('${segmentation}'),
+    brain_mask=Path('${brain_mask}'),
+    arm6_atlas=arm6_atlas,
+)
+
+# Move, not copy: both sides live in this task's work directory, so this is a
+# rename on one filesystem rather than a second 1-2 GB of I/O. Safe because
+# work/ is declared by no output: block -- Nextflow hashes inputs and only
+# requires the *declared* path to exist afterwards, and publishDir copies from
+# there either way. (The staged inputs above are a different matter: those
+# symlink into upstream tasks' work dirs and must stay real copies.)
+expected_path = Path('fastsurfer') / base_id
+expected_path.parent.mkdir(parents=True, exist_ok=True)
+# rmtree first: shutil.move into an existing directory nests instead of replacing.
+if expected_path.exists():
+    shutil.rmtree(expected_path)
+shutil.move(str(result.output_file), str(expected_path))
+if not expected_path.exists():
+    raise FileNotFoundError('Base reconstruction not found at ' + str(expected_path))
+
+save_metadata(result.metadata)
+EOF
+    """
+}
+
+/*
+ * Longitudinal reconstruction of one timepoint, seeded from its subject's base.
+ *
+ * Stage 00 resamples this session into base space and copies the base's surfaces
+ * in; stages 08-12 then disable themselves, so placement onward refines the
+ * inherited mesh against this session's own intensities. All of a subject's
+ * timepoints therefore share one vertex numbering.
+ */
+process ANAT_SURFACE_RECONSTRUCTION_LONG {
+    label 'cpu'
+    tag "${subject_id}_${session_id}_long"
+    errorStrategy 'ignore'
+
+    publishDir "${params.output_dir}/fastsurfer",
+        mode: 'copy',
+        pattern: 'fastsurfer/**',
+        saveAs: { filename -> filename.replace('fastsurfer/', '') }
+
+    input:
+    tuple val(subject_id), val(session_id), path(cross_dir, stageAs: 'staged_cross/*'), val(cross_id), path(base_dir, stageAs: 'staged_base/*'), val(base_id), path(ltas, stageAs: 'staged_ltas/*'), val(bids_name)
+    path config_file
+
+    output:
+    tuple val(subject_id), val(session_id), path("fastsurfer/${cross_id}_long"), emit: subject_dir
+    tuple val(subject_id), val(session_id), path("actual_subject_id.txt"), emit: actual_subject_id
+    tuple val(subject_id), val(session_id), path("metadata.json"), emit: metadata
+    // This timepoint's own stem, restamped into base space. Every entity the
+    // session carried survives, its own acq- included -- only space is replaced,
+    // and space is brainana's to write. Without it the QC figures land on exactly
+    // the cross-sectional filenames, in the same publish directory, and are dropped.
+    tuple val(subject_id), val(session_id), path("bids_name.txt"), emit: bids_name
+
+    script:
+    """
+    \${PYTHON:-python3} <<EOF
+from nhp_mri_prep.steps.surface_longitudinal import run_long_timepoint
+from nhp_mri_prep.steps.types import StepInput
+from nhp_mri_prep.utils.bids import longitudinal_bids_name
+from nhp_mri_prep.utils.nextflow import load_config, save_metadata
+from pathlib import Path
+import shutil
+
+config = load_config('${config_file}')
+
+cross_id = '${cross_id}'
+base_id = '${base_id}'
+long_id = cross_id + '_long'
+
+# ReconSurfPipeline addresses a single SUBJECTS_DIR, so assemble a work-local
+# one holding the base and this timepoint's cross-sectional tree side by side.
+subjects_dir = Path('work') / 'fastsurfer'
+subjects_dir.mkdir(parents=True, exist_ok=True)
+for staged_root, name in ((Path('staged_base'), base_id), (Path('staged_cross'), cross_id)):
+    src = staged_root / name
+    if not src.is_dir():
+        candidates = [p for p in staged_root.iterdir() if p.is_dir()]
+        if len(candidates) != 1:
+            raise FileNotFoundError(
+                'Expected exactly one staged directory in ' + str(staged_root)
+                + ', found ' + str([p.name for p in candidates])
+            )
+        src = candidates[0]
+    dst = subjects_dir / name
+    if not dst.exists():
+        shutil.copytree(src, dst, symlinks=False, dirs_exist_ok=True)
+
+lta = Path('staged_ltas') / (cross_id + '_to_' + base_id + '.lta')
+if not lta.exists():
+    available = sorted(p.name for p in Path('staged_ltas').iterdir())
+    raise FileNotFoundError(
+        'Transform ' + lta.name + ' not found among the staged transforms '
+        + str(available) + '. Without it this timepoint cannot be put into '
+        + 'base space.'
+    )
+
+input_obj = StepInput(
+    input_file=subjects_dir / cross_id,
+    working_dir=Path('work'),
+    config=config,
+    output_name='surface_reconstruction_long',
+    metadata={'subject_id': 'sub-${subject_id}', 'session_id': '${session_id}'},
+)
+
+result = run_long_timepoint(
+    input_obj,
+    cross_subject_id=cross_id,
+    base_subject_id=base_id,
+    tp_to_base_lta=lta,
+    long_subject_id=long_id,
+)
+
+# Move, not copy: both sides live in this task's work directory, so this is a
+# rename on one filesystem rather than a second 1-2 GB of I/O. Safe because
+# work/ is declared by no output: block -- Nextflow hashes inputs and only
+# requires the *declared* path to exist afterwards, and publishDir copies from
+# there either way. (The staged inputs above are a different matter: those
+# symlink into upstream tasks' work dirs and must stay real copies.)
+expected_path = Path('fastsurfer') / long_id
+expected_path.parent.mkdir(parents=True, exist_ok=True)
+# rmtree first: shutil.move into an existing directory nests instead of replacing.
+if expected_path.exists():
+    shutil.rmtree(expected_path)
+shutil.move(str(result.output_file), str(expected_path))
+if not expected_path.exists():
+    raise FileNotFoundError('Longitudinal output not found at ' + str(expected_path))
+
+with open('actual_subject_id.txt', 'w') as f:
+    f.write(long_id)
+
+with open('bids_name.txt', 'w') as f:
+    f.write(longitudinal_bids_name('${bids_name}', 'long'))
+
+save_metadata(result.metadata)
+EOF
+    """
+}
+
+/*
+ * Within-subject change statistics (anat.synthesis_level: session_longitudinal).
+ *
+ * One task per subject, after all of its longitudinal timepoints. Fits a rate of
+ * change per vertex and per ROI. Valid without any surface registration because
+ * every timepoint inherited the base's mesh, so vertex i is the same anatomical
+ * point throughout -- which is the payoff of the whole stream.
+ */
+process ANAT_SURFACE_LONG_CHANGE_STATS {
+    label 'cpu'
+    tag "${subject_id}_changestats"
+    errorStrategy 'ignore'
+
+    // Publishes only the files it creates, into the already-published base tree.
+    // Declaring the whole tree as an output would republish 1-2 GB that
+    // ANAT_SURFACE_BASE_RECON already published to the same path -- which works
+    // only because publishDir defaults to overwrite:false, and is exactly the
+    // kind of coincidence that breaks later.
+    publishDir "${params.output_dir}/fastsurfer/${base_id}",
+        mode: 'copy',
+        pattern: 'changestats/**',
+        saveAs: { filename -> filename.replaceFirst('changestats/', '') }
+
+    input:
+    // atlas_name comes from the metadata of the RECON that wrote the stats files,
+    // not from the segmentation's -- see the note in surfrecon_workflow.nf. The
+    // sessions.tsv is the subject's own, or a .dummy placeholder when the dataset
+    // has none.
+    tuple val(subject_id), val(long_ids_csv), path(long_dirs, stageAs: 'staged_long/*'), path(base_dir, stageAs: 'staged_base/*'), val(base_id), val(atlas_name), path(sessions_tsv)
+    path config_file
+
+    output:
+    tuple val(subject_id), path("changestats/**"), emit: change_stats
+    tuple val(subject_id), path("metadata.json"), emit: metadata
+
+    script:
+    """
+    \${PYTHON:-python3} <<EOF
+from nhp_mri_prep.steps.surface_longitudinal import (
+    collect_change_stats, read_session_times
+)
+from nhp_mri_prep.utils.nextflow import config_value, load_config, save_metadata
+from pathlib import Path
+import shutil
+
+config = load_config('${config_file}')
+
+base_id = '${base_id}'
+long_ids = [s for s in '${long_ids_csv}'.split(',') if s]
+
+# Work in a staged copy of the base -- collect_change_stats reads its surfaces
+# and writes beside them -- but publish only the files created here, so the base
+# tree is not copied a second time into the output.
+out_base = Path('work') / base_id
+out_base.parent.mkdir(parents=True, exist_ok=True)
+staged_base = Path('staged_base') / base_id
+if not staged_base.is_dir():
+    candidates = [p for p in Path('staged_base').iterdir() if p.is_dir()]
+    if len(candidates) != 1:
+        raise FileNotFoundError(
+            'Expected one staged base directory, found '
+            + str([p.name for p in candidates])
+        )
+    staged_base = candidates[0]
+shutil.copytree(staged_base, out_base, symlinks=False, dirs_exist_ok=True)
+
+# Snapshot what was already there, so only new files get published.
+before = {p for p in out_base.rglob('*') if p.is_file()}
+
+staged_long = Path('staged_long')
+long_dirs = {}
+for long_id in long_ids:
+    d = staged_long / long_id
+    if d.is_dir():
+        long_dirs[long_id] = d
+    else:
+        print('WARNING: no staged directory for longitudinal timepoint ' + long_id)
+
+if len(long_dirs) < 2:
+    raise RuntimeError(
+        'Change statistics need at least 2 longitudinal timepoints; got '
+        + str(len(long_dirs)) + ' for ' + base_id
+    )
+
+# Real elapsed time, when the dataset carries it. Without this the fitted rate is
+# per scan (or keyed to digits in the session label), which is a different
+# quantity wearing the same name -- so the source is recorded in the summary too.
+times, time_source = None, None
+sessions_tsv = Path('${sessions_tsv}')
+# endswith, not exists(): the placeholder is always staged, and is named .dummy
+# precisely so it cannot pass this test.
+if sessions_tsv.name.endswith('_sessions.tsv'):
+    times, time_source = read_session_times(
+        sessions_tsv,
+        long_ids,
+        time_column=config_value(
+            config, 'anat.surface_reconstruction.longitudinal.time_column'
+        ),
+    )
+    if not times:
+        times, time_source = None, None
+
+summary = collect_change_stats(
+    base_dir=out_base,
+    long_dirs=long_dirs,
+    times=times,
+    time_source=time_source,
+    atlas_name='${atlas_name}',
+)
+
+# Collect just the newly written files under changestats/, preserving their
+# position within the base tree so publishDir drops them straight in.
+staging = Path('changestats')
+created = sorted(p for p in out_base.rglob('*') if p.is_file() and p not in before)
+if not created:
+    raise RuntimeError(
+        'collect_change_stats wrote no new files into ' + str(out_base)
+        + '; nothing to publish'
+    )
+for src in created:
+    dst = staging / src.relative_to(out_base)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst)
+print('Publishing ' + str(len(created)) + ' change-statistics file(s)')
+
+save_metadata({
+    'step': 'surface_long_change_stats',
+    'modality': 'anat',
+    'subject_id': 'sub-${subject_id}',
+    'base_subject_id': base_id,
+    'timepoints': summary['timepoints'],
+    'time_source': summary['time_source'],
+    'skipped': summary['skipped'],
+})
 EOF
     """
 }
@@ -1799,16 +2483,30 @@ brain_file = Path('${brain_file}')
 def replace_desc_with_preproc(filename):
     # [^_]+ stops at the first underscore so the modality token (e.g., _T1w, _T2w)
     # is preserved. Using \\w+ would greedily consume past the underscore and drop modality.
-    pattern = r'desc-[^_]+_'
-    replacement = 'space-T1w_desc-preproc_'
-    result = re.sub(pattern, replacement, str(filename))
-    return Path(result)
+    #
+    # count=1, and any existing space entity is dropped first: the replacement
+    # carries a space token of its own, so an unbounded sub over a name with two
+    # desc- tokens injected two space-T1w, and an input already in space-scanner
+    # came out as space-scanner_space-T1w_desc-preproc. Both are names whose first
+    # space value parse_bids_entities would silently discard.
+    stem = str(filename)
+    for ext in ('.nii.gz', '.nii'):
+        if stem.endswith(ext):
+            stem, tail = stem[: -len(ext)], ext
+            break
+    else:
+        tail = ''
+    stem = re.sub(r'_space-[A-Za-z0-9.-]+', '', stem)
+    result = re.sub(r'desc-[^_]+_', 'space-T1w_desc-preproc_', stem, count=1)
+    return Path(result + tail)
 
 _VALID_PREPROC_SUFFIXES = (
     '_T1w.nii.gz', '_T2w.nii.gz',
     '_T1w_brain.nii.gz', '_T2w_brain.nii.gz',
     '_space-T1w_desc-preproc_T1w.nii.gz',
+    '_space-T1w_desc-preproc_T2w.nii.gz',
     '_space-T1w_desc-preproc_T1w_brain.nii.gz',
+    '_space-T1w_desc-preproc_T2w_brain.nii.gz',
 )
 
 def validate_preproc_modality(name, source):

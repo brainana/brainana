@@ -7,6 +7,7 @@ Each stage represents a discrete step in the processing pipeline.
 from .base import PipelineStage, HemisphereStage
 
 # Volume stages
+from .s00_long_init import LongTimepointInit
 from .s01_volume_prep import VolumePrep
 from .s02_bias_correction import BiasCorrection
 from .s03_mask_aseg import MaskAseg
@@ -38,6 +39,7 @@ __all__ = [
     "PipelineStage",
     "HemisphereStage",
     # Volume stages
+    "LongTimepointInit",
     "VolumePrep",
     "BiasCorrection",
     "MaskAseg",

@@ -22,13 +22,17 @@ template:
   #   - "NMT2Sym:res-025"
 
 anat:
-  synthesis_level: "subject"  # str: T1w/T2w synthesis level ("subject", "session"). 
-  # "subject" = cross-session synthesis (cross-sectional)
-  # "session" = within-session synthesis (longitudinal)
+  synthesis_level: "subject"  # str: T1w/T2w synthesis level ("subject", "session", "session_longitudinal").
+  # "subject" = cross-session synthesis; one shared T1w per subject (cross-sectional)
+  # "session" = within-session synthesis; each session reconstructed independently
+  # "session_longitudinal" = like "session", plus a within-subject unbiased base
+  #   template per subject and a base-seeded longitudinal surface reconstruction
+  #   per session, so surfaces share one mesh across timepoints. Requires
+  #   anat.surface_reconstruction.enabled and >=2 sessions with anatomy.
   conform:
-    enabled: true  # HIGILY RECOMMENDED: bool: conform input image to template space using FLIRT rigid registration
+    enabled: true  # HIGHLY RECOMMENDED: bool: conform input image to template space using FLIRT rigid registration
   skullstripping_segmentation:
-    enabled: true  # HIGILY RECOMMENDED: bool: perform brain extraction and segmentation
+    enabled: true  # HIGHLY RECOMMENDED: bool: perform brain extraction and segmentation
     method: "fastSurferCNN" 
     fastSurferCNN:
       gpu_device: "auto"  # int (>= -1) or "auto": GPU device ID (-1 = CPU, "auto" = auto-select)
@@ -46,11 +50,17 @@ anat:
   surface_reconstruction:
     enabled: true  # bool: perform surface reconstruction
     use_t1wt2wcombined: false  # bool: use t1wt2wcombined image for surface recon if possible
+    longitudinal:  # only used when anat.synthesis_level is "session_longitudinal"
+      iscale: false  # bool: let mri_robust_template model intensity scaling between timepoints when building the base. Off matches FreeSurfer's rca-base-init, but each session's orig.mgz was rescaled by its own robust factor during conform, so the volumes being averaged are not on a common intensity scale
+      subsample: null  # int or null: mri_robust_template --subsample threshold; escape hatch for large high-resolution volumes
+      max_cbv_dist: 3.5  # float: how far a timepoint's surface may move from the base during placement (recon-all -long uses 3.5). Lower reduces across-timepoint variance but also damps genuine change, so it trades bias for variance
+      pial_blend_weight: 0.25  # float (0.0-1.0): how far the longitudinal pial pass is blended toward this timepoint's own white surface (recon-all -long uses .25)
+      time_column: null  # str or null: column in <bids_dir>/sub-XX/sub-XX_sessions.tsv holding each session's time, e.g. "age". null auto-detects "age" then "acq_time" (converted to days from the subject's first session). With no usable column the fitted rate is per scan rather than per unit time
 
 func:
   coreg_runs_within_session: true
   conform:
-    enabled: true  # HIGILY RECOMMENDED: bool: conform functional tmean image to target space using FLIRT rigid registration
+    enabled: true  # HIGHLY RECOMMENDED: bool: conform functional tmean image to target space using FLIRT rigid registration
   slice_timing_correction:
     enabled: true  # bool: perform slice timing correction
     repetition_time: null  # float: repetition time in seconds, or null (auto-detect from metadata)
@@ -84,7 +94,7 @@ func:
     bspline_fitting: 100  # int: N4 B-spline mesh resolution (ANTs -b), e.g. 100
     rescale_mean_to_100: true  # bool: rescale image mean intensity to 100
   skullstripping:
-    enabled: true  # HIGILY RECOMMENDED: bool: perform brain extraction
+    enabled: true  # HIGHLY RECOMMENDED: bool: perform brain extraction
 
 registration:
   anat2template_xfm_type: "syn"  # str: transform type for anat->template ("translation", "rigid", "affine", or "syn")

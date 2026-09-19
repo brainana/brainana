@@ -7,6 +7,7 @@ inputs/outputs for Nextflow integration.
 
 import logging
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -29,7 +30,7 @@ from ..operations.sitk_rigid_registration import (
     conform_world_mat_path,
 )
 import SimpleITK as sitk
-from ..utils.bids import get_bids_prefix
+from ..utils.bids import get_bids_prefix, parse_bids_entities
 from ..utils.templates import (
     discover_atlases_in_space,
     get_template_manager,
@@ -487,6 +488,56 @@ def copy_atlas_sidecars(
     return copied
 
 
+# No '.' in the value class: a space label is alphanumeric, and admitting a dot
+# lets the token swallow the '.nii.gz' it is followed by. Same class as
+# utils.bids._BIDS_SPACE_RE.
+_FRAME_TOKEN = re.compile(r"_space-[A-Za-z0-9-]+")
+
+
+def _rename_to_scanner_space(in_name: str) -> str:
+    """Point an atlas filename at scanner space, keeping the frame token in place.
+
+    ``atlas-ARM1_space-T1w_sub-01.nii.gz`` -> ``atlas-ARM1_space-scanner_sub-01.nii.gz``.
+
+    Position matters: atlas names lead with ``atlas-`` and carry ``sub-`` last (a
+    declared deviation -- every atlas consumer, brainana-viewer included, matches on
+    ``atlas-<name>_space-*``). ``replace_bids_space`` cannot be used here: it
+    re-inserts at a BIDS anchor, and an atlas name has neither a ``_desc-`` nor a
+    trailing modality suffix, so it appends -- moving ``space-`` to the end and
+    breaking discovery.
+
+    Every existing frame token is dropped and one is put back where the first one
+    was, so a name that somehow carried two loses the extra rather than keeping both.
+    """
+    match = _FRAME_TOKEN.search(in_name)
+    if not match:
+        stem = in_name[: -len(".nii.gz")] if in_name.endswith(".nii.gz") else in_name
+        return f"{stem}_space-scanner.nii.gz"
+    head = in_name[: match.start()]
+    tail = _FRAME_TOKEN.sub("", in_name[match.start() :])
+    return f"{head}_space-scanner{tail}"
+
+
+def _backprojection_space_label(bids_name: str) -> str:
+    """The ``space`` label an atlas backprojected from template space gets.
+
+    Atlas output names carry exactly one ``space`` entity, and ``get_bids_prefix``
+    drops ``space`` from the stem -- so the frame has to be recovered here. A
+    session's atlases land on its own conformed T1w grid, hence ``space-T1w``. The
+    longitudinal base arrives as ``sub-X_space-base_T1w`` and its atlases are on
+    the base's grid, which is not any session's; stamping ``space-T1w`` on them
+    would name two different grids identically.
+
+    The fsnative projection needs no equivalent: ``space-fsnative`` is the frame's
+    own name whichever subject directory produced it, the base's and a session's
+    are separated by publish directory (``sub-X/anat/`` vs ``sub-X/ses-Y/anat/``),
+    and the label has to keep matching the ``atlas_space-fsnative/`` directory it
+    lands in, which is what brainana-viewer resolves against.
+    """
+    source_space = parse_bids_entities(Path(str(bids_name)).name).get("space")
+    return "base" if source_space == "base" else "T1w"
+
+
 def anat_backproject_atlases(
     inverse_xfm: Path,
     t1w_reference: Path,
@@ -500,9 +551,12 @@ def anat_backproject_atlases(
     Discovers atlases in the template space (from config output_space), applies
     the inverse T1w->template transform to each, and writes outputs to
     working_dir/atlas/ with naming:
-    atlas-{atlas_name}_space-T1w_{ses_prefix}.nii.gz.
+    atlas-{atlas_name}_space-{frame}_{ses_prefix}.nii.gz.
     ses_prefix is sub (+ ses when present), derived from bids_name via
-    get_bids_prefix (space/desc/modality entities are stripped).
+    get_bids_prefix (space/desc/modality entities are stripped). {frame} is T1w
+    for a session's own grid, or the frame bids_name declares -- the longitudinal
+    base arrives as space-base, and its atlases are in base space, not in any
+    session's T1w grid.
 
     Args:
         inverse_xfm: Inverse transform (template -> T1w)
@@ -544,6 +598,7 @@ def anat_backproject_atlases(
         )
 
     output_stem = get_bids_prefix(bids_name)
+    volume_space = _backprojection_space_label(bids_name)
 
     atlas_dir = working_dir / "atlas"
     atlas_dir.mkdir(parents=True, exist_ok=True)
@@ -551,7 +606,7 @@ def anat_backproject_atlases(
     additional_files: Dict[str, Path] = {}
     sidecars: List[Path] = []
     for atlas_name, atlas_path in atlases:
-        output_name = f"atlas-{atlas_name}_space-T1w_{output_stem}.nii.gz"
+        output_name = f"atlas-{atlas_name}_space-{volume_space}_{output_stem}.nii.gz"
         shape = get_image_shape(str(atlas_path), logger=logger)
         moving_type = shape_to_ants_input_type(shape)
 
@@ -626,11 +681,7 @@ def anat_reproject_atlases_to_scanner(
     for atlas_path in atlas_files:
         # Input: atlas-{name}_space-T1w_{stem}.nii.gz -> scanner: atlas-{name}_space-scanner_{stem}.nii.gz
         in_name = atlas_path.name
-        if "_space-T1w_" in in_name:
-            out_name = in_name.replace("_space-T1w_", "_space-scanner_", 1)
-        else:
-            stem = in_name.replace(".nii.gz", "")
-            out_name = f"{stem}_space-scanner.nii.gz"
+        out_name = _rename_to_scanner_space(in_name)
         if rigid_method == "sitk":
             result = apply_sitk_affine(
                 movingf=str(atlas_path),
@@ -681,8 +732,9 @@ _SURF_HEMI_MAP = {"L": "lh", "R": "rh"}
 def _atlas_name_from_filename(filename: str) -> str:
     """Extract the atlas label from 'atlas-{name}_space-...' -> '{name}'.
 
-    Atlas backprojection writes ``atlas-{name}_space-T1w_{stem}.nii.gz``; we recover
-    ``{name}`` to build the fsnative/surface output names.
+    Atlas backprojection writes ``atlas-{name}_space-{frame}_{stem}.nii.gz``; we
+    recover ``{name}`` to build the fsnative/surface output names. Any frame label
+    works -- the split is on the ``_space-`` token, not on its value.
     """
     stem = filename
     if stem.startswith("atlas-"):

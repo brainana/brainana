@@ -28,7 +28,12 @@ DEFAULTS = REPO / "src" / "nhp_mri_prep" / "config" / "defaults.yaml"
 TEMPLATE_ZOO = REPO / "template_zoo"
 
 # The notebook drives the anatomical path only; these are the packages it may import from.
-BRAINANA_PACKAGES = ("nhp_mri_prep", "fastsurfer_nn", "fastsurfer_surfrecon", "nhp_skullstrip_nn")
+BRAINANA_PACKAGES = (
+    "nhp_mri_prep",
+    "fastsurfer_nn",
+    "fastsurfer_surfrecon",
+    "nhp_skullstrip_nn",
+)
 
 # Templates offered in the notebook's USER SETTINGS cell.
 OFFERED_TEMPLATES = ("NMT2Sym", "NMT2Asym", "MEBRAINS", "Yerkes19", "D99")
@@ -86,7 +91,9 @@ def test_notebook_imports_resolve():
             continue
         if not hasattr(mod, name):
             missing.append(f"{module}.{name}")
-    assert not missing, "notebook imports names that no longer exist: " + ", ".join(missing)
+    assert not missing, "notebook imports names that no longer exist: " + ", ".join(
+        missing
+    )
 
 
 # -------------------------------------------------------------------------------------------------
@@ -117,8 +124,7 @@ def _run_qc_own_params() -> set[str]:
             if isinstance(node, ast.FunctionDef) and node.name == "run_qc":
                 args = node.args
                 return {
-                    a.arg
-                    for a in [*args.posonlyargs, *args.args, *args.kwonlyargs]
+                    a.arg for a in [*args.posonlyargs, *args.args, *args.kwonlyargs]
                 }
     return set()
 
@@ -168,7 +174,9 @@ def test_notebook_calls_bind_to_current_signatures():
         # pass while the figure quietly stopped being produced.
         unknown = [k for k in kwnames if k not in params]
         if unknown:
-            failures.append(f"{name}{sig}: keyword(s) not in signature: {', '.join(unknown)}")
+            failures.append(
+                f"{name}{sig}: keyword(s) not in signature: {', '.join(unknown)}"
+            )
             continue
         if any(p.kind is p.VAR_KEYWORD for p in params.values()):
             splat = False  # the callee accepts **kwargs, so a splat cannot break it
@@ -178,7 +186,9 @@ def test_notebook_calls_bind_to_current_signatures():
             sig.bind_partial(*[object()] * n_pos, **{k: object() for k in kwnames})
         except TypeError as exc:
             failures.append(f"{name}{sig}: {exc}")
-    assert not failures, "notebook call sites no longer match src/ signatures:\n  " + "\n  ".join(
+    assert (
+        not failures
+    ), "notebook call sites no longer match src/ signatures:\n  " + "\n  ".join(
         failures
     )
 
@@ -231,7 +241,9 @@ def test_notebook_uses_set_config_not_raw_subscript():
     load_config() does not validate, so a raw ``config["a"]["b"] = ...`` with a typo silently
     creates a key no code reads and the run proceeds on the unchanged default.
     """
-    assert _set_config_paths(), "no set_config() calls found - did the config cell change shape?"
+    assert (
+        _set_config_paths()
+    ), "no set_config() calls found - did the config cell change shape?"
     raw = _raw_config_assignments()
     assert not raw, (
         "notebook assigns config keys by raw subscript ("
@@ -311,7 +323,10 @@ def _notebook_names(names: set[str]) -> dict:
             )
         ]
         if any(isinstance(n, ast.FunctionDef) for n in picked):
-            exec(compile(ast.Module(body=picked, type_ignores=[]), "notebook", "exec"), ns)
+            exec(
+                compile(ast.Module(body=picked, type_ignores=[]), "notebook", "exec"),
+                ns,
+            )
     missing = names - ns.keys()
     assert not missing, f"notebook is missing helpers: {sorted(missing)}"
     return ns
@@ -347,12 +362,22 @@ def test_sparse_checkout_keeps_the_editable_install_inputs():
 
     # Every module of the packages the notebook actually imports must survive.
     for package in ("nhp_mri_prep", "fastsurfer_nn", "fastsurfer_surfrecon"):
-        modules = {p for p in _tracked_files() if p.startswith(f"src/{package}/") and p.endswith(".py")}
+        modules = {
+            p
+            for p in _tracked_files()
+            if p.startswith(f"src/{package}/") and p.endswith(".py")
+        }
         assert modules, f"no modules found for {package}"
-        assert modules <= kept, f"allowlist drops {package} modules: {sorted(modules - kept)[:5]}"
+        assert (
+            modules <= kept
+        ), f"allowlist drops {package} modules: {sorted(modules - kept)[:5]}"
 
     # fastSurferCNN inference weights: the default skullstripping method needs these.
-    weights = {p for p in _tracked_files() if p.startswith("src/fastsurfer_nn/pretrained_model/")}
+    weights = {
+        p
+        for p in _tracked_files()
+        if p.startswith("src/fastsurfer_nn/pretrained_model/")
+    }
     assert weights and weights <= kept, "allowlist drops the fastSurferCNN weights"
 
 
@@ -374,7 +399,9 @@ def test_sparse_checkout_keeps_the_anat_skullstrip_weights():
     ns.setdefault("DEMO_NIFTI", "exam_T1w_ple.nii.gz")
     kept = set(ns["_lite_code_paths"](_tracked_files()))
     expected = f"src/nhp_skullstrip_nn/pretrained_model/{weights}"
-    assert expected in kept, f"sparse checkout drops the anat skullstrip weights ({expected})"
+    assert (
+        expected in kept
+    ), f"sparse checkout drops the anat skullstrip weights ({expected})"
 
 
 def test_sparse_checkout_stays_lean():
@@ -409,9 +436,11 @@ def test_lite_pins_an_antspyx_floor():
     floor = _literal("LITE_ANTSPYX_FLOOR")
     match = re.fullmatch(r"antspyx>=(\d+)\.(\d+)\.(\d+)", floor.strip())
     assert match, f"expected an antspyx>=X.Y.Z floor, got {floor!r}"
-    assert tuple(int(g) for g in match.groups()) >= (0, 6, 0), (
-        f"antspyx floor {floor!r} is below 0.6.0, the first release with cp313 wheels"
-    )
+    assert tuple(int(g) for g in match.groups()) >= (
+        0,
+        6,
+        0,
+    ), f"antspyx floor {floor!r} is below 0.6.0, the first release with cp313 wheels"
 
 
 def test_lite_install_and_preflight_use_the_same_arguments():
@@ -432,10 +461,12 @@ def test_lite_install_and_preflight_use_the_same_arguments():
             # Must be a uv call: the `pip install -q uv` bootstrap also says pip/install.
             if all(tok in flat for tok in ("'_uv'", "'pip'", "'install'")):
                 installs.append(flat)
-    assert len(installs) >= 2, f"expected a preflight and a real install, found {len(installs)}"
-    assert all("_install_args" in f for f in installs), (
-        "the uv preflight and the real install must share _install_args so they cannot diverge"
-    )
+    assert (
+        len(installs) >= 2
+    ), f"expected a preflight and a real install, found {len(installs)}"
+    assert all(
+        "_install_args" in f for f in installs
+    ), "the uv preflight and the real install must share _install_args so they cannot diverge"
 
 
 def _notebook_atlas_helpers() -> dict:
@@ -444,10 +475,16 @@ def _notebook_atlas_helpers() -> dict:
     ns: dict = {}
     for src in _code_cells():
         tree = ast.parse(src)
-        funcs = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in wanted]
+        funcs = [
+            n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in wanted
+        ]
         if funcs:
-            exec(compile(ast.Module(body=funcs, type_ignores=[]), "notebook", "exec"), ns)
-    assert wanted <= ns.keys(), f"notebook is missing atlas helpers: {sorted(wanted - ns.keys())}"
+            exec(
+                compile(ast.Module(body=funcs, type_ignores=[]), "notebook", "exec"), ns
+            )
+    assert (
+        wanted <= ns.keys()
+    ), f"notebook is missing atlas helpers: {sorted(wanted - ns.keys())}"
     return ns
 
 
@@ -462,13 +499,16 @@ def test_sparse_checkout_matches_runtime_atlas_discovery(template):
     """
     from nhp_mri_prep.utils.templates import TemplateManager
 
-    listing = [
-        str(p.relative_to(REPO)) for p in TEMPLATE_ZOO.rglob("*") if p.is_file()
-    ]
-    picked = sorted(_notebook_atlas_helpers()["_lite_atlas_paths"](listing, template, "res-05"))
+    listing = [str(p.relative_to(REPO)) for p in TEMPLATE_ZOO.rglob("*") if p.is_file()]
+    picked = sorted(
+        _notebook_atlas_helpers()["_lite_atlas_paths"](listing, template, "res-05")
+    )
 
     manager = TemplateManager(template_dir=str(TEMPLATE_ZOO))
-    runtime = sorted(str(p.relative_to(REPO)) for _, p in manager.discover_atlases(template, "res-05"))
+    runtime = sorted(
+        str(p.relative_to(REPO))
+        for _, p in manager.discover_atlases(template, "res-05")
+    )
 
     assert picked == runtime, (
         f"{template}: sparse checkout and runtime atlas discovery disagree.\n"
