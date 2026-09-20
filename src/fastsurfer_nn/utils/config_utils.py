@@ -122,7 +122,7 @@ def load_yaml_config(yaml_path):
 
     Examples
     --------
-    >>> cfg = load_yaml_config('config/FastSurferVINN_ARM3.yaml')
+    >>> cfg = load_yaml_config('config/T1w_ARM2_coronal_lia.yaml')
     >>> print(cfg['DATA']['PLANE'])
     coronal
     """
@@ -220,4 +220,4 @@ if __name__ == "__main__":
     else:
         print("Usage: python config_utils.py <config.yaml>")
         print("\nExample:")
-        print("  python config_utils.py config/FastSurferVINN_ARM3_coronal.yaml")
+        print("  python config_utils.py config/T1w_ARM2_coronal_lia.yaml")

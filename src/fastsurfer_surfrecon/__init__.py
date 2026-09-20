@@ -8,7 +8,6 @@ Based on FastSurfer's recon_surf module.
 """
 
 __version__ = "0.1.0"
-__author__ = "FastSurfer Team"
 
 from .config import ReconSurfConfig, AtlasConfig, ProcessingConfig
 from .pipeline import ReconSurfPipeline

@@ -89,7 +89,7 @@ flowchart TB
 
 ## Version & docs sync (release prep)
 
-For version architecture, resolution chain, sidecar stamping, and the full release checklist, see [update_version.md](update_version.md).
+For version architecture, resolution chain, sidecar stamping, and the full release checklist, see [version_guideline.md](version_guideline.md).
 
 Use one `VERSION` (e.g. `1.1.0`) and update these **together on `main` before pre-tag gates** (leave changes uncommitted until tests pass).
 
@@ -158,7 +158,7 @@ After `git push origin v${VERSION}`:
 
 ## Brainana Lite testing
 
-Lightweight volumetric T1w workflow in `[examples/BrainanaLite.ipynb](../examples/BrainanaLite.ipynb)`. Use it to validate `brainana[lite]` outside Docker (Colab or local Jupyter).
+Lightweight volumetric T1w workflow in [examples/BrainanaLite.ipynb](../../examples/BrainanaLite.ipynb). Use it to validate `brainana[lite]` outside Docker (Colab or local Jupyter).
 
 **Colab:** upload or open from GitHub, set `WORKING_DIR` (e.g. Drive path), enable GPU runtime, then **Run All** (same two-pass rule as local).
 

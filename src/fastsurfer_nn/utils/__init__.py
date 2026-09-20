@@ -20,7 +20,6 @@ __all__ = [
     "config_utils",
     "constants",
     "dataclasses",
-    "download_checkpoints",
     "gpu_utils",
     "load_config",
     "logging",

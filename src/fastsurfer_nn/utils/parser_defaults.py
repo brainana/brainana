@@ -324,7 +324,7 @@ ALL_FLAGS = {
         "--lut",
         type=Path,
         help="Path and name of LUT to use.",
-        default=REPO_ROOT / "src/fastsurfer_nn/config/FastSurfer_ColorLUT.tsv",
+        default=REPO_ROOT / "src/fastsurfer_nn/atlas/atlas-ARM2/ARM2_ColorLUT.tsv",
     ),
     "allow_root": __arg(
         "--allow_root",

@@ -42,7 +42,7 @@ def make_parser() -> argparse.ArgumentParser:
         "--cfg",
         dest="cfg_file",
         help="Path to the config file",
-        default=REPO_ROOT / "src/fastsurfer_nn/config/FastSurferVINN.yaml",
+        default=REPO_ROOT / "src/fastsurfer_nn/config/T1w_ARM2_coronal_lia.yaml",
         type=str,
     )
     parser.add_argument(

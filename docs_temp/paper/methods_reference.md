@@ -206,6 +206,5 @@ The QC report “Methods” section is generated automatically from boilerplate 
 **Files:**
 
 - **`src/nhp_mri_prep/quality_control/reports.py`** — Contains `BOILERPLATE_METHODS_TEMPLATE` and `HtmlGenerator.create_methods_section()`; this is what actually fills the report’s Methods section.
-- **`docs_temp/paper/boilerplate_methods.txt`** — Editable copy of the boilerplate for manuscript copy-paste and for updating the template in `reports.py` (e.g. after adding new steps or citations).
 
-When editing the boilerplate, update both the constant in `reports.py` and `boilerplate_methods.txt` so the report and manuscript text stay in sync.
+`BOILERPLATE_METHODS_TEMPLATE` is the single source of truth for this text. Edit it there; for manuscript copy-paste, take the rendered Methods section out of a generated report rather than keeping a second copy in sync.
