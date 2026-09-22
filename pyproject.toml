@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "brainana"
-version = "2.1.0"
+version = "3.0.0"
 description = "A Python package for preprocessing and registration of macaque neuroimaging data with BIDS dataset support"
 readme = { file = "README.md", content-type = "text/markdown" }
 license = {text = "AGPL-3.0"}

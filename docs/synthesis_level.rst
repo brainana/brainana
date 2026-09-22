@@ -149,40 +149,6 @@ than per unit time**. Which regime was used is recorded as ``time_source`` in
 the run's change-statistics summary, because a rate is not interpretable
 without it.
 
-Tuning
-~~~~~~
-
-Under ``anat.surface_reconstruction.longitudinal``:
-
-``max_cbv_dist`` *(default 3.5)*
-   How far a timepoint's surface may move from the base during placement.
-
-``pial_blend_weight`` *(default 0.25)*
-   How far the longitudinal pial pass is blended toward that timepoint's own
-   white surface.
-
-``iscale`` *(default false)*
-   Let the base build model intensity scaling between sessions.
-
-``subsample`` *(default none)*
-   Subsampling threshold for ``mri_robust_template``; an escape hatch for large
-   high-resolution volumes.
-
-Tightening ``max_cbv_dist`` or ``pial_blend_weight`` reduces across-timepoint
-noise but also damps real change, so both trade bias for variance. The defaults
-match ``recon-all -long``.
-
-Quality control
-~~~~~~~~~~~~~~~
-
-The base and each timepoint get the same surface QC figures as a
-cross-sectional session, marked ``space-base`` so all of them sit side by side
-in ``figures/``; a session's group in the report then holds both its own
-surfaces and its base-seeded ones, each labelled. The base additionally records
-per-label Dice between its own segmentation and each session's, mapped into
-base space — a check on whether segmenting a robust average shifted the
-segmentation model's input domain enough to matter.
-
 What you get
 ~~~~~~~~~~~~
 
@@ -192,20 +158,33 @@ What you get
   sharing the base's vertex numbering.
 - Base-space derivatives, atlases and QC figures, marked ``space-base``.
 
-The cross-sectional reconstructions are still produced alongside these.
-:doc:`outputs` lists every file. The marker is ``space-base`` rather than an
-acquisition label because the difference really is one of reference frame: a
-base-seeded reconstruction lives in the subject's base space.
+Longitudinal mode does not replace the per-session pipeline. Brainana still
+writes the same **cross-sectional** FastSurfer trees as ``synthesis_level:
+"session"`` — ``fastsurfer/sub-<id>_ses-<id>/``, each in that session's own T1w
+space. The ``*_base`` and ``*_long`` directories and anything tagged
+``space-base`` are **additional** outputs in the within-subject base reference.
+:doc:`outputs` lists every path.
 
 .. note::
 
-   Functional processing and the fsnative atlas outputs continue to use the
-   **cross-sectional** reconstructions. A longitudinal tree lives in base space,
-   and projecting session data onto it would misregister by the
-   timepoint-to-base transform.
+   **Use longitudinal outputs for across-time surface analysis.** Shared vertex
+   numbering on ``*_long`` meshes, plus the change statistics under ``*_base/``,
+   is what lets you compare thickness, area, and ROI rates between sessions
+   without registering surfaces to each other.
 
-.. seealso::
+   **Use cross-sectional outputs for fMRI and fsnative atlases.** Functional
+   preprocessing coregisters each run to the T1w chosen for that session (see
+   :doc:`anat_selection_for_func`), then registers to template space and can
+   project maps onto the cortical surface. Those steps always follow the
+   cross-sectional ``fastsurfer/sub-<id>_ses-<id>/`` tree — not ``*_long`` or
+   ``*_base``. The same cross-sectional surfaces drive ``space-fsnative``
+   atlases under ``anat/atlas_space-fsnative/``.
 
-   - :doc:`processing` — what each pipeline stage does
-   - :doc:`outputs` — the files each stream writes
-   - :doc:`anat_selection_for_func` — which T1w a functional run is registered to
+   **Why the split:** In a ``*_long`` tree the session T1w has already been
+   resampled into the base template before reconstruction, so ``orig.mgz`` and
+   the mesh sit on the **base** voxel grid. Preprocessed BOLD still lives in
+   **session-native** space, aligned to the cross-sectional T1w. Feeding
+   functional volumes into the longitudinal mesh as if it were a normal session
+   recon (for example ``mri_vol2surf`` with ``--regheader``) ignores the rigid
+   timepoint-to-base transform in ``fastsurfer/sub-<id>_base/mri/transforms/``
+   and misaligns data by exactly that amount.

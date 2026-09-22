@@ -232,8 +232,8 @@ vertex across timepoints.
 - Functional processing and the fsnative atlas outputs continue to use the
   **cross-sectional** reconstructions.
 
-The two phases, the time variable behind the change statistics, the tuning knobs
-and the QC outputs are described in :doc:`synthesis_level`.
+The two phases and the time variable behind the change statistics are
+described in :doc:`synthesis_level`.
 
 
 4. Functional processing

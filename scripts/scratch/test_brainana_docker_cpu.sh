@@ -9,7 +9,7 @@ site=site-amu
 
 # bids_dir=/mnt/DataDrive2/macaque/data_raw/macaque_mri/PRIME-DE/${site}
 # output_dir=/mnt/DataDrive2/macaque/data_preproc/macaque_mri/PRIME-DE_brainana/cpu/${site}
-version=2.1.0
+version=3.0.0
 
 bids_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/dataset_devtest
 output_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/dataset_devtest_v${version}_cpu

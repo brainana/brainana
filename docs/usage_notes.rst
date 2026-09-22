@@ -28,7 +28,7 @@ Quick start
 
 .. note::
 
-   - **Replace ``<version>``** with a published Brainana tag from Docker Hub, for example ``2.1.0``. See the `Brainana image tags on Docker Hub <https://hub.docker.com/r/liuxingyu987/brainana/tags>`_ for the list of available versions.
+   - **Replace ``<version>``** with a published Brainana tag from Docker Hub, for example ``3.0.0``. See the `Brainana image tags on Docker Hub <https://hub.docker.com/r/liuxingyu987/brainana/tags>`_ for the list of available versions.
    - **No compatible GPU?** Omit ``--gpus all``; the pipeline runs on CPU with no other changes. Details in :ref:`Check GPU access <installation-check-gpu-access>`.
    - **``<path/to/work_dir>``** is a host path for Nextflow's intermediate files. Without this mount, resume is impossible.
    - **Run as your user, not root:** Pre-create the output and work directories on the host and own them before mounting; see :ref:`docker-run-as-user-not-root`.

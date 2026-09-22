@@ -39,7 +39,7 @@ From the repository root, point Brainana at ``examples/dataset_example`` as the 
        liuxingyu987/brainana:<version> /input /output \
        --work_dir /output_wd --freesurfer_license /fs_license.txt
 
-Replace ``<version>`` with a published tag (e.g. ``2.1.0``), and create the output and
+Replace ``<version>`` with a published tag (e.g. ``3.0.0``), and create the output and
 work directories beforehand so results are owned by you, not root (see
 :ref:`docker-run-as-user-not-root`). Running without a GPU or without a FreeSurfer
 license is covered in the :ref:`Docker user guide <usage-docker-guide>`.

@@ -1,11 +1,11 @@
 fs_license=/mnt/DataDrive3/xliu/prep_test/freesurfer_license.txt
 version=3.0.0
 
-# # ------------------------------------------------------------
-# # # 1. devtest
-bids_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/dataset_devtest
-output_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/dataset_devtest_docker_v${version}_sub
-config_f=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/config_res-1.yaml
+# # # ------------------------------------------------------------
+# # # # 1. devtest
+# bids_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/dataset_devtest
+# output_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/dataset_devtest_docker_v${version}_sub
+# config_f=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/config_res-1.yaml
 
 # # ------------------------------------------------------------
 # # # # newcastle - sub-03
@@ -13,17 +13,17 @@ config_f=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/config_res-1.yaml
 # output_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/dataset_newcastle
 # config_f=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/config_res-1.yaml
 
-# run docker without custom template
-docker run --rm -t --gpus all \
-    -v "$bids_dir":/input \
-    -v "$output_dir":/output \
-    -v "$fs_license":/fs_license.txt \
-    -v "$config_f":/config.yaml \
-    brainana:latest \
-    /input /output/preprocessed \
-    -w /output/preprocessed_wd \
-    --config /config.yaml \
-    --freesurfer-license /fs_license.txt 
+# # run docker without custom template
+# docker run --rm -t --gpus all \
+#     -v "$bids_dir":/input \
+#     -v "$output_dir":/output \
+#     -v "$fs_license":/fs_license.txt \
+#     -v "$config_f":/config.yaml \
+#     brainana:${version} \
+#     /input /output/preprocessed \
+#     -w /output/preprocessed_wd \
+#     --config /config.yaml \
+#     --freesurfer-license /fs_license.txt 
 
 # ------------------------------------------------------------
 # # # 2. prime-de
@@ -34,17 +34,22 @@ docker run --rm -t --gpus all \
 # # # ------------------------------------------------------------
 # # # 3. sub-example
 # bids_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/dataset_example
-# output_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/dataset_example
+# output_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/dataset_example_docker_v${version}
 
-# # run docker without custom template
-# docker run --rm -t --gpus all \
-#     -v "$bids_dir":/input \
-#     -v "$output_dir":/output \
-#     -v "$fs_license":/fs_license.txt \
-#     brainana:latest \
-#     /input /output/preprocessed \
-#     -w /output/preprocessed_wd \
-#     --freesurfer-license /fs_license.txt 
+# ------------------------------------------------------------
+# long test
+bids_dir=/mnt/DataDrive3/swap/test_brainana/raw/long_test
+output_dir=/mnt/DataDrive3/swap/test_brainana/preproc/long_test_docker_v${version}
+
+# run docker without custom template
+docker run --rm -t --gpus all \
+    -v "$bids_dir":/input \
+    -v "$output_dir":/output \
+    -v "$fs_license":/fs_license.txt \
+    brainana:${version} \
+    /input /output/preprocessed \
+    -w /output/preprocessed_wd \
+    --freesurfer-license /fs_license.txt 
 
 # # ------------------------------------------------------------
 # # with custom template

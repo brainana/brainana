@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [3.0.0] - 2026-09-19
+
 ### Upgrading from 2.1.0
 
 Output filenames changed and input validation is stricter. Re-run rather than mixing 2.1.0 and 3.0.0 output in one derivatives tree.
