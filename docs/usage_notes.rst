@@ -56,6 +56,8 @@ Minimal example layout (dataset root with one subject, one session, anat + func)
    │           └── sub-banana_ses-1_task-eat_run-1_bold.json   # optional
    └── <other_subjects>
 
+Anatomical images must be magnitude images. BIDS allows ``T1w``/``T2w`` files to carry a ``part-`` entity for complex-valued data; Brainana uses files labelled ``part-mag`` or with no ``part-`` entity. Files labelled ``part-phase``, ``part-real`` or ``part-imag`` are listed as "will not be processed" at start-up, and they never count as extra runs for multi-run averaging. MP2RAGE inversion images (``inv-<index>_MP2RAGE``) and ``UNIT1`` images are not read either, so name the image you want processed ``T1w``.
+
 If you start with DICOM, you can either:
 
 (1) Use `dcm2niix <https://www.nitrc.org/plugins/mwiki/index.php/dcm2nii:MainPage#General_Usage>`_ to convert DICOM to NIfTI and then manually reorganise and rename files to BIDS. Use ``-ba y`` so dcm2niix writes BIDS-compatible JSON sidecar files; you still need to create the BIDS folder structure and naming yourself.

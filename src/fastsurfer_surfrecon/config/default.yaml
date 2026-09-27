@@ -24,6 +24,10 @@ processing:
   # and continue; true = raise. The s12 gate on orig always raises regardless.
   strict_surface_checks: false
 
+  # mris_fix_topology: true = genetic-algorithm search (-ga), retried without
+  # -ga if it fails; false = never use -ga.
+  topology_fix_ga: true
+
   # Non-human options (for macaque processing)
   skip_cc: true            # Skip corpus callosum segmentation
   skip_talairach: true     # Skip Talairach registration (no eTIV)

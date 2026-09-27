@@ -40,6 +40,7 @@ from fastsurfer_nn.inference.predictor_utils import (
 from fastsurfer_nn.postprocessing.postseg_utils import (
     create_hemisphere_masks,
     create_mask,
+    relabel_small_islands,
 )
 from fastsurfer_nn.utils import logging
 from fastsurfer_nn.utils.constants import (
@@ -239,6 +240,7 @@ def segmentation(
     plane_weight_axial: float | None = None,
     plane_weight_sagittal: float | None = None,
     fix_wm_islands: bool = True,
+    label_island_min_volume_mm3: float = 0.0,
     create_hemimask: bool = True,
     output_data_format: Literal["mgz", "nifti"] = "nifti",
     enable_crop_2round: bool = False,
@@ -290,6 +292,10 @@ def segmentation(
         Weights for multi-view prediction
     fix_wm_islands : bool, default=True
         Whether to apply WM island correction (multi-class only, ignored for binary models)
+    label_island_min_volume_mm3 : float, default=0.0
+        Relabel detached label fragments smaller than this (mm^3) to their
+        neighbours' label (multi-class only); 0 disables. See
+        :func:`~fastsurfer_nn.postprocessing.postseg_utils.relabel_small_islands`.
     create_hemimask : bool, default=True
         If True, create hemisphere mask from segmentation (multi-class only, requires LUT).
         If False, skip hemimask creation to save processing time. Binary models always skip this.
@@ -469,6 +475,15 @@ def segmentation(
         "Applied morphology-refined brain mask to segmentation "
         f"(removed {seg_nonzero_before_mask - seg_nonzero_after_mask} labeled voxels)"
     )
+
+    if not is_binary and label_island_min_volume_mm3 > 0:
+        pred_data, n_islands, n_island_voxels = relabel_small_islands(
+            pred_data, tuple(zoom), label_island_min_volume_mm3
+        )
+        log.info(
+            f"Relabelled {n_islands} label fragments < {label_island_min_volume_mm3:g} mm^3 "
+            f"({n_island_voxels} voxels) to their neighbours' label"
+        )
 
     # Hemisphere mask creation and saving (multi-class only, requires LUT)
     hemi_mask = None

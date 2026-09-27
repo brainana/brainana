@@ -4,10 +4,12 @@ Stage 12: Topology Fix
 Fixes topological defects in surface.
 """
 
+import json
 import logging
 import shutil
 
 from .base import HemisphereStage
+from ..wrappers.base import FreeSurferError
 from ..wrappers.mris import mris_fix_topology, mris_remove_intersection
 from ..wrappers.mris import mris_smooth, mris_inflate
 from ..processing.surface_fix import (
@@ -45,6 +47,11 @@ class TopologyFix(HemisphereStage):
         (genus 0, no handles) required for spherical mapping and parcellation.
         """
         orig = self.hemi_path("orig")
+        # What this run actually did, written to scripts/<hemi>.topology_fix.json
+        # and folded into surface_qc.json. "mode" stays None when a resume
+        # reuses an existing premesh, so the record never claims a path it did
+        # not observe.
+        self._record = {"mode": None, "pymeshfix": False, "flipped_inside_out": False}
         # Prepare inputs for topology fix
         # FreeSurfer's mris_fix_topology expects qsphere.nofix as input.
         # Our spectral projection (stage 11) creates qsphere.nofix directly, but this
@@ -66,7 +73,8 @@ class TopologyFix(HemisphereStage):
         # Step 1: Fix topology using mris_fix_topology
         # This command identifies and fixes topological defects (handles, holes) in the surface.
         # It uses the spherical representation (qsphere.nofix) and inflated surface to guide
-        # the topology correction. The -ga flag enables automatic genus adjustment.
+        # the topology correction, with the genetic-algorithm search (-ga) unless it fails
+        # or processing.topology_fix_ga is off (see _fix_topology).
         # Output: orig.premesh (preliminary mesh with fixed topology)
         premesh = self.hemi_path("orig.premesh")
         if not premesh.exists():
@@ -95,19 +103,8 @@ class TopologyFix(HemisphereStage):
                     "This should be created in stage 08 (tessellation)."
                 )
 
-            logger.info(f"Running mris_fix_topology for {self.hemi}...")
-            mris_fix_topology(
-                subject=self.config.subject_id,
-                hemi=self.hemi,
-                sphere=qsphere_nofix,
-                inflated=inflated_nofix,
-                orig=orig_nofix,
-                output_premesh=premesh,
-                mgz=True,  # Use mgz format for volumes
-                ga=True,  # Enable automatic genus adjustment
-                seed=1234,  # Fixed seed for reproducibility
-                log_file=self.config.log_file,
-                subjects_dir=self.config.subjects_dir,
+            self._record["mode"] = self._fix_topology(
+                qsphere_nofix, inflated_nofix, orig_nofix, premesh
             )
 
         # If the premesh is not a clean genus-0 sphere, run pymeshfix iteratively
@@ -169,6 +166,7 @@ class TopologyFix(HemisphereStage):
                         f"  Topology corrected after {iteration + 1} iteration(s)"
                     )
                     premesh_for_orig = premesh_pymeshfix
+                    self._record["pymeshfix"] = True
                     break
                 current_input = premesh_pymeshfix
             else:
@@ -188,6 +186,21 @@ class TopologyFix(HemisphereStage):
                 "skipping pymeshfix"
             )
 
+        # A premesh can be closed, consistently wound and genus 0 and still be
+        # entirely inside-out -- the no--ga fallback above has produced exactly
+        # that. The pymeshfix predicate does not look at the sign, so such a
+        # mesh reaches the gate unrepaired and the gate (which requires outward
+        # normals) aborts the hemisphere over something fix_surface_orientation
+        # corrects losslessly. Flip it here; the gate below stays the authority.
+        if fix_surface_orientation(
+            surface_path=premesh_for_orig,
+            backup_path=premesh_for_orig.with_name(
+                premesh_for_orig.name + ".insideout"
+            ),
+        ):
+            logger.warning(f"{self.hemi} premesh was inside-out; flipped before gate")
+            self._record["flipped_inside_out"] = True
+
         # Gate: nothing defective may become orig. mris_place_surface preserves
         # connectivity, so white/pial inherit this mesh's topology exactly --
         # which makes this the single highest-value check in the pipeline.
@@ -198,6 +211,7 @@ class TopologyFix(HemisphereStage):
             euler=2,
             context=f"{self.hemi} pre-orig",
         )
+        self._write_record()
 
         # Step 2: Copy premesh to orig (final fixed surface)
         # The premesh (or pymeshfix result) is the topology-fixed version that becomes the final orig surface.
@@ -298,6 +312,60 @@ class TopologyFix(HemisphereStage):
             threads=self.threads,
         )
         shutil.copy(sphere, qsphere)
+
+    def _fix_topology(self, qsphere_nofix, inflated_nofix, orig_nofix, premesh) -> str:
+        """Run mris_fix_topology, falling back to the non-GA search if -ga fails.
+
+        FreeSurfer 7.4.1's genetic-algorithm search can abort outright on some
+        large defects ("stack smashing detected"), taking the hemisphere with
+        it, while the default search fixes the same defects. The mesh either
+        path produces is held to the same pre-orig gate, so the fallback trades
+        GA's (usually better) patch choice for a surface instead of none.
+
+        Returns the path taken: "ga", "no_ga_fallback" or "no_ga".
+        """
+        kwargs = dict(
+            subject=self.config.subject_id,
+            hemi=self.hemi,
+            sphere=qsphere_nofix,
+            inflated=inflated_nofix,
+            orig=orig_nofix,
+            output_premesh=premesh,
+            mgz=True,
+            seed=1234,  # Fixed seed for reproducibility
+            log_file=self.config.log_file,
+            subjects_dir=self.config.subjects_dir,
+        )
+        if not self.config.processing.topology_fix_ga:
+            logger.info(f"Running mris_fix_topology for {self.hemi} (-ga disabled)...")
+            mris_fix_topology(ga=False, **kwargs)
+            return "no_ga"
+
+        logger.info(f"Running mris_fix_topology -ga for {self.hemi}...")
+        try:
+            mris_fix_topology(ga=True, **kwargs)
+            return "ga"
+        except FreeSurferError as e:
+            logger.warning(
+                f"{self.hemi}: mris_fix_topology -ga failed ({e}); "
+                "retrying without -ga"
+            )
+            premesh.unlink(missing_ok=True)
+            mris_fix_topology(ga=False, **kwargs)
+            return "no_ga_fallback"
+
+    def _write_record(self) -> None:
+        """Record which topology path was taken (read by surface_qc.json)."""
+        path = self.sd.scripts_dir / f"{self.hemi}.topology_fix.json"
+        if self._record["mode"] is None and path.exists():
+            # Resumed with an existing premesh: keep the mode the earlier run
+            # observed rather than overwrite it with "unknown".
+            try:
+                self._record["mode"] = json.loads(path.read_text()).get("mode")
+            except (OSError, ValueError):
+                pass
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(self._record, indent=2))
 
     @staticmethod
     def _same_file(a, b) -> bool:

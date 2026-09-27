@@ -41,6 +41,12 @@ anat:
       plane_weight_axial: 0.4  # float: weight for axial plane (0.0-1.0)
       plane_weight_sagittal: 0.2  # float: weight for sagittal plane (0.0-1.0)
       fix_V1_WM: true  # bool: fix missing thin WM in V1 by registering template V1 WM to individual space.
+      label_island_min_volume_mm3: 0  # float (>= 0): relabel detached label fragments smaller than this volume (mm^3) to the label surrounding them; the largest piece of every label is always kept. 0 = off. 2.5 is a sensible value (20 voxels at 0.5 mm)
+      pre_inference_n4:  # second segmentation pass on a bias-corrected input
+        enabled: "auto"  # true | false | "auto": "auto" runs the second pass only when the first-pass brain mask is under 80% of the template brain volume (a failed segmentation); true always runs it (e.g. surface receive coils, where the mask can be incomplete without being tiny)
+        dilation_mm: 6.0  # float (> 0): N4 is fitted inside the first-pass mask dilated by this much
+        shrink_factor: 4  # int (>= 1): N4 shrink factor for this pass
+        bspline_fitting: 150  # int: N4 B-spline mesh resolution (ANTs -b) for this pass
   bias_correction:
     enabled: true  # bool: perform bias field correction
     algorithm: "N4BiasFieldCorrection"  # str: bias correction algorithm (currently only "N4BiasFieldCorrection")

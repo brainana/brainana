@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Second segmentation pass on a bias-corrected input when the first one fails** (`anat.skullstripping_segmentation.fastSurferCNN.pre_inference_n4`). Nothing corrected the bias field before the segmentation network, and strong intensity non-uniformity (a surface receive coil, or sites such as PRIME-DE rockefeller) made it return a brain mask a fraction of the true size. With the default `enabled: "auto"`, a first-pass mask under 80% of the template brain volume triggers N4 inside that mask dilated by `dilation_mm` (6 mm) and a second pass on the corrected image. `true` always runs it, for surface-coil data where the mask can be incomplete without being tiny. The corrected image is only network input; the existing bias-correction step still starts from the uncorrected image and uses the final mask, so registration inputs are unchanged. Subjects whose first-pass mask is normal run exactly as before
+- **Segmentation provenance in the brain-mask and segmentation sidecars** — `MaskVolumeCm3`, `TemplateBrainVolumeCm3`, `MaskToTemplateBrainRatio`, `MaskUndersized`, `IntensityCapApplied`, `IntensityCapRatio`, `SegmentationPasses`, and for a second pass `Pass1` and `PreInferenceN4`. A mask under 80% of the template brain is also logged as a warning; a failed segmentation used to pass silently and surface as a failure much later in surface reconstruction
+- **Optional relabelling of small label fragments** (`fastSurferCNN.label_island_min_volume_mm3`, default 0 = off). Detached pieces of a label smaller than the threshold take the label surrounding them; the largest piece of every label is always kept. The threshold is a volume, so it means the same thing at every resolution. Across 473 PRIME-DE reconstructions such fragments (median 52 per subject) tracked the number of topology defects
+- **`scripts/surface_qc.json` records the topology-fix path and cortical thickness** — per hemisphere, whether `mris_fix_topology` ran with `-ga`, fell back without it, or ran without it, whether the mesh was repaired or flipped, and the median thickness with the fraction of vertices under 0.5 mm. A median under 1.0 mm is flagged `collapsed` and logged: a pial surface that never left the white surface used to produce no signal at all. The lowest median across 912 PRIME-DE hemispheres (0.27–1.0 mm voxels) is 1.42 mm
+
+### Changed
+
+- **Intensity rescaling is capped relative to brain intensity.** The 0–255 rescale before segmentation (and for the 8-bit volume surface reconstruction starts from) mapped the brightest 0.1% of *all* voxels to 255, so non-brain tissue far brighter than brain — fat and muscle beside a surface coil — squeezed the brain into a few grey levels and the network returned a 7 cm³ "brain". The upper limit is now at most 2.5× the 99th percentile of the image's central box, which after conform is ~90% brain. On the uncorrected conformed T1w of 98 PRIME-DE images from 17 sites the cap binds on 1; the other 97 are rescaled byte-identically. Whether it applied is recorded in the sidecars
+- **Discovery skips non-magnitude anatomicals.** T1w/T2w files labelled `part-phase`, `part-real` or `part-imag` are listed as "will not be processed" and no longer count as extra runs for multi-run averaging — a phase image used to be averaged into the subject's T1w
+
+### Fixed
+
+- **A partial `--config` could silently switch anatomical synthesis to per-session.** BIDS discovery read the user's YAML without the package defaults — `validate_config()` merged them but its result was discarded — and fell back to its own `synthesis_level: "session"` where `defaults.yaml` says `"subject"`. A config that omitted the key produced one T1w per session for multi-session subjects, while `nextflow_reports/config.yaml` recorded `subject`. Affects 2.1.0 and 3.0.0 runs whose config did not set `anat.synthesis_level`. Discovery now runs on the merged config, and an empty section (`bids_filtering:`) no longer crashes it
+- **`--anat_only` on the command line now reaches BIDS discovery**, so the start-up summary and `functional_jobs.json` agree with what runs. The functional workflow was already skipped correctly
+- **`mris_fix_topology -ga` crashing no longer aborts the hemisphere.** FreeSurfer 7.4.1's genetic-algorithm search can die outright on large defects ("stack smashing detected"); stage 12 now retries with the default search, whose result faces the same pre-orig gate. `processing.topology_fix_ga: false` in the surface-reconstruction config skips the GA attempt
+- **An inside-out premesh no longer fails the pre-orig gate.** A mesh that is closed, consistently wound and genus 0 but inverted skipped the pymeshfix repair (which only looked at closed/oriented/Euler) and was then rejected by the gate, which requires outward normals. It is now flipped before the gate
+- **`mris_place_surface` options the wrapper does not know are rejected** instead of being dropped without a word
+- **The report generator's fallback config is read over the package defaults**, like every other reader
+
 
 ## [3.0.0] - 2026-09-19
 

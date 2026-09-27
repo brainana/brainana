@@ -482,12 +482,19 @@ create_output_link(result.output_file, bids_output_brain)
 # Create symlinks for additional files with BIDS-compliant names
 # Keep large files (masks, segmentations) as symlinks until published - saves storage
 atlas_name = result.metadata.get('atlas_name')
+# Intensity cap, mask volume vs template, number of CNN passes (see apply_segmentation)
+segmentation_qc = result.metadata.get('segmentation_qc') or {}
 
 if "brain_mask" in result.additional_files:
     bids_additional_name = f"{bids_prefix_wo_modality}_space-T1w_desc-brain_mask.nii.gz"
     create_output_link(result.additional_files["brain_mask"], bids_additional_name)
     # Sidecar (brain mask, native T1w space -> no template block)
-    write_derivative_sidecar(bids_additional_name, roi_type="Brain", sources=[str(Path('${input_file}'))])
+    write_derivative_sidecar(
+        bids_additional_name,
+        roi_type="Brain",
+        sources=[str(Path('${input_file}'))],
+        extra=segmentation_qc or None,
+    )
 
 if "segmentation" in result.additional_files:
     if atlas_name:
@@ -495,10 +502,13 @@ if "segmentation" in result.additional_files:
     else:
         bids_additional_name = f"{bids_prefix_wo_modality}_space-T1w_desc-brain_segmentation.nii.gz"
     create_output_link(result.additional_files["segmentation"], bids_additional_name)
+    seg_extra = dict(segmentation_qc)
+    if atlas_name:
+        seg_extra["Atlas"] = atlas_name
     write_derivative_sidecar(
         bids_additional_name,
         sources=[str(Path('${input_file}'))],
-        extra={"Atlas": atlas_name} if atlas_name else None,
+        extra=seg_extra or None,
     )
 
 if "hemimask" in result.additional_files:

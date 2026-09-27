@@ -565,6 +565,64 @@ button#generate:hover{filter:brightness(.95);}
                             </div>
                             <span class="help-text">(fix thin V1 white matter by registering template V1 WM to subject space)</span>
                         </div>
+                        <div class="param-block">
+                            <div class="param-row">
+                                <span class="param-check"></span>
+                                <label for="anat_skullstripping_segmentation_fastSurferCNN_label_island_min_volume_mm3">label_island_min_volume_mm3</label>
+                                <span class="param-control">
+                                    <input type="number" id="anat_skullstripping_segmentation_fastSurferCNN_label_island_min_volume_mm3" name="anat_skullstripping_segmentation_fastSurferCNN_label_island_min_volume_mm3" value="0" step="0.5" min="0">
+                                </span>
+                            </div>
+                            <span class="help-text">(relabel detached label fragments smaller than this volume, in mm³, to the surrounding label; the largest piece of each label is kept; 0 = off, 2.5 is a sensible value)</span>
+                        </div>
+                        <div id="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_options" class="advanced-subgroup">
+                            <h4 class="advanced-subgroup-title">pre_inference_n4</h4>
+                            <span class="help-text">(second segmentation pass on a bias-corrected input; N4 is fitted inside the dilated first-pass mask and used only as network input)</span>
+                            <div class="param-block">
+                                <div class="param-row">
+                                    <span class="param-check"></span>
+                                    <label for="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_enabled">enabled</label>
+                                    <span class="param-control">
+                                        <select id="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_enabled" name="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_enabled">
+                                            <option value="auto" selected>auto</option>
+                                            <option value="true">true</option>
+                                            <option value="false">false</option>
+                                        </select>
+                                    </span>
+                                </div>
+                                <span class="help-text">("auto" = only when the first-pass brain mask is under 80% of the template brain volume; true = always, e.g. surface receive coils)</span>
+                            </div>
+                            <div class="param-block">
+                                <div class="param-row">
+                                    <span class="param-check"></span>
+                                    <label for="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_dilation_mm">dilation_mm</label>
+                                    <span class="param-control">
+                                        <input type="number" id="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_dilation_mm" name="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_dilation_mm" value="6" step="0.5" min="0.5">
+                                    </span>
+                                </div>
+                                <span class="help-text">(dilation of the first-pass mask that bounds the N4 fit, mm)</span>
+                            </div>
+                            <div class="param-block">
+                                <div class="param-row">
+                                    <span class="param-check"></span>
+                                    <label for="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_shrink_factor">shrink_factor</label>
+                                    <span class="param-control">
+                                        <input type="number" id="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_shrink_factor" name="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_shrink_factor" value="4" step="1" min="1">
+                                    </span>
+                                </div>
+                                <span class="help-text">(N4 shrink factor for this pass)</span>
+                            </div>
+                            <div class="param-block">
+                                <div class="param-row">
+                                    <span class="param-check"></span>
+                                    <label for="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_bspline_fitting">bspline_fitting</label>
+                                    <span class="param-control">
+                                        <input type="number" id="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_bspline_fitting" name="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_bspline_fitting" value="150" step="10" min="1">
+                                    </span>
+                                </div>
+                                <span class="help-text">(N4 B-spline mesh resolution for this pass)</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1170,7 +1228,14 @@ button#generate:hover{filter:brightness(.95);}
                         plane_weight_coronal: 0.4,
                         plane_weight_axial: 0.4,
                         plane_weight_sagittal: 0.2,
-                        fix_V1_WM: true
+                        fix_V1_WM: true,
+                        label_island_min_volume_mm3: 0,
+                        pre_inference_n4: {
+                            enabled: "auto",
+                            dilation_mm: 6.0,
+                            shrink_factor: 4,
+                            bspline_fitting: 150
+                        }
                     }
                 },
                 bias_correction: {
@@ -1634,6 +1699,14 @@ button#generate:hover{filter:brightness(.95);}
                 config.anat.skullstripping_segmentation.fastSurferCNN.plane_weight_axial = parseFloat(document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_plane_weight_axial').value);
                 config.anat.skullstripping_segmentation.fastSurferCNN.plane_weight_sagittal = parseFloat(document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_plane_weight_sagittal').value);
                 config.anat.skullstripping_segmentation.fastSurferCNN.fix_V1_WM = document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_fix_V1_WM').checked;
+                config.anat.skullstripping_segmentation.fastSurferCNN.label_island_min_volume_mm3 = parseFloat(document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_label_island_min_volume_mm3').value) || 0;
+                const _n4Enabled = document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_enabled').value;
+                config.anat.skullstripping_segmentation.fastSurferCNN.pre_inference_n4 = {
+                    enabled: _n4Enabled === 'auto' ? 'auto' : _n4Enabled === 'true',
+                    dilation_mm: parseFloat(document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_dilation_mm').value),
+                    shrink_factor: parseInt(document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_shrink_factor').value),
+                    bspline_fitting: parseInt(document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_bspline_fitting').value)
+                };
             }
             
             config.anat.bias_correction.enabled = document.getElementById('anat_bias_correction_enabled').checked;

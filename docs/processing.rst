@@ -138,6 +138,37 @@ findings**; section omitted if empty):
   macaque anatomical MRI with CHARM and SARM level 2 atlases (ARM2
   parcellation). The network produces an atlas-labelled segmentation,
   from which a brain mask and optional hemisphere masks are derived.
+- **Intensity scaling:** Before the network sees the image, intensities
+  are rescaled to 0–255 as FreeSurfer's ``mri_convert`` does: the
+  brightest 0.1% of voxels map to the top of the range. When tissue
+  outside the brain is far brighter than the brain itself (fat and muscle
+  next to a surface receive coil are the typical case), that would squeeze
+  the brain into a handful of grey levels. The range is therefore capped at
+  2.5× the typical intensity in the centre of the image, which is almost
+  all brain. On ordinary data the cap does not bind and nothing changes.
+  The same scaling is used for the 8-bit volume that surface
+  reconstruction starts from.
+- **Second pass on a bias-corrected input:** A brain mask far smaller than
+  the template's brain (under 80% of its volume) means the segmentation
+  failed, usually because of strong intensity non-uniformity. In that case
+  N4 is fitted inside the first-pass mask dilated by 6 mm and the network
+  is run again on the corrected image
+  (``anat.skullstripping_segmentation.fastSurferCNN.pre_inference_n4``;
+  ``enabled: true`` runs it for every subject, which suits surface-coil
+  data where the mask can be incomplete without being tiny). The corrected
+  image is only used as network input; the bias correction in 2.4 still
+  starts from the uncorrected image.
+- **Provenance:** The brain-mask and segmentation sidecars record the mask
+  volume and its ratio to the template brain (``MaskVolumeCm3``,
+  ``MaskToTemplateBrainRatio``, ``MaskUndersized``), whether the intensity
+  cap applied (``IntensityCapApplied``, ``IntensityCapRatio``), and how many
+  passes ran (``SegmentationPasses``, ``Pass1``, ``PreInferenceN4``). An
+  undersized mask is also logged as a warning.
+- **Label fragments (optional):** Detached label pieces smaller than
+  ``fastSurferCNN.label_island_min_volume_mm3`` are relabelled to the label
+  surrounding them; the largest piece of every label is always kept. Such
+  fragments carry no anatomy but can turn into small topological defects in
+  the surfaces. Off by default; 2.5 mm³ is a sensible value.
 
 
 2.4 Bias field correction
@@ -210,6 +241,19 @@ maps.
   - Run an additional topology correction step for surface defects that
     commonly arise in macaque reconstructions and are not reliably
     resolved by FreeSurfer alone.
+  - Fix topology with ``mris_fix_topology -ga``. If the genetic-algorithm
+    search crashes on a large defect (seen with FreeSurfer 7.4.1), the fix
+    is retried with the default search rather than abandoning the
+    hemisphere. A mesh that comes out consistently wound but inside-out is
+    flipped before it is checked and promoted.
+
+- **Surface QC record:** ``scripts/surface_qc.json`` records the topology
+  of every key surface, which topology-fix path was taken per hemisphere
+  (``topology_fix``: ``ga``, ``no_ga_fallback`` or ``no_ga``, and whether
+  the mesh was flipped or repaired), and the median cortical thickness per
+  hemisphere (``thickness``). A median below 1.0 mm is flagged as
+  ``collapsed`` and logged — the pial surface has most likely failed to
+  move off the white surface.
 
 - **Outputs:** FreeSurfer-compatible subject directories under ``fastsurfer/``.
 

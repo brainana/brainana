@@ -379,6 +379,16 @@ def mris_place_surface(
         "i": "--i",
     }
 
+    # An option missing from kwarg_map used to be dropped without a word, so a
+    # caller could believe it had set e.g. a placement limit that FreeSurfer
+    # never saw. Refuse instead.
+    unknown = sorted(set(kwargs) - set(kwarg_map))
+    if unknown:
+        raise TypeError(
+            f"mris_place_surface: unsupported option(s) {unknown}; "
+            f"supported: {sorted(kwarg_map)}"
+        )
+
     def _render(value):
         """Path values become subject-dir-relative, everything else is str()."""
         if isinstance(value, Path) and subject_dir:
@@ -386,20 +396,19 @@ def mris_place_surface(
         return str(value)
 
     for key, value in kwargs.items():
-        if key in kwarg_map:
-            flag = kwarg_map[key]
-            if value is True:
-                cmd.append(flag)
-            elif isinstance(value, (tuple, list)):
-                # Multi-argument options, e.g. --blend-surf <weight> <surf>.
-                # These must stay separate argv items; joining them into one
-                # string would hand FreeSurfer a single token containing a
-                # space, which it does not parse back apart.
-                cmd.append(flag)
-                cmd.extend(_render(v) for v in value)
-            elif value is not False and value is not None:
-                cmd.append(flag)
-                cmd.append(_render(value))
+        flag = kwarg_map[key]
+        if value is True:
+            cmd.append(flag)
+        elif isinstance(value, (tuple, list)):
+            # Multi-argument options, e.g. --blend-surf <weight> <surf>.
+            # These must stay separate argv items; joining them into one
+            # string would hand FreeSurfer a single token containing a
+            # space, which it does not parse back apart.
+            cmd.append(flag)
+            cmd.extend(_render(v) for v in value)
+        elif value is not False and value is not None:
+            cmd.append(flag)
+            cmd.append(_render(value))
 
     # Input surface (if not in kwargs)
     if "--i" not in cmd:

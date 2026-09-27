@@ -11,8 +11,14 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 from bids import BIDSLayout
 
+from nhp_mri_prep.config.config_io import get_default_config, get_nested_config_value
 
 logger = logging.getLogger(__name__)
+
+# BIDS ``part-<label>`` values that are not a magnitude image. T1w/T2w may be
+# stored as complex components (part-mag|phase|real|imag); only the magnitude
+# (``part-mag``, or no ``part`` entity) is a usable anatomical.
+_NON_MAGNITUDE_PARTS = frozenset({"phase", "real", "imag"})
 
 
 def _normalize_to_list(value):
@@ -87,6 +93,33 @@ def _is_top_level_subject_path(
     return rel.parts[0] == f"sub-{subject_id}"
 
 
+def _is_magnitude(bids_file) -> bool:
+    """Return True unless the file is a non-magnitude complex component (part-phase|real|imag)."""
+    return bids_file.get_entities().get("part") not in _NON_MAGNITUDE_PARTS
+
+
+def _select_anat_files(layout, anat_filters, bids_dir: Path, sub: str) -> List[Any]:
+    """Anatomical files for one subject/session that discovery should use.
+
+    Drops nested-subject paths (e.g. badQC/sub-x) and non-magnitude images, so the
+    T1w/T2w split, the multi-run synthesis rule and the T1w-reference flags below
+    all see magnitude images only.
+    """
+    selected = []
+    for f in layout.get(**anat_filters):
+        if not _is_top_level_subject_path(bids_dir, Path(f.path), sub):
+            continue
+        if not _is_magnitude(f):
+            logger.info(
+                "Skipping %s: non-magnitude anatomical (part-%s)",
+                f.path,
+                f.get_entities().get("part"),
+            )
+            continue
+        selected.append(f)
+    return selected
+
+
 def discover_bids_dataset(
     bids_dir: Path,
     config: Dict[str, Any],
@@ -140,7 +173,8 @@ def discover_bids_dataset(
         raise RuntimeError(f"Failed to initialize BIDS layout: {e}")
 
     # Apply filtering from config if not overridden
-    bids_filtering = config.get("bids_filtering", {})
+    # `or {}`: an empty section in YAML (`bids_filtering:`) loads as None.
+    bids_filtering = config.get("bids_filtering") or {}
     if subjects is None:
         subjects = bids_filtering.get("subjects")
     if sessions is None:
@@ -192,14 +226,17 @@ def discover_bids_dataset(
     functional_jobs = []
 
     # Check if we should skip functional discovery based on config
-    general_config = config.get("general", {})
+    general_config = config.get("general") or {}
     anat_only = general_config.get("anat_only", False)
 
-    # Get synthesis level from config
-    anat_config = config.get("anat", {})
-    synthesis_level = anat_config.get(
-        "synthesis_level", "session"
-    )  # Default to "session"
+    # Get synthesis level from config. An absent key falls back to the package
+    # default, never to a value of discovery's own: the rest of the pipeline
+    # resolves the same key through defaults.yaml, so a different fallback here
+    # would make the jobs disagree with the recorded effective config.
+    anat_config = config.get("anat") or {}
+    synthesis_level = anat_config.get("synthesis_level") or get_nested_config_value(
+        get_default_config(), "anat.synthesis_level"
+    )
 
     # "session_longitudinal" discovers exactly like "session": one anatomical
     # per session. Its extra work -- the within-subject base template and the
@@ -240,11 +277,9 @@ def discover_bids_dataset(
                 if ses:
                     anat_filters["session"] = ses
 
-                anat_files = [
-                    f
-                    for f in layout.get(**anat_filters)
-                    if _is_top_level_subject_path(resolved_bids_dir, Path(f.path), sub)
-                ]
+                anat_files = _select_anat_files(
+                    layout, anat_filters, resolved_bids_dir, sub
+                )
                 if not anat_files:
                     continue
 
@@ -429,11 +464,9 @@ def discover_bids_dataset(
                 if ses:
                     anat_filters["session"] = ses
 
-                anat_files = [
-                    f
-                    for f in layout.get(**anat_filters)
-                    if _is_top_level_subject_path(resolved_bids_dir, Path(f.path), sub)
-                ]
+                anat_files = _select_anat_files(
+                    layout, anat_filters, resolved_bids_dir, sub
+                )
 
                 if not anat_files:
                     continue

@@ -318,12 +318,57 @@ class ReconSurfPipeline:
                     if path.exists():
                         report["surfaces"][f"{hemi}.{name}"] = validate_surface(path)
 
+                record = self.sd.scripts_dir / f"{hemi}.topology_fix.json"
+                if record.exists():
+                    report.setdefault("topology_fix", {})[hemi] = json.loads(
+                        record.read_text()
+                    )
+
+                thickness = self._thickness_summary(hemi)
+                if thickness is not None:
+                    report.setdefault("thickness", {})[hemi] = thickness
+
             out = self.sd.scripts_dir / "surface_qc.json"
             out.parent.mkdir(parents=True, exist_ok=True)
             out.write_text(json.dumps(report, indent=2))
             logger.info(f"Wrote surface QC report: {out}")
         except Exception as e:
             logger.warning(f"Could not write surface QC report: {e}")
+
+    # A pial surface that failed to leave the white surface has a hemisphere
+    # median thickness far below any real cortex. Across 912 PRIME-DE
+    # hemispheres (0.27-1.0 mm voxels) the lowest median was 1.42 mm, so 1.0 mm
+    # flags a collapse without flagging normal anatomy.
+    COLLAPSED_THICKNESS_MM = 1.0
+
+    def _thickness_summary(self, hemi: str) -> Optional[dict]:
+        """Median cortical thickness and the fraction of vertices under 0.5 mm.
+
+        Zero-thickness vertices (the pinned medial wall) are excluded. Logs a
+        warning, but never fails, when the median suggests pial collapse.
+        """
+        import nibabel.freesurfer as fsio
+        import numpy as np
+
+        path = self.sd.surf_dir / f"{hemi}.thickness"
+        if not path.exists():
+            return None
+        t = fsio.read_morph_data(str(path))
+        t = t[t > 0]
+        if t.size == 0:
+            return None
+        summary = {
+            "median_mm": round(float(np.median(t)), 3),
+            "frac_below_0.5mm": round(float((t < 0.5).mean()), 4),
+            "collapsed": bool(np.median(t) < self.COLLAPSED_THICKNESS_MM),
+        }
+        if summary["collapsed"]:
+            logger.warning(
+                f"{hemi}: median cortical thickness {summary['median_mm']} mm "
+                f"(< {self.COLLAPSED_THICKNESS_MM} mm) -- the pial surface may "
+                "have collapsed onto the white surface; inspect it"
+            )
+        return summary
 
     def _run_stats_phase(self) -> None:
         """

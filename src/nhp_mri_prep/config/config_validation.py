@@ -392,6 +392,55 @@ def validate_skullstripping_config(config: Dict[str, Any]) -> None:
                         f"Please fix this in your configuration file."
                     )
 
+        island = fscnn_cfg.get("label_island_min_volume_mm3", 0)
+        if (
+            isinstance(island, bool)
+            or not isinstance(island, (int, float))
+            or island < 0
+        ):
+            raise ValueError(
+                f"Configuration error in skullstripping.fastSurferCNN: "
+                f"label_island_min_volume_mm3 must be a number >= 0 (0 disables), got: {island}. "
+                f"Please fix this in your configuration file."
+            )
+
+        n4_cfg = fscnn_cfg.get("pre_inference_n4")
+        if n4_cfg is not None:
+            if not isinstance(n4_cfg, dict):
+                raise ValueError(
+                    f"Configuration error in skullstripping.fastSurferCNN: "
+                    f"pre_inference_n4 must be a mapping, got: {n4_cfg}. "
+                    f"Please fix this in your configuration file."
+                )
+            enabled = n4_cfg.get("enabled", "auto")
+            if enabled not in (True, False, "auto"):
+                raise ValueError(
+                    f"Configuration error in skullstripping.fastSurferCNN.pre_inference_n4: "
+                    f'enabled must be true, false or "auto", got: {enabled}. '
+                    f"Please fix this in your configuration file."
+                )
+            for key, positive_int in (
+                ("dilation_mm", False),
+                ("shrink_factor", True),
+                ("bspline_fitting", False),
+            ):
+                value = n4_cfg.get(key)
+                if value is None:
+                    continue
+                bad = (
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or value <= 0
+                    or (positive_int and not isinstance(value, int))
+                )
+                if bad:
+                    kind = "a positive integer" if positive_int else "a positive number"
+                    raise ValueError(
+                        f"Configuration error in skullstripping.fastSurferCNN.pre_inference_n4: "
+                        f"{key} must be {kind}, got: {value}. "
+                        f"Please fix this in your configuration file."
+                    )
+
     elif method == "macacaMRINN":
         mrin_cfg = config.get("macacaMRINN", {})
 

@@ -356,6 +356,7 @@ def anat_skullstripping(input: StepInput) -> StepOutput:
             "modality": "anat",
             "method": "fastSurferCNN",
             "atlas_name": result.get("atlas_name"),
+            "segmentation_qc": result.get("segmentation_qc") or {},
         },
         additional_files=additional_files,
     )

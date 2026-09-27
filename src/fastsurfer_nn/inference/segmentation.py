@@ -92,6 +92,7 @@ def run_segmentation(
     plane_weight_sagittal: Optional[float] = None,
     use_mixed_model: bool = False,
     fix_wm_islands: bool = True,
+    label_island_min_volume_mm3: float = 0.0,
     create_hemimask: bool = True,
     fix_roi_wm: bool = False,
     roi_name: str = "V1",
@@ -143,6 +144,9 @@ def run_segmentation(
             If True, apply WM island correction after segmentation. This fixes mislabeled
             disconnected WM regions by flipping them to the correct hemisphere based on
             spatial proximity. Only applies to multi-class models (ignored for binary models).
+        label_island_min_volume_mm3: float, default=0.0
+            Relabel detached label fragments smaller than this volume (mm^3) to their
+            neighbours' label; 0 disables. Multi-class models only.
             Requires extended ColorLUT with region and hemisphere columns.
         create_hemimask: bool, default=True
             If True, create hemisphere mask from segmentation (multi-class only, requires LUT).
@@ -331,6 +335,7 @@ def run_segmentation(
             plane_weight_axial=plane_weight_axial,
             plane_weight_sagittal=plane_weight_sagittal,
             fix_wm_islands=fix_wm_islands,
+            label_island_min_volume_mm3=label_island_min_volume_mm3,
             create_hemimask=create_hemimask,
             output_data_format=output_data_format,
             enable_crop_2round=enable_crop_2round,

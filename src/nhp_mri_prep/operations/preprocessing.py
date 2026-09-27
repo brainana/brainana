@@ -1430,6 +1430,9 @@ def apply_segmentation(
     # Define output paths at the beginning
     brain_mask_path = work_dir / "brain_mask.nii.gz"
 
+    # Provenance for the anatomical CNN run (intensity cap, mask volume, passes)
+    segmentation_qc: Dict[str, Any] = {}
+
     # Initialize optional output paths (for fastsurfer_nn)
     brain_segmentation_path = None
     brain_hemimask_path = None
@@ -1490,10 +1493,27 @@ def apply_segmentation(
             segmentation_kwargs["roi_name"] = roi_name
             segmentation_kwargs["wm_thr"] = fscnn_cfg.get("wm_thr", 0.5)
 
+        if modal == "anat":
+            segmentation_kwargs["label_island_min_volume_mm3"] = float(
+                fscnn_cfg.get("label_island_min_volume_mm3") or 0.0
+            )
+
         # fastsurfer_nn emits progress via raw print()/tqdm; route it through the
         # logger (and disable tqdm) when not verbose so skullstripping honors VERBOSE.
         with quiet_external_output(logger):
             result = run_segmentation(**segmentation_kwargs)
+
+        if modal == "anat":
+            result, segmentation_qc = _anat_segmentation_checks(
+                image_path=image_path,
+                result=result,
+                segmentation_kwargs=segmentation_kwargs,
+                temp_output_dir=temp_output_dir,
+                work_dir=work_dir,
+                fscnn_cfg=fscnn_cfg,
+                config=config,
+                logger=logger,
+            )
 
         # Extract brain mask path and atlas_name from result
         fastsurfercnn_mask_path = result.get("brain_mask")
@@ -1606,8 +1626,196 @@ def apply_segmentation(
         return_dict["input_cropped"] = brain_input_cropped_path
     if brain_lut_path is not None and os.path.exists(brain_lut_path):
         return_dict["atlas_lut"] = brain_lut_path
+    if segmentation_qc:
+        return_dict["segmentation_qc"] = segmentation_qc
 
     return return_dict
+
+
+# A CNN brain mask this far below the template's brain volume is a failed
+# segmentation, not a small brain. Across the PRIME-DE reprocessing every
+# failed mask was 41-73 cm^3 while successful site-mates were >= 91 cm^3
+# (the NMT2Sym template brain is 92.5 cm^3, so the cut sits at ~74 cm^3).
+MASK_UNDERSIZED_RATIO = 0.8
+
+
+def _template_brain_volume_mm3(config: Dict[str, Any]) -> Optional[float]:
+    """Brain volume of the configured output template (bundled templates only).
+
+    A custom template path may or may not be brain-extracted, and "T1w" output
+    space names no template, so both return None and the mask check is skipped
+    rather than compared against a meaningless reference.
+    """
+    from ..utils.templates import is_custom_template_path, resolve_template
+
+    spec = (config.get("template") or {}).get("output_space") or "NMT2Sym:res-05"
+    if is_custom_template_path(spec) or spec.split(":")[0] in ("T1w", "native"):
+        return None
+    try:
+        parts = [p for p in spec.split(":") if not p.startswith("desc-")]
+        path = resolve_template(":".join(parts + ["brain"]))
+        img = nib.load(path)
+    except Exception:  # noqa: BLE001 - a missing reference only disables the check
+        return None
+    data = np.asanyarray(img.dataobj)
+    return float(np.count_nonzero(data) * np.prod(img.header.get_zooms()[:3]))
+
+
+def _mask_volume_check(
+    mask_path: Union[str, Path], config: Dict[str, Any], logger: logging.Logger
+) -> Dict[str, Any]:
+    """Compare a CNN brain mask with the template brain volume."""
+    img = nib.load(str(mask_path))
+    mask_mm3 = float(
+        np.count_nonzero(np.asanyarray(img.dataobj)) * np.prod(img.header.get_zooms()[:3])
+    )
+    report: Dict[str, Any] = {"MaskVolumeCm3": round(mask_mm3 / 1000.0, 2)}
+    template_mm3 = _template_brain_volume_mm3(config)
+    if template_mm3:
+        ratio = mask_mm3 / template_mm3
+        report.update(
+            {
+                "TemplateBrainVolumeCm3": round(template_mm3 / 1000.0, 2),
+                "MaskToTemplateBrainRatio": round(ratio, 3),
+                "MaskUndersized": bool(ratio < MASK_UNDERSIZED_RATIO),
+            }
+        )
+        if ratio < MASK_UNDERSIZED_RATIO:
+            logger.warning(
+                f"QC: CNN brain mask is {mask_mm3 / 1000:.1f} cm^3, "
+                f"{ratio:.0%} of the template brain ({template_mm3 / 1000:.1f} cm^3) -- "
+                "the segmentation has probably failed (strong intensity "
+                "inhomogeneity, e.g. a surface receive coil, is a common cause; see "
+                "anat.skullstripping_segmentation.fastSurferCNN.pre_inference_n4)"
+            )
+    return report
+
+
+def _pre_inference_n4(
+    image_path: Path,
+    mask_path: Union[str, Path],
+    work_dir: Path,
+    n4_cfg: Dict[str, Any],
+    config: Dict[str, Any],
+    logger: logging.Logger,
+) -> Path:
+    """N4 inside the dilated pass-1 mask; the result is only used as CNN input."""
+    from scipy.ndimage import binary_dilation, generate_binary_structure, iterate_structure
+
+    n4_dir = work_dir / "pre_inference_n4"
+    n4_dir.mkdir(parents=True, exist_ok=True)
+
+    mask_img = nib.load(str(mask_path))
+    mask = np.asanyarray(mask_img.dataobj) > 0
+    dilation_mm = float(n4_cfg.get("dilation_mm", 6.0))
+    vox = float(min(mask_img.header.get_zooms()[:3]))
+    iterations = max(1, int(round(dilation_mm / vox)))
+    # A spherical-ish element grown iteratively, so the dilation is ~isotropic in mm.
+    structure = iterate_structure(generate_binary_structure(3, 1), 1)
+    dilated = binary_dilation(mask, structure=structure, iterations=iterations)
+    dilated_path = n4_dir / "pass1_mask_dilated.nii.gz"
+    nib.save(
+        nib.Nifti1Image(dilated.astype(np.uint8), mask_img.affine, mask_img.header),
+        str(dilated_path),
+    )
+    logger.info(
+        f"Workflow: pre-inference N4 inside pass-1 mask dilated by {dilation_mm:g} mm "
+        f"({iterations} voxels)"
+    )
+
+    n4_config = dict(config)
+    n4_config["anat"] = dict(config.get("anat") or {})
+    n4_config["anat"]["bias_correction"] = {
+        "enabled": True,
+        "algorithm": "N4BiasFieldCorrection",
+        "shrink_factor": n4_cfg.get("shrink_factor", 4),
+        "bspline_fitting": n4_cfg.get("bspline_fitting", 150),
+        "rescale_mean_to_100": True,
+    }
+    out = bias_correction(
+        imagef=image_path,
+        working_dir=n4_dir,
+        modal="anat",
+        output_name="pre_inference_n4.nii.gz",
+        config=n4_config,
+        logger=logger,
+        maskf=dilated_path,
+    )
+    return Path(out["imagef_bias_corrected"])
+
+
+def _anat_segmentation_checks(
+    *,
+    image_path: Path,
+    result: Dict[str, Any],
+    segmentation_kwargs: Dict[str, Any],
+    temp_output_dir: Path,
+    work_dir: Path,
+    fscnn_cfg: Dict[str, Any],
+    config: Dict[str, Any],
+    logger: logging.Logger,
+) -> tuple:
+    """Intensity-cap provenance, mask-volume check and the optional second pass.
+
+    Returns the (possibly second-pass) segmentation result and the provenance
+    fields for the mask/segmentation sidecars.
+    """
+    from fastsurfer_nn.data_loader.conform import rescale_cap_report
+
+    qc: Dict[str, Any] = {}
+    cap = rescale_cap_report(np.asanyarray(nib.load(str(image_path)).dataobj))
+    qc["IntensityCapApplied"] = cap["applied"]
+    if cap["ratio"] is not None:
+        qc["IntensityCapRatio"] = cap["ratio"]
+    if cap["applied"]:
+        logger.info(
+            f"QC: intensity rescale capped (whole-image cutoff is {cap['ratio']:.2f}x "
+            f"brain intensity, cap {cap['cap']:g}x) -- non-brain tissue much brighter than brain"
+        )
+
+    qc.update(_mask_volume_check(result["brain_mask"], config, logger))
+    qc["SegmentationPasses"] = 1
+
+    n4_cfg = fscnn_cfg.get("pre_inference_n4") or {}
+    mode = n4_cfg.get("enabled", "auto")
+    run_second_pass = mode is True or (mode == "auto" and qc.get("MaskUndersized"))
+    if not run_second_pass:
+        return result, qc
+
+    logger.info(
+        "Workflow: second segmentation pass on a bias-corrected input "
+        f"(pre_inference_n4.enabled={mode})"
+    )
+    n4_input = _pre_inference_n4(
+        image_path, result["brain_mask"], work_dir, n4_cfg, config, logger
+    )
+
+    # Keep pass 1 for inspection; pass 2 writes the same file names.
+    pass1_dir = temp_output_dir / "pass1"
+    pass1_dir.mkdir(exist_ok=True)
+    for entry in list(temp_output_dir.iterdir()):
+        if entry != pass1_dir:
+            shutil.move(str(entry), str(pass1_dir / entry.name))
+
+    pass1 = {
+        k: qc.pop(k)
+        for k in ("MaskVolumeCm3", "MaskToTemplateBrainRatio", "MaskUndersized")
+        if k in qc
+    }
+    kwargs = dict(segmentation_kwargs, input_image=n4_input)
+    with quiet_external_output(logger):
+        result = run_segmentation(**kwargs)
+
+    qc.update(_mask_volume_check(result["brain_mask"], config, logger))
+    qc["SegmentationPasses"] = 2
+    qc["Pass1"] = pass1
+    qc["PreInferenceN4"] = {
+        "Trigger": "forced" if mode is True else "undersized mask",
+        "MaskDilationMM": float(n4_cfg.get("dilation_mm", 6.0)),
+        "ShrinkFactor": n4_cfg.get("shrink_factor", 4),
+        "BSplineFitting": n4_cfg.get("bspline_fitting", 150),
+    }
+    return result, qc
 
 
 def apply_skullstripping(

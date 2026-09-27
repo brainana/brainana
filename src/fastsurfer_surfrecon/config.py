@@ -141,6 +141,15 @@ class ProcessingConfig(BaseModel):
         description="Raise (instead of logging) when a surface fails a topology invariant",
     )
 
+    # mris_fix_topology search. True = genetic-algorithm search (-ga), with an
+    # automatic retry without it if the GA run fails (FreeSurfer 7.4.1 can abort
+    # on large defects); False = skip the GA attempt entirely. Defaulted so
+    # existing config files keep loading.
+    topology_fix_ga: bool = Field(
+        default=True,
+        description="Use mris_fix_topology -ga (falls back to the default search if it fails)",
+    )
+
     # Non-human options (default True for macaque)
     skip_cc: bool = Field(
         description="Skip corpus callosum segmentation (for non-human)"

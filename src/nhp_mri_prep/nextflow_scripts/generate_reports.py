@@ -29,7 +29,10 @@ if str(_src_dir) not in sys.path:
 
 from nhp_mri_prep.steps.qc import qc_generate_report
 from nhp_mri_prep.quality_control.run_status import run_status_log_label
-from nhp_mri_prep.utils.nextflow import load_config
+# The merging loader, not utils.nextflow.load_config: main.nf falls back to the
+# user's raw --config when the effective config is missing, and a partial file
+# must still be read over the package defaults.
+from nhp_mri_prep.config.config_io import load_config
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("generate_reports")

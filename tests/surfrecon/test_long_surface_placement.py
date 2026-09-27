@@ -118,3 +118,14 @@ def test_anchoring_strength_comes_from_config_not_constants():
     # Defaults match recon-all -long.
     assert ReconSurfConfig.model_fields["long_max_cbv_dist"].default == 3.5
     assert ReconSurfConfig.model_fields["long_pial_blend_weight"].default == 0.25
+
+
+def test_unknown_option_is_rejected(recorded, tmp_path):
+    """An option the wrapper cannot map must fail loudly, not vanish.
+
+    It used to be dropped without a word, so a caller could believe it had set
+    e.g. a placement limit that FreeSurfer never received.
+    """
+    with pytest.raises(TypeError, match="max_thickness"):
+        _place(tmp_path, pial=True, max_thickness=5.0)
+    assert recorded.calls == []
