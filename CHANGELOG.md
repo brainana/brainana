@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **An inside-out premesh no longer fails the pre-orig gate.** A mesh that is closed, consistently wound and genus 0 but inverted skipped the pymeshfix repair (which only looked at closed/oriented/Euler) and was then rejected by the gate, which requires outward normals. It is now flipped before the gate
 - **`mris_place_surface` options the wrapper does not know are rejected** instead of being dropped without a word
 - **The report generator's fallback config is read over the package defaults**, like every other reader
+- **Surface reconstruction normalised intensities on cortex instead of white matter.** Stage 2 takes white matter to be aseg labels 2/41 but was given the atlas volume, whose labels are raw atlas IDs — in ARM2, 2 is right anterior cingulate cortex. `norm.mgz` therefore put that cortex at 105 and true white matter at ~125–175 instead of ~105. It now normalises on `aseg.auto_noCCseg.mgz`
 
 
 ## [3.0.0] - 2026-09-19
