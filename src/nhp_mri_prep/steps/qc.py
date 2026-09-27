@@ -555,6 +555,7 @@ def qc_generate_report(
     config: Dict[str, Any],
     snapshot_paths: Optional[list] = None,
     run_status: Optional[Dict[str, Any]] = None,
+    dataset_report_href: Optional[str] = None,
 ) -> StepOutput:
     """
     Generate comprehensive QC report from snapshots.
@@ -566,6 +567,8 @@ def qc_generate_report(
         snapshot_paths: Optional list of specific snapshot paths (None = auto-discover)
         run_status: Optional pipeline run status (success/abort + error info) rendered
             into the report's "Run status" section.
+        dataset_report_href: Optional link (relative to the report) to the
+            all-subjects page; the topbar brand points there when given.
 
     Returns:
         StepOutput with report file
@@ -584,6 +587,7 @@ def qc_generate_report(
             logger=logger,
             snapshot_paths=snapshot_paths,
             run_status=run_status,
+            dataset_report_href=dataset_report_href,
         )
 
         report_file = Path(result.get("report_file", report_path))

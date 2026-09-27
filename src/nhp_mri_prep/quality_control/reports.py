@@ -1510,113 +1510,23 @@ def generate_qc_report(
     **kwargs,
 ) -> Dict[str, str]:
     """Generate comprehensive HTML quality control report."""
-    snapshot_dir, report_path = Path(snapshot_dir), Path(report_path)
-
+    report_path = Path(report_path)
     if logger is None:
         logger = logging.getLogger(__name__)
 
     try:
-        # Discover and parse snapshots
-        snapshot_data = SnapshotProcessor.discover_and_parse(
-            snapshot_dir, logger, snapshot_paths
+        report_data = build_report_data(
+            snapshot_dir,
+            report_path,
+            config,
+            logger,
+            snapshot_paths,
+            dataset_context,
+            run_status,
         )
-
-        # Organize snapshots by hierarchy
-        organized_snapshots = SnapshotProcessor.organize_by_hierarchy(
-            snapshot_data["snapshots"], snapshot_dir, report_path, logger
+        report_data["metadata"]["dataset_report_href"] = kwargs.get(
+            "dataset_report_href"
         )
-
-        # Build report metadata
-        subject_id_match = re.search(r"sub-(\w+)", report_path.name)
-        subject_id = subject_id_match.group(1) if subject_id_match else None
-
-        anat_proc = HtmlGenerator._count_anatomical_by_modality(
-            organized_snapshots["anatomical"]
-        )
-        func_snap = HtmlGenerator._count_unique_images(
-            organized_snapshots["functional"]
-        )
-        subject_file_counts: Dict[str, Any] = {
-            "t1w": anat_proc["t1w"],
-            "t2w": anat_proc["t2w"],
-            "t1w_processed": anat_proc["t1w"],
-            "t2w_processed": anat_proc["t2w"],
-            "functional": func_snap,
-        }
-
-        nfr = _resolve_nextflow_reports_dir(snapshot_dir, report_path)
-        if subject_id and nfr is not None:
-            jobs_path = nfr / "anatomical_jobs.json"
-            try:
-                with open(jobs_path, encoding="utf-8") as jf:
-                    anat_jobs: List[Dict[str, Any]] = json.load(jf)
-                if _subject_has_anatomical_job(anat_jobs, subject_id):
-                    subject_file_counts["t1w"] = _count_anat_inputs_from_jobs(
-                        anat_jobs, subject_id, "T1w"
-                    )
-                    subject_file_counts["t2w"] = _count_anat_inputs_from_jobs(
-                        anat_jobs, subject_id, "T2w"
-                    )
-                    logger.info(
-                        "QC: using anatomical input counts from discovery for subject %s (%s)",
-                        subject_id,
-                        jobs_path,
-                    )
-            except (OSError, json.JSONDecodeError) as e:
-                logger.warning(
-                    "QC: could not read %s for report summary counts: %s", jobs_path, e
-                )
-
-            func_jobs_path = nfr / "functional_jobs.json"
-            try:
-                with open(func_jobs_path, encoding="utf-8") as jf:
-                    func_jobs: List[Dict[str, Any]] = json.load(jf)
-                subject_file_counts["functional"] = _count_func_jobs_from_discovery(
-                    func_jobs, subject_id
-                )
-                logger.info(
-                    "QC: using functional input counts from discovery for subject %s (%s)",
-                    subject_id,
-                    func_jobs_path,
-                )
-            except (OSError, json.JSONDecodeError) as e:
-                logger.warning(
-                    "QC: could not read %s for report summary counts: %s",
-                    func_jobs_path,
-                    e,
-                )
-
-        merged_context = dict(dataset_context or {})
-        user_sfc = merged_context.pop("subject_file_counts", None)
-        if user_sfc:
-            subject_file_counts.update(user_sfc)
-        subject_file_counts.setdefault("t1w_processed", anat_proc["t1w"])
-        subject_file_counts.setdefault("t2w_processed", anat_proc["t2w"])
-        subject_file_counts.setdefault("functional", func_snap)
-        merged_context["subject_file_counts"] = subject_file_counts
-
-        from nhp_mri_prep.version import get_version
-
-        # Ingest-normalization findings live in the published derivative sidecars.
-        # snapshot_dir is <output_dir>/sub-XXX/figures, so its parent is the subject
-        # directory — the same layout assumption organize_by_hierarchy already makes.
-        data_findings = collect_ingest_findings(snapshot_dir.parent, logger)
-
-        report_data = {
-            "metadata": {
-                "generation_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "pipeline_name": "brainana",
-                "version": get_version(),
-                "working_directory": str(report_path.parent),
-                "subject_id": subject_id,
-            },
-            "configuration": config,
-            "organized_snapshots": organized_snapshots,
-            "dataset_context": merged_context,
-            "available_entities": snapshot_data["available_entities"],
-            "run_status": run_status,
-            "data_findings": data_findings,
-        }
 
         # Generate HTML report
         _generate_html_report(report_data, report_path, logger)
@@ -1629,48 +1539,175 @@ def generate_qc_report(
         raise RuntimeError(f"Quality control report generation failed: {str(e)}")
 
 
-def _generate_html_report(
-    report_data: Dict[str, Any], report_path: Path, logger: logging.Logger
-) -> None:
-    """Generate HTML report file."""
-    report_path.parent.mkdir(parents=True, exist_ok=True)
+def build_report_data(
+    snapshot_dir: Union[str, Path],
+    report_path: Union[str, Path],
+    config: Dict[str, Any],
+    logger: Optional[logging.Logger] = None,
+    snapshot_paths: Optional[Dict[str, str]] = None,
+    dataset_context: Optional[Dict[str, Any]] = None,
+    run_status: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Collect everything one subject's report renders from (figures, counts, findings)."""
+    snapshot_dir, report_path = Path(snapshot_dir), Path(report_path)
+    if logger is None:
+        logger = logging.getLogger(__name__)
 
-    # Generate all sections
-    navigation = HtmlGenerator.create_navigation_menu(
-        report_data["organized_snapshots"],
-        bool(report_data.get("run_status")),
-        has_findings(report_data.get("data_findings")),
+    # Discover and parse snapshots
+    snapshot_data = SnapshotProcessor.discover_and_parse(
+        snapshot_dir, logger, snapshot_paths
     )
-    summary = HtmlGenerator.create_summary_section(
-        report_data, report_data["configuration"]
+
+    # Organize snapshots by hierarchy
+    organized_snapshots = SnapshotProcessor.organize_by_hierarchy(
+        snapshot_data["snapshots"], snapshot_dir, report_path, logger
     )
-    status = HtmlGenerator.create_status_section(report_data)
-    data_findings = HtmlGenerator.create_data_findings_section(report_data)
+
+    # Build report metadata
+    subject_id_match = re.search(r"sub-(\w+)", report_path.name)
+    subject_id = subject_id_match.group(1) if subject_id_match else None
+
+    anat_proc = HtmlGenerator._count_anatomical_by_modality(
+        organized_snapshots["anatomical"]
+    )
+    func_snap = HtmlGenerator._count_unique_images(organized_snapshots["functional"])
+    subject_file_counts: Dict[str, Any] = {
+        "t1w": anat_proc["t1w"],
+        "t2w": anat_proc["t2w"],
+        "t1w_processed": anat_proc["t1w"],
+        "t2w_processed": anat_proc["t2w"],
+        "functional": func_snap,
+    }
+
+    nfr = _resolve_nextflow_reports_dir(snapshot_dir, report_path)
+    if subject_id and nfr is not None:
+        jobs_path = nfr / "anatomical_jobs.json"
+        try:
+            with open(jobs_path, encoding="utf-8") as jf:
+                anat_jobs: List[Dict[str, Any]] = json.load(jf)
+            if _subject_has_anatomical_job(anat_jobs, subject_id):
+                subject_file_counts["t1w"] = _count_anat_inputs_from_jobs(
+                    anat_jobs, subject_id, "T1w"
+                )
+                subject_file_counts["t2w"] = _count_anat_inputs_from_jobs(
+                    anat_jobs, subject_id, "T2w"
+                )
+                logger.info(
+                    "QC: using anatomical input counts from discovery for subject %s (%s)",
+                    subject_id,
+                    jobs_path,
+                )
+        except (OSError, json.JSONDecodeError) as e:
+            logger.warning(
+                "QC: could not read %s for report summary counts: %s", jobs_path, e
+            )
+
+        func_jobs_path = nfr / "functional_jobs.json"
+        try:
+            with open(func_jobs_path, encoding="utf-8") as jf:
+                func_jobs: List[Dict[str, Any]] = json.load(jf)
+            subject_file_counts["functional"] = _count_func_jobs_from_discovery(
+                func_jobs, subject_id
+            )
+            logger.info(
+                "QC: using functional input counts from discovery for subject %s (%s)",
+                subject_id,
+                func_jobs_path,
+            )
+        except (OSError, json.JSONDecodeError) as e:
+            logger.warning(
+                "QC: could not read %s for report summary counts: %s",
+                func_jobs_path,
+                e,
+            )
+
+    merged_context = dict(dataset_context or {})
+    user_sfc = merged_context.pop("subject_file_counts", None)
+    if user_sfc:
+        subject_file_counts.update(user_sfc)
+    subject_file_counts.setdefault("t1w_processed", anat_proc["t1w"])
+    subject_file_counts.setdefault("t2w_processed", anat_proc["t2w"])
+    subject_file_counts.setdefault("functional", func_snap)
+    merged_context["subject_file_counts"] = subject_file_counts
+
+    from nhp_mri_prep.version import get_version
+
+    # Ingest-normalization findings live in the published derivative sidecars.
+    # snapshot_dir is <output_dir>/sub-XXX/figures, so its parent is the subject
+    # directory — the same layout assumption organize_by_hierarchy already makes.
+    data_findings = collect_ingest_findings(snapshot_dir.parent, logger)
+
+    report_data = {
+        "metadata": {
+            "generation_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "pipeline_name": "brainana",
+            "version": get_version(),
+            "working_directory": str(report_path.parent),
+            "subject_id": subject_id,
+        },
+        "configuration": config,
+        "organized_snapshots": organized_snapshots,
+        "dataset_context": merged_context,
+        "available_entities": snapshot_data["available_entities"],
+        "run_status": run_status,
+        "data_findings": data_findings,
+    }
+    return report_data
+
+
+def _render_sections(report_data: Dict[str, Any]) -> Dict[str, str]:
+    """Render every body section of one subject's report, keyed by template slot."""
     anatomical, functional, field_mapping = (
         HtmlGenerator.create_modality_section(
             section_id, report_data["organized_snapshots"][key], title
         )
         for key, (section_id, title) in MODALITY_SECTIONS.items()
     )
-    about = HtmlGenerator.create_about_section(report_data)
-    methods = HtmlGenerator.create_methods_section(report_data)
+    return {
+        "NAVIGATION_MENU": HtmlGenerator.create_navigation_menu(
+            report_data["organized_snapshots"],
+            bool(report_data.get("run_status")),
+            has_findings(report_data.get("data_findings")),
+        ),
+        "SUMMARY_SECTION": HtmlGenerator.create_summary_section(
+            report_data, report_data["configuration"]
+        ),
+        "STATUS_SECTION": HtmlGenerator.create_status_section(report_data),
+        "DATA_FINDINGS_SECTION": HtmlGenerator.create_data_findings_section(
+            report_data
+        ),
+        "ANATOMICAL_SECTION": anatomical,
+        "FUNCTIONAL_SECTION": functional,
+        "FIELD_MAPPING_SECTION": field_mapping,
+        "ABOUT_SECTION": HtmlGenerator.create_about_section(report_data),
+        "METHODS_SECTION": HtmlGenerator.create_methods_section(report_data),
+    }
 
-    # Create complete HTML
+
+def _brand_html(href: Optional[str]) -> str:
+    """The topbar brand; a link back to the all-subjects page when there is one."""
+    if href:
+        return (
+            f'<a class="brand" href="{html.escape(href)}" '
+            f'title="All subjects">brainana</a>'
+        )
+    return '<span class="brand">brainana</span>'
+
+
+def _generate_html_report(
+    report_data: Dict[str, Any], report_path: Path, logger: logging.Logger
+) -> None:
+    """Generate HTML report file."""
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+
     html_content = _create_html_template().format(
         STYLE=_REPORT_CSS,
         SCRIPT=_REPORT_JS,
+        BRAND=_brand_html(report_data["metadata"].get("dataset_report_href")),
         SUBJECT=report_path.stem,
-        NAVIGATION_MENU=navigation,
-        SUMMARY_SECTION=summary,
-        STATUS_SECTION=status,
-        DATA_FINDINGS_SECTION=data_findings,
-        ANATOMICAL_SECTION=anatomical,
-        FUNCTIONAL_SECTION=functional,
-        FIELD_MAPPING_SECTION=field_mapping,
-        ABOUT_SECTION=about,
-        METHODS_SECTION=methods,
         GENERATION_TIME=report_data["metadata"]["generation_time"],
         VERSION=report_data["metadata"]["version"],
+        **_render_sections(report_data),
     )
 
     with open(report_path, "w", encoding="utf-8") as f:
@@ -1707,6 +1744,7 @@ code{font-family:var(--bn-mono);font-size:85%;background:var(--bn-code-bg);paddi
   gap:8px;padding:0 24px;background:rgba(255,255,255,.93);backdrop-filter:blur(8px);border-bottom:1px solid var(--bn-border)}
 .topbar .brand{font-weight:700;font-size:14px;color:var(--bn-ink);background:var(--bn-accent);
   padding:3px 9px;border-radius:6px;white-space:nowrap;letter-spacing:.01em}
+.topbar a.brand:hover{color:var(--bn-ink);text-decoration:none;filter:brightness(.95)}
 .topbar .brand-sep{color:var(--bn-border-mid);font-weight:400;margin:0 1px}
 .topbar .subject{font-weight:700;font-size:16px;color:var(--bn-ink);white-space:nowrap}
 .topbar nav{display:flex;align-items:center;gap:2px;margin-left:16px;flex-wrap:wrap}
@@ -1798,7 +1836,7 @@ def _create_html_template() -> str:
 <style type="text/css">{STYLE}</style>
 </head>
 <body>
-<header class="topbar"><span class="brand">brainana</span><span class="brand-sep">|</span><span class="subject">{SUBJECT}</span><nav>
+<header class="topbar">{BRAND}<span class="brand-sep">|</span><span class="subject">{SUBJECT}</span><nav>
 {NAVIGATION_MENU}
 </nav></header>
 <main>
