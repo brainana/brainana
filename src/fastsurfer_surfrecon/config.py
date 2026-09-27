@@ -161,9 +161,14 @@ class ProcessingConfig(BaseModel):
     # Method choices
     use_fs_tessellation: bool = Field(
         description="Use FreeSurfer mri_tesselate instead of marching cubes"
-        # )
-        # use_fs_qsphere: bool = Field(
-        #     description="Use FreeSurfer qsphere instead of spectral projection"
+    )
+    # The spherical map mris_fix_topology segments defects on (faces that
+    # overlap on it). The spectral projection folds more, which enlarges and
+    # merges defects that the topology fix then cuts away -- most visibly in
+    # thin occipital/V1 white matter. Defaulted so existing configs load.
+    use_fs_qsphere: bool = Field(
+        default=True,
+        description="Use FreeSurfer's quasi-homeomorphic sphere (mris_sphere -q, as recon-all -qsphere) instead of the spectral projection",
     )
     use_fs_aparc: bool = Field(
         description="Use FreeSurfer aparc instead of mapped parcellation"
@@ -222,10 +227,10 @@ class ProcessingConfig(BaseModel):
         """Alias for use_fs_tessellation."""
         return self.use_fs_tessellation
 
-    # @property
-    # def fsqsphere(self) -> bool:
-    #     """Alias for use_fs_qsphere."""
-    #     return self.use_fs_qsphere
+    @property
+    def fsqsphere(self) -> bool:
+        """Alias for use_fs_qsphere."""
+        return self.use_fs_qsphere
 
     @property
     def fsaparc(self) -> bool:

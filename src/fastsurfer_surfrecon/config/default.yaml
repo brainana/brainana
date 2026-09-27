@@ -34,7 +34,7 @@ processing:
   
   # Method choices
   use_fs_tessellation: false  # Use mri_mc (marching cubes) instead of mri_tesselate
-  # use_fs_qsphere: false       # Use spectral projection instead of FS qsphere
+  use_fs_qsphere: true        # Spherical map for the topology fix: true = FreeSurfer mris_sphere -q (as recon-all -qsphere); false = spectral projection
   use_fs_aparc: false         # Use mapped parcellation instead of FS aparc
   do_surf_reg: false          # Surface registration to fsaverage
   

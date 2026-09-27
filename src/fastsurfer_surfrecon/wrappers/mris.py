@@ -261,6 +261,51 @@ def mris_inflate(
     return output_surf
 
 
+def mris_sphere_quick(
+    input_surf: Path,
+    output_surf: Path,
+    seed: int = 1234,
+    log_file: Optional[Path] = None,
+    subject_dir: Optional[Path] = None,
+) -> Path:
+    """
+    Quasi-homeomorphic spherical map, as ``recon-all -qsphere`` makes it.
+
+    Runs ``mris_sphere -q -p 6 -a 128 -seed <seed> <inflated.nofix> <qsphere.nofix>``,
+    the exact command recon-all uses; ``mris_fix_topology`` finds defects as faces
+    that overlap on this map.
+
+    Parameters
+    ----------
+    input_surf : Path
+        Inflated surface (``?h.inflated.nofix``)
+    output_surf : Path
+        Output spherical map (``?h.qsphere.nofix``)
+    seed : int, default=1234
+        Random seed (recon-all passes one under -norandomness)
+    log_file : Path, optional
+        Log file path
+    subject_dir : Path, optional
+        Subject directory. If provided, converts paths to relative from subject_dir.
+
+    Returns
+    -------
+    Path
+        Output surface path
+    """
+    if subject_dir:
+        subject_dir = Path(subject_dir).resolve()
+        input_surf = to_relative_path(input_surf, subject_dir)
+        output_surf = to_relative_path(output_surf, subject_dir)
+
+    cmd = ["mris_sphere", "-q", "-p", "6", "-a", "128", "-seed", str(seed)]
+    cmd.extend([str(input_surf), str(output_surf)])
+    run_fs_command(
+        cmd, log_file=log_file, subject_dir=subject_dir, expect_outputs=[output_surf]
+    )
+    return output_surf
+
+
 def mris_place_surface(
     input_surf: Path,
     output_surf: Path,

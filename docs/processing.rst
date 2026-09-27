@@ -241,15 +241,26 @@ maps.
   - Run an additional topology correction step for surface defects that
     commonly arise in macaque reconstructions and are not reliably
     resolved by FreeSurfer alone.
+  - Map the uncorrected surface to a sphere with FreeSurfer's
+    quasi-homeomorphic mapping (``mris_sphere -q``, as ``recon-all -qsphere``
+    does). ``mris_fix_topology`` finds defects where faces overlap on this
+    map, so a map that folds less keeps defects small and separate; a
+    spectral projection folded more and led to larger cuts, notably at the
+    occipital pole. The spectral projection can still be selected with
+    ``processing.use_fs_qsphere: false`` in the surface-reconstruction
+    configuration.
   - Fix topology with ``mris_fix_topology -ga``. If the genetic-algorithm
     search crashes on a large defect (seen with FreeSurfer 7.4.1), the fix
     is retried with the default search rather than abandoning the
-    hemisphere. A mesh that comes out consistently wound but inside-out is
-    flipped before it is checked and promoted.
+    hemisphere. If it finishes but returns an open or non-genus-0 mesh, or
+    one that could only be repaired by removing more than 2% of it, the
+    default search is also run and the result that keeps more of the
+    surface is used. A mesh that comes out consistently wound but
+    inside-out is flipped before it is checked and promoted.
 
 - **Surface QC record:** ``scripts/surface_qc.json`` records the topology
   of every key surface, which topology-fix path was taken per hemisphere
-  (``topology_fix``: ``ga``, ``no_ga_fallback`` or ``no_ga``, and whether
+  (``topology_fix``: ``ga``, ``no_ga_fallback``, ``no_ga_rescue`` or ``no_ga``, and whether
   the mesh was flipped or repaired), and the median cortical thickness per
   hemisphere (``thickness``). A median below 1.0 mm is flagged as
   ``collapsed`` and logged — the pial surface has most likely failed to
