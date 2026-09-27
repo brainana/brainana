@@ -173,3 +173,86 @@ def test_resume_keeps_recorded_mode(stage, monkeypatch):
     stage._run()
     record = json.loads((stage.sd.scripts_dir / "lh.topology_fix.json").read_text())
     assert record["mode"] == "no_ga_fallback"
+
+
+# --------------------------------------------------------------------------
+# A -ga run that "succeeds" with a broken mesh (field case: sub-032215 rh came
+# back open, euler 0; pymeshfix closed it by cutting away the occipital pole)
+# --------------------------------------------------------------------------
+
+
+def _with_hole(n_faces_removed: int):
+    """Icosphere with the faces around vertex 0 grown out to a hole."""
+    v, f = _icosphere()
+    centre = v[0]
+    order = np.argsort(np.linalg.norm(v[f].mean(axis=1) - centre, axis=1))
+    return v, np.delete(f, order[:n_faces_removed], axis=0)
+
+
+def _fake_fix(ga_mesh, noga_mesh, calls):
+    def fake_fix(ga, output_premesh, **_):
+        calls.append(ga)
+        v, f = ga_mesh if ga else noga_mesh
+        fsio.write_geometry(str(output_premesh), v, f)
+        # Overlays land beside the premesh; tag them with the search that wrote them.
+        labels = (
+            output_premesh.parent / f"{output_premesh.name.split('.')[0]}.defect_labels"
+        )
+        labels.write_text("ga" if ga else "no_ga")
+
+    return fake_fix
+
+
+def _record(stage):
+    return json.loads((stage.sd.scripts_dir / "lh.topology_fix.json").read_text())
+
+
+def test_open_ga_mesh_is_rescued_by_the_default_search(stage, monkeypatch):
+    _write_nofix_inputs(stage)
+    calls = []
+    monkeypatch.setattr(
+        s12, "mris_fix_topology", _fake_fix(_with_hole(400), _icosphere(), calls)
+    )
+    stage._run()
+
+    assert calls == [True, False]
+    record = _record(stage)
+    assert record["mode"] == "no_ga_rescue"
+    assert record["ga"]["premesh_closed"] is False
+    assert record["no_ga"]["vertices"] == 2562
+    assert validate_surface(stage.hemi_path("orig"))["n_vertices"] == 2562
+    assert stage.hemi_path("defect_labels").read_text() == "no_ga"
+
+
+def test_ga_mesh_is_kept_when_the_default_search_is_worse(stage, monkeypatch):
+    _write_nofix_inputs(stage)
+    calls = []
+    monkeypatch.setattr(
+        s12,
+        "mris_fix_topology",
+        _fake_fix(_with_hole(60), _with_hole(600), calls),
+    )
+    stage._run()
+
+    assert calls == [True, False]
+    record = _record(stage)
+    assert record["mode"] == "ga"
+    assert record["ga"]["vertices"] > record["no_ga"]["vertices"]
+    # The overlays describe the mesh that became orig.
+    assert stage.hemi_path("defect_labels").read_text() == "ga"
+    assert not stage.hemi_path("defect_labels.ga").exists()
+
+
+def test_orientation_slip_does_not_trigger_a_second_search(stage, monkeypatch):
+    _write_nofix_inputs(stage)
+    v, f = _icosphere()
+    f = f.copy()
+    f[0] = f[0][::-1]  # one face wound backwards: closed, euler 2, not oriented
+    calls = []
+    monkeypatch.setattr(s12, "mris_fix_topology", _fake_fix((v, f), None, calls))
+    stage._run()
+
+    assert calls == [True]
+    record = _record(stage)
+    assert record["mode"] == "ga"
+    assert "no_ga" not in record
