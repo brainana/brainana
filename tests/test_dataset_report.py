@@ -145,3 +145,40 @@ def test_subject_report_brand_links_to_the_dataset_page(tmp_path):
         '<a class="brand" href="all_subjects_report.html"'
         in (out / "sub-a.html").read_text()
     )
+
+
+def _run_generate_reports(out, monkeypatch):
+    import sys
+
+    from nhp_mri_prep.nextflow_scripts import generate_reports
+
+    cfg = out / "config.yaml"
+    cfg.write_text("general: {}\n")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["generate_reports", "--output-dir", str(out), "--config-file", str(cfg)],
+    )
+    assert generate_reports.main() == 0
+    return generate_reports
+
+
+def test_subject_pages_link_the_dataset_page_only_once_it_exists(
+    tmp_path, monkeypatch
+):
+    out = _dataset(tmp_path)
+    _run_generate_reports(out, monkeypatch)
+    assert (out / "all_subjects_report.html").exists()
+    assert 'href="all_subjects_report.html"' in (out / "sub-a.html").read_text()
+
+    # The dataset page fails: no subject page may point at it, and the copy
+    # from the run above must not linger as if it were current.
+    from nhp_mri_prep.nextflow_scripts import generate_reports
+
+    def boom(*_a, **_k):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(generate_reports, "write_dataset_report", boom)
+    _run_generate_reports(out, monkeypatch)
+    assert not (out / "all_subjects_report.html").exists()
+    assert "all_subjects_report.html" not in (out / "sub-a.html").read_text()

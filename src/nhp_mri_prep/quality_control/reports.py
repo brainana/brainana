@@ -1529,7 +1529,7 @@ def generate_qc_report(
         )
 
         # Generate HTML report
-        _generate_html_report(report_data, report_path, logger)
+        write_html_report(report_data, report_path, logger)
 
         logger.info(f"QC: report generated successfully - {report_path}")
         return {"html_report": str(report_path)}
@@ -1694,7 +1694,7 @@ def _brand_html(href: Optional[str]) -> str:
     return '<span class="brand">brainana</span>'
 
 
-def _generate_html_report(
+def write_html_report(
     report_data: Dict[str, Any], report_path: Path, logger: logging.Logger
 ) -> None:
     """Generate HTML report file."""

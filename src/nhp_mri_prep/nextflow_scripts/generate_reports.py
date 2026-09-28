@@ -28,11 +28,11 @@ _src_dir = Path(__file__).resolve().parent.parent.parent
 if str(_src_dir) not in sys.path:
     sys.path.insert(0, str(_src_dir))
 
-from nhp_mri_prep.steps.qc import qc_generate_report
 from nhp_mri_prep.quality_control.dataset_report import (
     DATASET_REPORT_NAME,
-    generate_dataset_report,
+    write_dataset_report,
 )
+from nhp_mri_prep.quality_control.reports import build_report_data, write_html_report
 from nhp_mri_prep.quality_control.run_status import run_status_log_label
 # The merging loader, not utils.nextflow.load_config: main.nf falls back to the
 # user's raw --config when the effective config is missing, and a partial file
@@ -124,36 +124,51 @@ def main() -> int:
         status_label,
     )
 
-    # Two or more subjects also get one all_subjects_report.html to browse them from.
-    qc_enabled = config.get("quality_control", {}).get("enabled", True)
-    with_dataset_report = len(subjects) > 1 and qc_enabled
+    if not config.get("quality_control", {}).get("enabled", True):
+        logger.info("QC: report generation skipped (disabled in configuration)")
+        return 0
 
+    # Build every subject's report data once; both kinds of page render from it.
+    built = []
     for subject_id in subjects:
-        snapshot_dir = output_dir / f"sub-{subject_id}" / "figures"
-        report_path = output_dir / f"sub-{subject_id}.html"
+        sub = f"sub-{subject_id}"
         try:
-            qc_generate_report(
-                snapshot_dir=snapshot_dir,
-                report_path=report_path,
-                config=config,
-                snapshot_paths=None,  # Auto-discover from directory
+            data = build_report_data(
+                output_dir / sub / "figures",
+                output_dir / f"{sub}.html",
+                config,
+                logger,
                 run_status=run_status,
-                dataset_report_href=(
-                    DATASET_REPORT_NAME if with_dataset_report else None
-                ),
             )
-            logger.info("Report: wrote %s", report_path)
         except Exception as e:
             # Never let one subject's failure stop the others or fail the run.
-            logger.warning("Report: failed for sub-%s - %s", subject_id, e)
+            logger.warning("Report: failed for %s - %s", sub, e)
+            continue
+        built.append((sub, data))
 
-    if with_dataset_report:
+    # Two or more subjects also get one all_subjects_report.html to browse them
+    # from. It is written first so subject pages link to it only once it exists.
+    dataset_path = output_dir / DATASET_REPORT_NAME
+    dataset_href = None
+    if len(subjects) > 1:
         try:
-            generate_dataset_report(
-                output_dir, subjects, config, run_status=run_status, logger=logger
-            )
+            write_dataset_report(built, dataset_path, logger)
+            dataset_href = DATASET_REPORT_NAME
         except Exception as e:
             logger.warning("Report: all-subjects report failed - %s", e)
+    if dataset_href is None and dataset_path.exists():
+        # Left by an earlier run over a different set of subjects.
+        logger.info("Report: removing stale %s", dataset_path.name)
+        dataset_path.unlink()
+
+    for sub, data in built:
+        report_path = output_dir / f"{sub}.html"
+        data["metadata"]["dataset_report_href"] = dataset_href
+        try:
+            write_html_report(data, report_path, logger)
+            logger.info("Report: wrote %s", report_path)
+        except Exception as e:
+            logger.warning("Report: failed for %s - %s", sub, e)
 
     return 0
 

@@ -183,7 +183,7 @@ def test_full_report_renders_the_section_and_its_nav_entry(tmp_path):
     """Pins the template wiring — a missing {DATA_FINDINGS_SECTION} key is a KeyError."""
     import logging
 
-    from nhp_mri_prep.quality_control.reports import _generate_html_report
+    from nhp_mri_prep.quality_control.reports import write_html_report
 
     _sidecar(
         tmp_path,
@@ -212,7 +212,7 @@ def test_full_report_renders_the_section_and_its_nav_entry(tmp_path):
     }
 
     out = tmp_path / "sub-01.html"
-    _generate_html_report(report_data, out, logging.getLogger(__name__))
+    write_html_report(report_data, out, logging.getLogger(__name__))
     html = out.read_text(encoding="utf-8")
 
     assert 'id="DataFindings"' in html
@@ -221,7 +221,7 @@ def test_full_report_renders_the_section_and_its_nav_entry(tmp_path):
 
     # And a clean subject gets neither the section nor the nav entry.
     clean = tmp_path / "clean.html"
-    _generate_html_report(
+    write_html_report(
         {**report_data, "data_findings": {"repaired": [], "unrepaired": []}},
         clean,
         logging.getLogger(__name__),

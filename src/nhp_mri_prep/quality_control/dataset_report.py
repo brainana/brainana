@@ -255,8 +255,6 @@ def generate_dataset_report(
     logger: Optional[logging.Logger] = None,
 ) -> Path:
     """Write ``all_subjects_report.html`` for the given subjects of a pipeline output directory."""
-    from nhp_mri_prep.version import get_version
-
     logger = logger or logging.getLogger(__name__)
     output_dir = Path(output_dir)
     report_path = Path(report_path or output_dir / DATASET_REPORT_NAME)
@@ -277,9 +275,22 @@ def generate_dataset_report(
             continue
         subjects.append((sub, data))
 
+    return write_dataset_report(subjects, report_path, logger)
+
+
+def write_dataset_report(
+    subjects: List[Tuple[str, Dict[str, Any]]],
+    report_path: Path,
+    logger: Optional[logging.Logger] = None,
+) -> Path:
+    """Write the all-subjects page from already-built ``(sub-XXX, report_data)`` pairs."""
+    from nhp_mri_prep.version import get_version
+
+    logger = logger or logging.getLogger(__name__)
     if not subjects:
         raise RuntimeError("no subject could be read")
 
+    report_path = Path(report_path)
     report_path.write_text(
         render_dataset_report(subjects, get_version()), encoding="utf-8"
     )
