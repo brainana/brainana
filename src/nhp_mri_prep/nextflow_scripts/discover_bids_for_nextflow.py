@@ -696,6 +696,18 @@ def print_summary(
     print("\n")
 
 
+def _parse_bool(value: str) -> bool:
+    """Boolean CLI value, accepting what param_resolver.groovy accepts."""
+    v = str(value).strip().lower()
+    if v in ("true", "1", "yes", "on"):
+        return True
+    if v in ("false", "0", "no", "off"):
+        return False
+    raise argparse.ArgumentTypeError(
+        f"expected true/false, 1/0, yes/no or on/off, got {value!r}"
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Discover BIDS dataset for Nextflow pipeline"
@@ -738,8 +750,14 @@ def main():
     )
     parser.add_argument(
         "--anat_only",
-        action="store_true",
-        help="Skip functional discovery (overrides general.anat_only in the config)",
+        nargs="?",
+        const=True,
+        default=None,
+        type=_parse_bool,
+        help=(
+            "Skip functional discovery. A bare flag means true; an explicit "
+            "true/false overrides general.anat_only in the config either way."
+        ),
     )
 
     args = parser.parse_args()
@@ -777,8 +795,8 @@ def main():
         sys.exit(1)
 
     # The CLI flag wins over the YAML key, matching param_resolver.groovy.
-    if args.anat_only:
-        config.setdefault("general", {})["anat_only"] = True
+    if args.anat_only is not None:
+        config.setdefault("general", {})["anat_only"] = args.anat_only
 
     # Parse filtering parameters
     subjects_list = None

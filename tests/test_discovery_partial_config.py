@@ -97,10 +97,20 @@ def test_library_fallback_matches_defaults(tmp_path):
     assert len(_t1w(anat)) == 1
 
 
-@pytest.mark.parametrize("flag", [["--anat_only"]])
+@pytest.mark.parametrize("flag", [["--anat_only"], ["--anat_only", "true"]])
 def test_cli_anat_only_skips_functional_discovery(tmp_path, flag):
     dataset = _make(tmp_path / "bids", MULTI_SESSION)
     _, func = _run_main(tmp_path, dataset, "general:\n  anat_only: false\n", flag)
     assert func == []
     _, func = _run_main(tmp_path, dataset, "general:\n  anat_only: false\n")
+    assert len(func) == 1
+
+
+@pytest.mark.parametrize("value", ["false", "0", "no"])
+def test_cli_anat_only_false_overrides_yaml_true(tmp_path, value):
+    """`--anat_only false` must win over YAML true, as it does in main.nf."""
+    dataset = _make(tmp_path / "bids", MULTI_SESSION)
+    _, func = _run_main(
+        tmp_path, dataset, "general:\n  anat_only: true\n", ["--anat_only", value]
+    )
     assert len(func) == 1
