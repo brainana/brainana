@@ -195,3 +195,30 @@ def test_forced_second_pass(seg_env):
     _, qc = run({"enabled": True})
     assert qc["SegmentationPasses"] == 2
     assert qc["PreInferenceN4"]["Trigger"] == "forced"
+
+
+def test_second_pass_reports_the_cap_on_the_image_it_segmented(
+    seg_env, tmp_path, monkeypatch
+):
+    """Pass 2 segments the N4 image: the top-level cap fields must describe it."""
+    from nhp_mri_prep.operations import preprocessing as pp
+
+    state, run, _ = seg_env
+    # A coil-lit rim 10x brighter than the brain: the cap binds on the original.
+    head = np.zeros((64, 64, 64), np.float32)
+    head[4:60, 4:60, 4:60] = 1000.0
+    head[16:48, 16:48, 16:48] = 100.0
+    _nifti(tmp_path / "t1w.nii.gz", head)
+
+    def flattening_n4(imagef, working_dir, output_name, maskf, **_):
+        out = Path(working_dir) / output_name
+        _nifti(out, np.where(head > 0, 100.0, 0.0).astype(np.float32))
+        return {"imagef_bias_corrected": out}
+
+    monkeypatch.setattr(pp, "bias_correction", flattening_n4)
+    state["mask_side"] = [20, 40]
+    _, qc = run({"enabled": "auto"})
+
+    assert qc["SegmentationPasses"] == 2
+    assert qc["Pass1"]["IntensityCapApplied"] is True
+    assert qc["IntensityCapApplied"] is False

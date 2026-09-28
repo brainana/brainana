@@ -162,8 +162,10 @@ findings**; section omitted if empty):
   volume and its ratio to the template brain (``MaskVolumeCm3``,
   ``MaskToTemplateBrainRatio``, ``MaskUndersized``), whether the intensity
   cap applied (``IntensityCapApplied``, ``IntensityCapRatio``), and how many
-  passes ran (``SegmentationPasses``, ``Pass1``, ``PreInferenceN4``). An
-  undersized mask is also logged as a warning.
+  passes ran (``SegmentationPasses``, ``Pass1``, ``PreInferenceN4``). After
+  a second pass, the top-level fields describe the corrected image that
+  produced the final segmentation, and ``Pass1`` keeps the first pass's
+  values. An undersized mask is also logged as a warning.
 - **Label fragments (optional):** Detached label pieces smaller than
   ``fastSurferCNN.label_island_min_volume_mm3`` are relabelled to the label
   surrounding them; the largest piece of every label is always kept. Such

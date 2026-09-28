@@ -1700,7 +1700,7 @@ def _pre_inference_n4(
     logger: logging.Logger,
 ) -> Path:
     """N4 inside the dilated pass-1 mask; the result is only used as CNN input."""
-    from scipy.ndimage import binary_dilation, generate_binary_structure, iterate_structure
+    from scipy.ndimage import distance_transform_edt
 
     n4_dir = work_dir / "pre_inference_n4"
     n4_dir.mkdir(parents=True, exist_ok=True)
@@ -1708,19 +1708,17 @@ def _pre_inference_n4(
     mask_img = nib.load(str(mask_path))
     mask = np.asanyarray(mask_img.dataobj) > 0
     dilation_mm = float(n4_cfg.get("dilation_mm", 6.0))
-    vox = float(min(mask_img.header.get_zooms()[:3]))
-    iterations = max(1, int(round(dilation_mm / vox)))
-    # A spherical-ish element grown iteratively, so the dilation is ~isotropic in mm.
-    structure = iterate_structure(generate_binary_structure(3, 1), 1)
-    dilated = binary_dilation(mask, structure=structure, iterations=iterations)
+    # Every voxel within dilation_mm (Euclidean, in mm) of the mask: isotropic
+    # in mm whatever the voxel shape, unlike iterating a voxel-sized element.
+    zooms = tuple(float(z) for z in mask_img.header.get_zooms()[:3])
+    dilated = mask | (distance_transform_edt(~mask, sampling=zooms) <= dilation_mm)
     dilated_path = n4_dir / "pass1_mask_dilated.nii.gz"
     nib.save(
         nib.Nifti1Image(dilated.astype(np.uint8), mask_img.affine, mask_img.header),
         str(dilated_path),
     )
     logger.info(
-        f"Workflow: pre-inference N4 inside pass-1 mask dilated by {dilation_mm:g} mm "
-        f"({iterations} voxels)"
+        f"Workflow: pre-inference N4 inside pass-1 mask dilated by {dilation_mm:g} mm"
     )
 
     n4_config = dict(config)
@@ -1744,6 +1742,22 @@ def _pre_inference_n4(
     return Path(out["imagef_bias_corrected"])
 
 
+def _intensity_cap_check(image_path: Path, logger: logging.Logger) -> Dict[str, Any]:
+    """Sidecar fields: does conform()'s intensity cap bind on this CNN input?"""
+    from fastsurfer_nn.data_loader.conform import rescale_cap_report
+
+    cap = rescale_cap_report(np.asanyarray(nib.load(str(image_path)).dataobj))
+    qc: Dict[str, Any] = {"IntensityCapApplied": cap["applied"]}
+    if cap["ratio"] is not None:
+        qc["IntensityCapRatio"] = cap["ratio"]
+    if cap["applied"]:
+        logger.info(
+            f"QC: intensity rescale capped (whole-image cutoff is {cap['ratio']:.2f}x "
+            f"brain intensity, cap {cap['cap']:g}x) -- non-brain tissue much brighter than brain"
+        )
+    return qc
+
+
 def _anat_segmentation_checks(
     *,
     image_path: Path,
@@ -1760,19 +1774,7 @@ def _anat_segmentation_checks(
     Returns the (possibly second-pass) segmentation result and the provenance
     fields for the mask/segmentation sidecars.
     """
-    from fastsurfer_nn.data_loader.conform import rescale_cap_report
-
-    qc: Dict[str, Any] = {}
-    cap = rescale_cap_report(np.asanyarray(nib.load(str(image_path)).dataobj))
-    qc["IntensityCapApplied"] = cap["applied"]
-    if cap["ratio"] is not None:
-        qc["IntensityCapRatio"] = cap["ratio"]
-    if cap["applied"]:
-        logger.info(
-            f"QC: intensity rescale capped (whole-image cutoff is {cap['ratio']:.2f}x "
-            f"brain intensity, cap {cap['cap']:g}x) -- non-brain tissue much brighter than brain"
-        )
-
+    qc: Dict[str, Any] = _intensity_cap_check(image_path, logger)
     qc.update(_mask_volume_check(result["brain_mask"], config, logger))
     qc["SegmentationPasses"] = 1
 
@@ -1799,13 +1801,23 @@ def _anat_segmentation_checks(
 
     pass1 = {
         k: qc.pop(k)
-        for k in ("MaskVolumeCm3", "MaskToTemplateBrainRatio", "MaskUndersized")
+        for k in (
+            "IntensityCapApplied",
+            "IntensityCapRatio",
+            "MaskVolumeCm3",
+            "MaskToTemplateBrainRatio",
+            "MaskUndersized",
+        )
         if k in qc
     }
     kwargs = dict(segmentation_kwargs, input_image=n4_input)
     with quiet_external_output(logger):
         result = run_segmentation(**kwargs)
 
+    # The top-level fields describe the pass that produced the final
+    # segmentation: the CNN rescaled the N4 image, whose ratio differs from
+    # the original's once the coil's intensity gradient is flattened.
+    qc.update(_intensity_cap_check(n4_input, logger))
     qc.update(_mask_volume_check(result["brain_mask"], config, logger))
     qc["SegmentationPasses"] = 2
     qc["Pass1"] = pass1

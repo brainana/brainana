@@ -254,17 +254,25 @@ def relabel_small_islands(
         sizes = np.bincount(comps.ravel())
         sizes[0] = 0
         largest = int(sizes.argmax())
+        # Work in each island's own (padded) box: dilating in the label's box
+        # costs its whole volume per island, which for cortex/WM with hundreds
+        # of specks is most of a hemisphere, hundreds of times.
+        comp_boxes = scipy.ndimage.find_objects(comps)
         for comp in np.flatnonzero((sizes > 0) & (sizes < max_voxels)):
             if comp == largest:
                 continue
-            island = comps == comp
+            ibox = tuple(
+                slice(max(s.start - 1, 0), min(s.stop + 1, n))
+                for s, n in zip(comp_boxes[comp - 1], local.shape)
+            )
+            island = comps[ibox] == comp
             border = scipy.ndimage.binary_dilation(island, structure) & ~island
-            neighbours = local[border]
+            neighbours = local[ibox][border]
             neighbours = neighbours[neighbours != lab]
             if neighbours.size == 0:
                 continue
             values, counts = np.unique(neighbours, return_counts=True)
-            out[box][island] = values[counts.argmax()]
+            out[box][ibox][island] = values[counts.argmax()]
             n_islands += 1
             n_voxels += int(sizes[comp])
 
