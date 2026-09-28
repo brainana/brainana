@@ -1471,9 +1471,10 @@ def apply_segmentation(
         # Note: This is the fastsurfer_nn.inference.run_segmentation function imported at the top
         # Build kwargs, only include roi_name and wm_thr if fix_roi_wm is True
         # Use general.gpu_device with fallback to legacy fastSurferCNN.gpu_device
-        gpu_device = config.get("general", {}).get("gpu_device") or fscnn_cfg.get(
-            "gpu_device", "auto"
-        )
+        # `is None`, not `or`: gpu_device 0 (first GPU) is falsy.
+        gpu_device = config.get("general", {}).get("gpu_device")
+        if gpu_device is None:
+            gpu_device = fscnn_cfg.get("gpu_device", "auto")
         segmentation_kwargs = {
             "input_image": image_path,
             "modal": modal,

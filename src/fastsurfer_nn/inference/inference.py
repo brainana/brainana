@@ -121,10 +121,11 @@ class Inference:
         self.default_device = device
 
         # Options for parallel run
+        # Device-type checks first: device_count() initializes the CUDA driver.
         self.model_parallel = (
-            torch.cuda.device_count() > 1
-            and self.default_device.type == "cuda"
+            self.default_device.type == "cuda"
             and self.default_device.index is None
+            and torch.cuda.device_count() > 1
         )
 
         # Initial model setup

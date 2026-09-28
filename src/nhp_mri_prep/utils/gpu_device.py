@@ -16,10 +16,12 @@ from typing import Union
 
 import torch
 
+from fastsurfer_nn.utils.gpu_utils import cuda_available
+
 
 def _cuda_is_usable() -> bool:
     """Return True only when CUDA can actually execute a tensor op."""
-    if not torch.cuda.is_available():
+    if not cuda_available():
         return False
     try:
         # Probe real kernel execution, not just device enumeration.

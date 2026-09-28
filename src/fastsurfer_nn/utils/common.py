@@ -44,6 +44,8 @@ _T = TypeVar("_T")
 _Ti = TypeVar("_Ti")
 
 # Import GPU utilities for least-busy GPU selection
+from fastsurfer_nn.utils.gpu_utils import cuda_available
+
 try:
     from fastsurfer_nn.utils.gpu_utils import get_least_busy_gpu
 except ImportError:
@@ -81,7 +83,7 @@ def find_device(
     """
     logger = logging.get_logger(__name__ + ".auto_device")
     # if specific device is requested, check and stop if not available:
-    has_cuda = torch.cuda.is_available()
+    has_cuda = cuda_available()
     has_mps = hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
     msg = None
     if str(device).startswith("cuda") and not has_cuda:

@@ -2,21 +2,39 @@
 GPU utilities for automatic device selection.
 """
 
+import os
 import torch
 import subprocess
 from typing import Union
 
 
+def cuda_hidden() -> bool:
+    """True when CUDA_VISIBLE_DEVICES deliberately hides every GPU.
+
+    The pipeline exports CUDA_VISIBLE_DEVICES="" for CPU-mode tasks. Callers
+    must then skip torch.cuda probes entirely: torch.cuda.is_available() still
+    loads and initializes the CUDA driver, which is unnecessary in CPU mode and
+    can abort the process outright on some drivers (WSL2 GPU passthrough).
+    """
+    value = os.environ.get("CUDA_VISIBLE_DEVICES")
+    return value is not None and value.strip().lower() in ("", "-1", "none")
+
+
+def cuda_available() -> bool:
+    """torch.cuda.is_available(), without touching the driver when CUDA is hidden."""
+    return not cuda_hidden() and torch.cuda.is_available()
+
+
 def get_device():
     """Get the best available device (least busy GPU or CPU)."""
-    if torch.cuda.is_available():
+    if cuda_available():
         return torch.device(f"cuda:{get_least_busy_gpu()}")
     return torch.device("cpu")
 
 
 def get_least_busy_gpu():
     """Get the GPU with the least memory usage based on system-wide memory usage."""
-    if not torch.cuda.is_available():
+    if not cuda_available():
         return 0
 
     gpu_count = torch.cuda.device_count()

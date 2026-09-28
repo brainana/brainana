@@ -627,7 +627,9 @@ def segmentation(
 
     # Explicit cleanup to free GPU memory
     del predictor
-    if torch.cuda.is_available():
+    # is_initialized(): only a run that actually used CUDA has a cache to clear,
+    # and it does not load the driver in CPU mode.
+    if torch.cuda.is_initialized():
         torch.cuda.empty_cache()
         log.info("GPU memory cache cleared after inference")
 
