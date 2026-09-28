@@ -256,3 +256,51 @@ def test_orientation_slip_does_not_trigger_a_second_search(stage, monkeypatch):
     record = _record(stage)
     assert record["mode"] == "ga"
     assert "no_ga" not in record
+
+
+def test_resume_after_rescue_keeps_the_non_ga_mesh(stage, monkeypatch):
+    """A step after the gate fails, then the stage is resumed.
+
+    orig.premesh (the GA mesh the rescue rejected) still exists, so a resume
+    that re-derived orig from it would promote the cut-away surface.
+    """
+    _write_nofix_inputs(stage)
+    calls = []
+    monkeypatch.setattr(
+        s12, "mris_fix_topology", _fake_fix(_with_hole(400), _icosphere(), calls)
+    )
+
+    def smooth_crash(**_):
+        raise FreeSurferError("mris_smooth died", returncode=1)
+
+    real_smooth = s12.mris_smooth
+    monkeypatch.setattr(s12, "mris_smooth", smooth_crash)
+    with pytest.raises(FreeSurferError):
+        stage._run()
+    assert _record(stage)["mode"] == "no_ga_rescue"
+
+    monkeypatch.setattr(s12, "mris_smooth", real_smooth)
+    monkeypatch.setattr(
+        s12, "mris_fix_topology", lambda **_: pytest.fail("should not rerun")
+    )
+    stage._run()
+
+    record = _record(stage)
+    assert record["mode"] == "no_ga_rescue"
+    assert record["no_ga"]["vertices"] == 2562
+    assert validate_surface(stage.hemi_path("orig"))["n_vertices"] == 2562
+
+
+def test_resume_without_record_still_rescues_a_failed_ga_mesh(stage, monkeypatch):
+    """The run died between mris_fix_topology -ga and writing the record."""
+    _write_nofix_inputs(stage)
+    fsio.write_geometry(str(stage.hemi_path("orig.premesh")), *_with_hole(400))
+    calls = []
+    monkeypatch.setattr(
+        s12, "mris_fix_topology", _fake_fix(_with_hole(400), _icosphere(), calls)
+    )
+    stage._run()
+
+    assert calls == [False]
+    assert _record(stage)["mode"] == "no_ga_rescue"
+    assert validate_surface(stage.hemi_path("orig"))["n_vertices"] == 2562

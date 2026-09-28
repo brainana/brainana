@@ -104,3 +104,24 @@ def test_config_files_without_the_key_still_load():
     assert "use_fs_qsphere" not in {
         name for name, f in ProcessingConfig.model_fields.items() if f.is_required()
     }
+
+
+def test_inflation_reruns_when_s11_needs_its_output_again(stage):
+    """s12 deleted inflated.nofix; qsphere.nofix is then removed to redo s11.
+
+    s10 used to skip because sphere/inflated exist, leaving s11 without input.
+    """
+    from fastsurfer_surfrecon.stages.s10_inflation import Inflation
+
+    s10 = Inflation(stage.config, stage.sd, "lh")
+    stage.hemi_path("inflated.nofix").unlink()
+    for name in ("sphere", "inflated"):
+        shutil.copy(stage.hemi_path("smoothwm.nofix"), stage.hemi_path(name))
+    assert not s10.should_skip()
+
+    # Nothing downstream needs it: the later outputs still prove s10 ran.
+    shutil.copy(stage.hemi_path("smoothwm.nofix"), stage.hemi_path("qsphere.nofix"))
+    assert s10.should_skip()
+    stage.hemi_path("qsphere.nofix").unlink()
+    stage.config.processing.use_fs_qsphere = False  # spectral reads smoothwm.nofix
+    assert s10.should_skip()

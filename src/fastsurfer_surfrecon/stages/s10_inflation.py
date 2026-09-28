@@ -64,9 +64,19 @@ class Inflation(HemisphereStage):
         s11/s12 side effects, because s12 deletes inflated.nofix after
         consuming it -- so this stage's own output legitimately disappears.
         """
-        # Check for both inflated and inflated.nofix
-        # Also check if s11 (spherical projection) has run, which indicates s10 has completed
-        # This handles the case where s12 deletes inflated.nofix after using it
+        if self.hemi_path("inflated.nofix").exists():
+            return True
+        # With the FreeSurfer qsphere, s11 reads inflated.nofix. If s11 is
+        # about to run again (qsphere.nofix gone) after s12 deleted
+        # inflated.nofix, the later outputs below are no reason to skip:
+        # s11 would fail on the missing input.
+        if (
+            self.config.processing.use_fs_qsphere
+            and not self.hemi_path("qsphere.nofix").exists()
+        ):
+            return False
+        # Otherwise a later stage's output proves this stage ran; s12 deletes
+        # inflated.nofix after using it.
         return (
             self.hemi_path("inflated").exists()
             or self.hemi_path("inflated.nofix").exists()

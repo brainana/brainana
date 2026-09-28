@@ -64,6 +64,7 @@ class TopologyFix(HemisphereStage):
         # reuses an existing premesh, so the record never claims a path it did
         # not observe.
         self._record = {"mode": None, "pymeshfix": False, "flipped_inside_out": False}
+        self._prior = self._read_record()
         # Prepare inputs for topology fix
         # FreeSurfer's mris_fix_topology expects qsphere.nofix as input.
         # Our spectral projection (stage 11) creates qsphere.nofix directly, but this
@@ -89,7 +90,8 @@ class TopologyFix(HemisphereStage):
         # or processing.topology_fix_ga is off (see _fix_topology).
         # Output: orig.premesh (preliminary mesh with fixed topology)
         premesh = self.hemi_path("orig.premesh")
-        if not premesh.exists():
+        premesh_resumed = premesh.exists()
+        if not premesh_resumed:
             # Inputs are verified here, not at the top of the stage, because they
             # are needed *only* by mris_fix_topology. Step 4 below deletes
             # inflated.nofix once it has been consumed, so an unconditional check
@@ -118,30 +120,48 @@ class TopologyFix(HemisphereStage):
             self._record["mode"] = self._fix_topology(
                 qsphere_nofix, inflated_nofix, orig_nofix, premesh
             )
-
-        # A -ga premesh that is open or not genus 0, or that pymeshfix can only
-        # rescue by deleting a sizeable piece of it, is a failed GA search rather
-        # than a small slip; the non-GA search on the same inputs usually fixes
-        # those defects without losing cortex, so both are tried and the mesh
-        # that keeps more of the surface wins. Needs the stage inputs, so only
-        # when mris_fix_topology ran in this invocation (not on a resume).
-        premesh_for_orig, ga_info, ga_error = self._try_repair(
-            premesh, self.hemi_path("orig.premesh.pymeshfix")
-        )
-        if self._record["mode"] == "ga" and self._ga_failed(ga_info, ga_error):
-            premesh_for_orig = self._no_ga_rescue(
-                premesh_for_orig,
-                ga_info,
-                ga_error,
-                qsphere_nofix,
-                inflated_nofix,
-                orig_nofix,
-            )
-        elif ga_error is not None:
-            raise ga_error
+            rescue_eligible = self._record["mode"] == "ga"
         else:
-            self._record["pymeshfix"] = ga_info["pymeshfix"]
-            self._record["pymeshfix_vertex_loss"] = ga_info["pymeshfix_vertex_loss"]
+            # Resume. The rescue needs the stage inputs, which step 4 deletes,
+            # so it can only still run when the earlier run died before step 4.
+            # It is skipped when that run already compared the two searches
+            # ("ga" is in its record) or did not use -ga at all.
+            prior = self._prior or {}
+            rescue_eligible = "ga" not in prior and (
+                prior.get("mode") == "ga"
+                or (prior.get("mode") is None and self.config.processing.topology_fix_ga)
+            )
+
+        if (self._prior or {}).get("mode") == "no_ga_rescue" and premesh_resumed:
+            # An earlier run already chose the non-GA mesh. Re-deriving from
+            # orig.premesh (the GA mesh) would promote the very surface that
+            # rescue rejected, so take the non-GA mesh back instead.
+            premesh_for_orig = self._resume_no_ga_rescue()
+        else:
+            # A -ga premesh that is open or not genus 0, or that pymeshfix can
+            # only rescue by deleting a sizeable piece of it, is a failed GA
+            # search rather than a small slip; the non-GA search on the same
+            # inputs usually fixes those defects without losing cortex, so both
+            # are tried and the mesh that keeps more of the surface wins.
+            premesh_for_orig, ga_info, ga_error = self._try_repair(
+                premesh, self.hemi_path("orig.premesh.pymeshfix")
+            )
+            if rescue_eligible and self._ga_failed(ga_info, ga_error):
+                premesh_for_orig = self._no_ga_rescue(
+                    premesh_for_orig,
+                    ga_info,
+                    ga_error,
+                    qsphere_nofix,
+                    inflated_nofix,
+                    orig_nofix,
+                )
+            elif ga_error is not None:
+                raise ga_error
+            else:
+                self._record["pymeshfix"] = ga_info["pymeshfix"]
+                self._record["pymeshfix_vertex_loss"] = ga_info[
+                    "pymeshfix_vertex_loss"
+                ]
 
         # A premesh can be closed, consistently wound and genus 0 and still be
         # entirely inside-out -- the no--ga fallback above has produced exactly
@@ -493,16 +513,43 @@ class TopologyFix(HemisphereStage):
             mris_fix_topology(ga=False, **kwargs)
             return "no_ga_fallback"
 
+    def _resume_no_ga_rescue(self):
+        """Return the non-GA mesh an earlier run chose, re-validated."""
+        noga_premesh = self.hemi_path("orig.premesh.noga")
+        if not noga_premesh.exists():
+            raise FileNotFoundError(
+                f"{self.hemi}.topology_fix.json says the non-GA mesh was chosen, "
+                f"but {noga_premesh.name} is gone. Delete {self.hemi}.orig.premesh "
+                "and re-run from stage 10 to redo the topology fix."
+            )
+        path, info, error = self._try_repair(
+            noga_premesh, self.hemi_path("orig.premesh.noga.pymeshfix")
+        )
+        if error is not None:
+            raise error
+        for key in ("mode", "ga", "no_ga"):
+            if key in self._prior:
+                self._record[key] = self._prior[key]
+        self._record["pymeshfix"] = info["pymeshfix"]
+        return path
+
+    def _record_path(self):
+        return self.sd.scripts_dir / f"{self.hemi}.topology_fix.json"
+
+    def _read_record(self):
+        """The record an earlier run of this stage left, or None."""
+        try:
+            return json.loads(self._record_path().read_text())
+        except (OSError, ValueError):
+            return None
+
     def _write_record(self) -> None:
         """Record which topology path was taken (read by surface_qc.json)."""
-        path = self.sd.scripts_dir / f"{self.hemi}.topology_fix.json"
-        if self._record["mode"] is None and path.exists():
+        path = self._record_path()
+        if self._record["mode"] is None and self._prior:
             # Resumed with an existing premesh: keep the mode the earlier run
             # observed rather than overwrite it with "unknown".
-            try:
-                self._record["mode"] = json.loads(path.read_text()).get("mode")
-            except (OSError, ValueError):
-                pass
+            self._record["mode"] = self._prior.get("mode")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(self._record, indent=2))
 
