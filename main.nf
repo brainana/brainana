@@ -135,10 +135,10 @@ workflow {
     // Resolve GPU usage policy from config + runtime hardware detection.
     // general.gpu_device controls whether GPU scheduling should be enabled.
     // -1 / "cpu" => force CPU-only scheduling (no GPU tokens consumed by workflows).
-    def general_gpu_device = paramResolver.getYamlParam('general.gpu_device', 'auto')
-    def general_gpu_device_str = general_gpu_device == null ? 'auto' : general_gpu_device.toString().trim().toLowerCase()
-    def gpu_forced_cpu = (general_gpu_device_str == 'cpu' || general_gpu_device_str == '-1')
-    params.use_gpu = !gpu_forced_cpu && ((params.gpu_count ?: 0) > 0)
+    // Workflows call paramResolver.resolveUseGpu(params) themselves; do not assign
+    // params.use_gpu here (a runtime assignment would not override nextflow.config).
+    def use_gpu = paramResolver.resolveUseGpu(params)
+    log.info "GPU scheduling: ${use_gpu ? 'enabled' : 'disabled'} (${params.gpu_count ?: 0} GPU(s) detected)"
 
     // ============================================
     // GLOBAL GPU TOKEN POOL
@@ -146,7 +146,7 @@ workflow {
     // Create a shared GPU token queue so ALL GPU processes draw from the same pool
     // This enforces max_jobs_per_gpu across anatomical + functional GPU steps.
     def gpu_queue = new DataflowQueue()
-    def gpu_count = params.use_gpu ? (params.gpu_count ?: 0) : 0
+    def gpu_count = use_gpu ? (params.gpu_count ?: 0) : 0
     def max_jobs_per_gpu = params.max_jobs_per_gpu ?: 1
     def token_gpu_count = gpu_count > 0 ? gpu_count : 1
     def token_jobs_per_gpu = max_jobs_per_gpu > 0 ? max_jobs_per_gpu : 1

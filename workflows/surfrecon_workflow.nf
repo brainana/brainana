@@ -255,7 +255,7 @@ workflow SURF_RECON_WF {
             // one template registration, not for the multi-hour reconstruction
             // that follows. Same gate as ANAT_SKULLSTRIPPING: without it this
             // would pull a token and run on GPU even in CPU mode.
-            def use_base_gpu = params.use_gpu
+            def use_base_gpu = paramResolver.resolveUseGpu(params)
             def base_gpu_input = use_base_gpu ? gpu_queue : Channel.value('none')
 
             def base_atlas_input = ANAT_SURFACE_BASE_TEMPLATE.out.base_dir

@@ -188,7 +188,7 @@ workflow FUNC_WF {
             .set { func_coreg_multi }
         
         // Use GPU token only when workflow-level GPU scheduling is enabled.
-        def use_coreg_gpu = params.use_gpu
+        def use_coreg_gpu = paramResolver.resolveUseGpu(params)
         def coreg_gpu_input = use_coreg_gpu ? gpu_queue : Channel.value('none')
 
         FUNC_WITHIN_SES_COREG(func_coreg_multi.combined, func_coreg_multi.reference, func_coreg_multi.ref_run_identifier_val, config_file, coreg_gpu_input)
@@ -378,8 +378,8 @@ workflow FUNC_WF {
         
         // Use GPU token only when workflow-level GPU scheduling is enabled (use_gpu).
         // Without this gate, brain-mask always pulls gpu_id=0 from gpu_queue and runs on
-        // GPU even in CPU mode (general.gpu_device=-1 / use_gpu=false).
-        def use_mask_gpu = params.use_gpu
+        // GPU even in CPU mode (general.gpu_device=-1).
+        def use_mask_gpu = paramResolver.resolveUseGpu(params)
         def mask_gpu_input = use_mask_gpu ? gpu_queue : Channel.value('none')
         FUNC_COMPUTE_BRAIN_MASK(func_compute_mask_input, config_file, mask_gpu_input)
         if (use_mask_gpu) {
@@ -417,7 +417,7 @@ workflow FUNC_WF {
             }
             .set { func_compute_reg_multi }
 
-        def use_registration_gpu = params.use_gpu
+        def use_registration_gpu = paramResolver.resolveUseGpu(params)
         def gpu_input = use_registration_gpu ? gpu_queue : Channel.value('none')
 
         FUNC_COMPUTE_REGISTRATION(func_compute_reg_multi.combined, func_compute_reg_multi.reference, config_file, gpu_input)

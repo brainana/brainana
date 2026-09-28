@@ -327,8 +327,8 @@ workflow ANAT_WF {
     if (anat_skullstripping_enabled) {
         // Use GPU token only when workflow-level GPU scheduling is enabled (use_gpu).
         // Without this gate, skullstripping always pulls gpu_id=0 from gpu_queue and runs on
-        // GPU even in CPU mode (general.gpu_device=-1 / use_gpu=false).
-        def use_skull_gpu = params.use_gpu
+        // GPU even in CPU mode (general.gpu_device=-1).
+        def use_skull_gpu = paramResolver.resolveUseGpu(params)
         def skull_gpu_input = use_skull_gpu ? gpu_queue : Channel.value('none')
         ANAT_SKULLSTRIPPING(anat_after_conform, config_file, skull_gpu_input)
         if (use_skull_gpu) {
@@ -500,7 +500,7 @@ workflow ANAT_WF {
             }
         
         // Use GPU token only when workflow-level GPU scheduling is enabled.
-        def use_registration_gpu = params.use_gpu
+        def use_registration_gpu = paramResolver.resolveUseGpu(params)
         def gpu_input = use_registration_gpu ? gpu_queue : Channel.value('none')
         
         ANAT_REGISTRATION(registration_input, config_file, gpu_input)

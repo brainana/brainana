@@ -653,6 +653,20 @@ def getYamlList = { yamlKey, defaultValue ->
 }
 
 /**
+ * Whether workflows should schedule GPU processes on GPU tokens.
+ * True when a GPU was detected (params.gpu_count, set in nextflow.config) and
+ * general.gpu_device does not force CPU (-1 / "cpu").
+ * Derived on demand rather than stored in params.use_gpu: a param declared in
+ * nextflow.config is read-only to the script, so a runtime assignment is ignored.
+ */
+def resolveUseGpu = { params ->
+    def gpuDevice = getYamlParam('general.gpu_device', 'auto')
+    def gpuDeviceStr = gpuDevice == null ? 'auto' : gpuDevice.toString().trim().toLowerCase()
+    def forcedCpu = (gpuDeviceStr == 'cpu' || gpuDeviceStr == '-1')
+    return !forcedCpu && ((params.gpu_count ?: 0) > 0)
+}
+
+/**
  * Deep merge two maps (recursive)
  */
 def deepMerge
@@ -816,7 +830,8 @@ with open(output_path, 'w') as f:
         getYamlString: { yamlKey, defaultValue = null -> getYamlString(yamlKey, defaultValue) },
         getYamlInt: { yamlKey, defaultValue = null, min = null, max = null -> getYamlInt(yamlKey, defaultValue, min, max) },
         getYamlFloat: { yamlKey, defaultValue = null, min = null, max = null -> getYamlFloat(yamlKey, defaultValue, min, max) },
-        getYamlList: { yamlKey, defaultValue = null -> getYamlList(yamlKey, defaultValue) }
+        getYamlList: { yamlKey, defaultValue = null -> getYamlList(yamlKey, defaultValue) },
+        resolveUseGpu: { params -> resolveUseGpu(params) }
     ]
 }
 
