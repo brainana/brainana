@@ -81,6 +81,21 @@ You can run the pipeline without a GPU; it will use the CPU. Omit ``--gpus`` fro
 
 If you do have an NVIDIA GPU and want to use it, add ``--gpus all`` and ensure the `NVIDIA Container Toolkit <https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html>`_ is installed on the host. See :doc:`installation` for setup steps.
 
+.. _cpu-mode-with-gpu-host:
+
+**To run on the CPU on a machine that has an NVIDIA GPU**, omit ``--gpus all`` rather than
+passing it and setting ``general.gpu_device: -1`` in the config file. Without ``--gpus all``
+the GPU driver is never exposed to the container, which is the most reliable way to run on
+the CPU.
+
+.. warning::
+
+   **Windows (Docker Desktop with WSL2):** do not combine ``--gpus all`` with CPU mode.
+   With the GPU exposed through WSL2 but not used, CPU-mode skull stripping has been seen to
+   abort with exit status 134 and ``free(): double free detected`` in the task's
+   ``.command.err``. The same run passes with ``--gpus all`` omitted. Either run on the GPU
+   (``--gpus all`` with the default ``general.gpu_device: auto``) or leave ``--gpus all`` out.
+
 ----
 
 Running on your system

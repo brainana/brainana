@@ -32,7 +32,7 @@ Quick start
    - **No compatible GPU?** Omit ``--gpus all``; the pipeline runs on CPU with no other changes. Details in :ref:`Check GPU access <installation-check-gpu-access>`.
    - **``<path/to/work_dir>``** is a host path for Nextflow's intermediate files. Without this mount, resume is impossible.
    - **Run as your user, not root:** Pre-create the output and work directories on the host and own them before mounting; see :ref:`docker-run-as-user-not-root`.
-   - **Windows users:** See :ref:`windows-paths`.
+   - **Windows users:** See :ref:`windows-paths`. To run on the CPU, omit ``--gpus all`` rather than combining it with CPU mode; see :ref:`CPU mode on a machine with a GPU <cpu-mode-with-gpu-host>`.
 
 No configuration file is required; built-in defaults are used. To customise the pipeline, see the Configuration file section below. For all options after the image name, see :ref:`command-line-arguments`.
 
