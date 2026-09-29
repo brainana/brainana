@@ -377,6 +377,7 @@ def conform_to_template(
     skip_skullstripping: bool = False,
     rigid_method: str = "flirt",
     emit_full_fov: bool = False,
+    config: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, str]:
     """Conform input image to template space using rigid registration.
 
@@ -402,6 +403,8 @@ def conform_to_template(
             contains every voxel of the input, so nothing outside the template's box
             (recording chamber, head-post, neck) is cropped away. Anatomical only; the
             extra image is a leaf output that no downstream step consumes.
+        config: Pipeline configuration, forwarded to the skullstripping pass so it
+            honours general.gpu_device (None: defaults, i.e. "auto").
 
     Returns:
         Dictionary with output file paths:
@@ -470,7 +473,7 @@ def conform_to_template(
                     modal=modal,
                     working_dir=str(work_dir),
                     output_name="brain_for_conform.nii.gz",
-                    config=None,  # Use defaults (gpu_device='auto')
+                    config=config,
                     logger=logger,
                 )
 
@@ -1488,6 +1491,9 @@ def apply_segmentation(
             "plane_weight_sagittal": fscnn_cfg.get("plane_weight_sagittal"),
             "use_mixed_model": fscnn_cfg.get("use_mixed_model", False),
             "fix_roi_wm": fix_roi_wm,
+            "enable_fireants": bool(
+                config.get("registration", {}).get("enable_fireants", True)
+            ),
         }
         # Only pass roi_name and wm_thr if fix_roi_wm is True
         if fix_roi_wm:
@@ -1897,13 +1903,22 @@ def apply_skullstripping(
     # Import here to avoid circular import
     from nhp_skullstrip_nn.inference.prediction import skullstripping
 
+    from ..utils.gpu_device import resolve_device, run_with_cpu_fallback
+
     try:
-        result = skullstripping(
-            input_image=str(image_path),
-            modal=modal,
-            output_path=str(brain_mask_path),
-            device_id=device_id,
-            logger=logger,
+        # A CUDA out-of-memory error reruns the network once on the CPU (logged,
+        # and recorded in the step's metadata JSON) instead of failing the step.
+        result = run_with_cpu_fallback(
+            lambda dev: skullstripping(
+                input_image=str(image_path),
+                modal=modal,
+                output_path=str(brain_mask_path),
+                device_id=dev,
+                logger=logger,
+            ),
+            resolve_device(device_id),
+            "skull-strip network",
+            logger,
         )
 
         # Extract brain mask path from result

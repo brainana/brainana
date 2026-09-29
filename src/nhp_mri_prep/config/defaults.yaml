@@ -5,7 +5,7 @@ _description: "Default configuration for brainana preprocessing pipeline"
 general:
   verbose: 2  # int or bool: verbosity level (0=quiet/ERROR, 1=normal/INFO, 2=verbose/DEBUG).
   anat_only: false  # bool: process only anatomical data
-  gpu_device: "auto"  # str | int: "auto", -1/"cpu" (CPU), or GPU index (0..N). Global GPU policy: main.nf reads this to decide whether GPU scheduling is enabled at all (set -1/"cpu" to force the whole pipeline onto CPU). Per-model knobs (e.g. anat.skullstripping_segmentation.fastSurferCNN.gpu_device) select a specific device within that policy; if this is set to CPU, those are effectively CPU regardless.
+  gpu_device: "auto"  # str | int: "auto", -1/"cpu" (CPU), or GPU index (0..N, nvidia-smi numbering). Global GPU policy, read by nextflow.config and main.nf: "auto" runs GPU steps on every detected GPU; -1/"cpu" forces the whole pipeline onto CPU (containers are not even given the GPU); N runs every GPU step on physical GPU N only. Tasks that are not GPU steps always run with CUDA_VISIBLE_DEVICES="".
 
 bids_filtering:
   subjects: null  # list of str (have to be quoted) or null: filter by subject IDs (e.g., ["01", "02"])

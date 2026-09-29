@@ -465,6 +465,7 @@ process FUNC_COMPUTE_CONFORM {
     tuple val(subject_id), val(session_id), val(run_identifier), path(tmean_file), val(bids_name)
     path(anat_brain_file)
     path config_file  // Effective config file with all resolved parameters
+    val use_gpu  // true: this task runs on a GPU slot; false: CPU
     
     output:
     // Output: [sub, ses, run_identifier, conformed_tmean, bids_template]
@@ -479,6 +480,12 @@ process FUNC_COMPUTE_CONFORM {
     
     script:
     """
+    # GPU step: take a GPU slot for this task (bin/brainana_gpu_slot.sh). Otherwise
+    # stay on the CPU; the beforeScript already hid every GPU.
+    if [ "${use_gpu}" = "true" ]; then
+        source brainana_gpu_slot.sh
+    fi
+
     \${PYTHON:-python3} <<EOF
     from nhp_mri_prep.steps.functional import func_conform
     from nhp_mri_prep.steps.types import StepInput
@@ -795,20 +802,19 @@ process FUNC_COMPUTE_BRAIN_MASK {
     // Input: [sub, ses, run_identifier, conformed_tmean, bids_template]
     tuple val(subject_id), val(session_id), val(run_identifier), path(conformed_tmean), val(bids_name)
     path config_file
-    val gpu_id
+    val use_gpu  // true: this task runs on a GPU slot; false: CPU
     
     output:
     // Output: [sub, ses, run_identifier, masked_tmean, bids_template, brain_mask]
     tuple val(subject_id), val(session_id), val(run_identifier), path("*_boldref_brain.nii.gz"), val(bids_name), path("*desc-brain_mask.nii.gz"), emit: output
     path "*.json", emit: metadata
-    val gpu_id, emit: gpu_token
     
     script:
     """
-    # Conditional GPU assignment
-    if [ "${gpu_id}" != "none" ]; then
-        export CUDA_VISIBLE_DEVICES=${gpu_id}
-        echo "[GPU Assignment] Task ${task.index} -> GPU ${gpu_id} (of ${params.gpu_count} available)"
+    # GPU step: take a GPU slot for this task (bin/brainana_gpu_slot.sh). Otherwise
+    # stay on the CPU; the beforeScript already hid every GPU.
+    if [ "${use_gpu}" = "true" ]; then
+        source brainana_gpu_slot.sh
     fi
     
     \${PYTHON:-python3} <<EOF
@@ -881,7 +887,7 @@ process FUNC_COMPUTE_REGISTRATION {
     tuple val(subject_id), val(session_id), val(run_identifier), path(masked_tmean), val(bids_name), val(anat_session_id)
     path(anat_brain)
     path config_file  // Effective config file with all resolved parameters
-    val gpu_id  // GPU ID for scheduling ('none' for CPU mode, integer for GPU mode)
+    val use_gpu  // true: this task runs on a GPU slot; false: CPU
     
     output:
     // Output: [sub, ses, run_identifier, registered_tmean, bids_template, anat_session_id]
@@ -891,14 +897,13 @@ process FUNC_COMPUTE_REGISTRATION {
     // Reference: [sub, ses, run_identifier, reference_file]
     tuple val(subject_id), val(session_id), val(run_identifier), path("*ref_from_func_reg.nii.gz"), emit: reference
     path "*.json", emit: metadata
-    val gpu_id, emit: gpu_token
     
     script:
     """
-    # Conditional GPU assignment
-    if [ "${gpu_id}" != "none" ]; then
-        export CUDA_VISIBLE_DEVICES=${gpu_id}
-        echo "[GPU Assignment] Task ${task.index} -> GPU ${gpu_id} (of ${params.gpu_count} available)"
+    # GPU step: take a GPU slot for this task (bin/brainana_gpu_slot.sh). Otherwise
+    # stay on the CPU; the beforeScript already hid every GPU.
+    if [ "${use_gpu}" = "true" ]; then
+        source brainana_gpu_slot.sh
     fi
     
     \${PYTHON:-python3} <<EOF
@@ -1623,22 +1628,16 @@ process FUNC_WITHIN_SES_COREG {
     path(reference_tmean)
     val(reference_run_identifier)
     path config_file
-    val gpu_id  // GPU ID for scheduling ('none' for CPU mode, integer for GPU mode)
     
     output:
     tuple val(subject_id), val(session_id), val(run_identifier), path("*desc-coreg_bold.nii.gz"), path("*desc-coreg_boldref.nii.gz"), val(bids_name), emit: output
     tuple val(subject_id), val(session_id), val(run_identifier), path("from-${run_identifier}_to-${reference_run_identifier}_mode-image_xfm.{h5,mat,nii.gz}"), emit: transforms
     path "*.json", emit: metadata
-    val gpu_id, emit: gpu_token
     
     script:
+    // CPU only: the coregistration is rigid, and FireANTs (the only GPU path in
+    // ants_register) runs for SyN only. No GPU slot; the beforeScript hides GPUs.
     """
-    # Conditional GPU assignment (ants_register uses FireANTs when GPU available)
-    if [ "${gpu_id}" != "none" ]; then
-        export CUDA_VISIBLE_DEVICES=${gpu_id}
-        echo "[GPU Assignment] Task ${task.index} -> GPU ${gpu_id} (of ${params.gpu_count} available)"
-    fi
-    
     \${PYTHON:-python3} <<EOF
 from nhp_mri_prep.steps.functional import func_within_ses_coreg
 from nhp_mri_prep.steps.types import StepInput

@@ -39,7 +39,6 @@ workflow SURF_RECON_WF {
     anat_skull_seg         // [sub, ses, seg_file]
     anat_skull_mask        // [sub, ses, mask_file]
     anat_arm6_atlas        // [sub, ses, arm6_atlas_file]
-    gpu_queue
 
     main:
     // ============================================
@@ -251,12 +250,11 @@ workflow SURF_RECON_WF {
             ANAT_SURFACE_BASE_TEMPLATE(base_build_input, config_file)
 
             // ---- BASE, STAGE 2/3: segment + backproject atlases (gpu) ----
-            // Split out so the GPU token is held only for a CNN segmentation and
+            // Split out so a GPU slot is held only for a CNN segmentation and
             // one template registration, not for the multi-hour reconstruction
-            // that follows. Same gate as ANAT_SKULLSTRIPPING: without it this
-            // would pull a token and run on GPU even in CPU mode.
+            // that follows. Same gate as ANAT_SKULLSTRIPPING.
             def use_base_gpu = paramResolver.resolveUseGpu(params)
-            def base_gpu_input = use_base_gpu ? gpu_queue : Channel.value('none')
+            def base_gpu_input = Channel.value(use_base_gpu)
 
             def base_atlas_input = ANAT_SURFACE_BASE_TEMPLATE.out.base_dir
                 .map { sub, base_id, base_dir -> [sub, base_id] }
@@ -265,9 +263,6 @@ workflow SURF_RECON_WF {
             ANAT_SURFACE_BASE_ATLAS(base_atlas_input, config_file, base_gpu_input)
 
             // Return the token so the next GPU task can take the slot.
-            if (use_base_gpu) {
-                ANAT_SURFACE_BASE_ATLAS.out.gpu_token.subscribe { gpu_queue << it }
-            }
 
             // ---- BASE, STAGE 3/3: reconstruct the surfaces (cpu) ---------
             def base_recon_input = ANAT_SURFACE_BASE_TEMPLATE.out.base_dir

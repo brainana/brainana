@@ -242,6 +242,13 @@ def save_metadata(
         output_path: Path to output JSON file (default: 'metadata.json')
     """
     output_file = Path(output_path)
+    # What the step actually ran on (device resolutions and any CPU fallback after a
+    # CUDA out-of-memory error). Only when the device module was loaded, so steps
+    # that never touch torch do not import it here.
+    gpu_utils = sys.modules.get("fastsurfer_nn.utils.gpu_utils")
+    report = gpu_utils.device_report() if gpu_utils is not None else None
+    if report is not None and "device" not in metadata_dict:
+        metadata_dict = {**metadata_dict, "device": report}
     with open(output_file, "w") as f:
         json.dump(metadata_dict, f, indent=2)
 

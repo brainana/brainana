@@ -147,6 +147,7 @@ process ANAT_CONFORM {
     input:
     tuple val(subject_id), val(session_id), path(input_file), val(bids_name)
     path config_file
+    val use_gpu  // true: this task runs on a GPU slot; false: CPU
     
     output:
     // Exact token: must not also capture *_desc-conformFullFOV_*, or downstream steps
@@ -168,6 +169,12 @@ process ANAT_CONFORM {
     
     script:
     """
+    # GPU step: take a GPU slot for this task (bin/brainana_gpu_slot.sh). Otherwise
+    # stay on the CPU; the beforeScript already hid every GPU.
+    if [ "${use_gpu}" = "true" ]; then
+        source brainana_gpu_slot.sh
+    fi
+
     \${PYTHON:-python3} <<EOF
 from nhp_mri_prep.steps.anatomical import anat_conform
 from nhp_mri_prep.steps.types import StepInput
@@ -395,7 +402,7 @@ process ANAT_SKULLSTRIPPING {
     input:
     tuple val(subject_id), val(session_id), path(input_file), val(bids_name)
     path config_file
-    val gpu_id
+    val use_gpu  // true: this task runs on a GPU slot; false: CPU
     
     output:
     // Pattern matches files with desc-skullstrip (full head, inherited from input)
@@ -406,17 +413,14 @@ process ANAT_SKULLSTRIPPING {
     tuple val(subject_id), val(session_id), path("*_desc-brain_hemimask.nii.gz"), optional: true, emit: brain_hemimask
     tuple val(subject_id), val(session_id), path("*_desc-brain_atlas*.nii.gz"), optional: true, emit: brain_segmentation
     tuple val(subject_id), val(session_id), path("*_desc-brain_atlas*.tsv"), optional: true, emit: brain_segmentation_lut
-    val gpu_id, emit: gpu_token
     path "*.json", emit: metadata
     
     script:
     """
-    # GPU Assignment (gpu_id is 'none' when workflow GPU scheduling is disabled, e.g. CPU mode)
-    if [ "${gpu_id}" != "none" ]; then
-        export CUDA_VISIBLE_DEVICES=${gpu_id}
-        echo "[GPU Assignment] Task ${task.index} -> GPU ${gpu_id} (of ${params.gpu_count} available)"
-    else
-        export CUDA_VISIBLE_DEVICES=""
+    # GPU step: take a GPU slot for this task (bin/brainana_gpu_slot.sh). Otherwise
+    # stay on the CPU; the beforeScript already hid every GPU.
+    if [ "${use_gpu}" = "true" ]; then
+        source brainana_gpu_slot.sh
     fi
 
     \${PYTHON:-python3} <<EOF
@@ -705,7 +709,7 @@ EOF
  * timepoint-to-base transforms. CPU-only and deliberately separate from the
  * segmentation that follows: that one needs a GPU, and the reconstruction after
  * it runs for hours -- doing all three in one task made a multi-hour CPU job
- * hold a gpu_queue token, starving every other GPU consumer.
+ * hold a GPU slot, starving every other GPU consumer.
  */
 process ANAT_SURFACE_BASE_TEMPLATE {
     label 'cpu'
@@ -839,10 +843,10 @@ process ANAT_SURFACE_BASE_ATLAS {
     label 'gpu'
     tag "${subject_id}_base"
 
-    // Deliberately NOT errorStrategy 'ignore': this stage holds a token from
-    // gpu_queue and returns it via gpu_token, and 'ignore' would let a failed
-    // task swallow its token. gpu_queue is never closed, so the pipeline would
-    // hang forever rather than skip a subject. Same choice as ANAT_SKULLSTRIPPING.
+    // Not errorStrategy 'ignore', same as ANAT_SKULLSTRIPPING. This used to be
+    // required: a failed task swallowed its gpu_queue token and the run hung.
+    // GPU slots (bin/brainana_gpu_slot.sh) are released by the kernel however the
+    // task ends, so 'ignore' would now be safe if skipping a subject were preferred.
 
     // Base-space derivatives, mirroring what ANAT_SKULLSTRIPPING publishes per
     // session. Named with space-base so they sit beside the session ones without
@@ -861,7 +865,7 @@ process ANAT_SURFACE_BASE_ATLAS {
     input:
     tuple val(subject_id), val(base_id), path(base_nii, stageAs: 'base_nii/*')
     path config_file
-    val gpu_id
+    val use_gpu  // true: this task runs on a GPU slot; false: CPU
 
     output:
     // Fixed names chosen here rather than globbed: apply_segmentation writes
@@ -881,18 +885,13 @@ process ANAT_SURFACE_BASE_ATLAS {
     // The stem every base-derived output is named from, emitted so the workflow
     // does not have to rebuild it by regex. See longitudinal_bids_name().
     tuple val(subject_id), path("bids_name.txt"), emit: bids_name
-    val gpu_id, emit: gpu_token
 
     script:
     """
-    # GPU assignment (gpu_id is 'none' when workflow GPU scheduling is disabled,
-    # e.g. CPU mode). Without this the task uses whichever device torch picks, so
-    # multi-GPU tasks collide and CPU-mode runs still hit the GPU.
-    if [ "${gpu_id}" != "none" ]; then
-        export CUDA_VISIBLE_DEVICES=${gpu_id}
-        echo "[GPU Assignment] Task ${task.index} -> GPU ${gpu_id} (of ${params.gpu_count} available)"
-    else
-        export CUDA_VISIBLE_DEVICES=""
+    # GPU step: take a GPU slot for this task (bin/brainana_gpu_slot.sh). Otherwise
+    # stay on the CPU; the beforeScript already hid every GPU.
+    if [ "${use_gpu}" = "true" ]; then
+        source brainana_gpu_slot.sh
     fi
 
     \${PYTHON:-python3} <<EOF
@@ -1009,7 +1008,7 @@ EOF
  * Within-subject base template, stage 3 of 3.
  *
  * Reconstructs the base's surfaces. CPU-only and long-running, so it is sized
- * like ANAT_SURFACE_RECONSTRUCTION and holds no GPU token.
+ * like ANAT_SURFACE_RECONSTRUCTION and takes no GPU slot.
  */
 process ANAT_SURFACE_BASE_RECON {
     label 'cpu'
@@ -1374,7 +1373,7 @@ process ANAT_REGISTRATION {
     input:
     tuple val(subject_id), val(session_id), path(input_file), val(bids_name), path(unskullstripped_file)
     path config_file  // Effective config file with all resolved parameters
-    val gpu_id  // GPU ID for scheduling ('none' for CPU mode, integer for GPU mode)
+    val use_gpu  // true: this task runs on a GPU slot; false: CPU
     
     output:
     // Output: [sub, ses, registered_file, bids_template]
@@ -1385,14 +1384,13 @@ process ANAT_REGISTRATION {
     // Reference: [sub, ses, reference_file]
     tuple val(subject_id), val(session_id), path("*ref_from_anat_reg.nii.gz"), emit: reference
     path "*.json", emit: metadata
-    val gpu_id, emit: gpu_token
     
     script:
     """
-    # Conditional GPU assignment
-    if [ "${gpu_id}" != "none" ]; then
-        export CUDA_VISIBLE_DEVICES=${gpu_id}
-        echo "[GPU Assignment] Task ${task.index} -> GPU ${gpu_id} (of ${params.gpu_count} available)"
+    # GPU step: take a GPU slot for this task (bin/brainana_gpu_slot.sh). Otherwise
+    # stay on the CPU; the beforeScript already hid every GPU.
+    if [ "${use_gpu}" = "true" ]; then
+        source brainana_gpu_slot.sh
     fi
     
     # Get effective_output_space from effective config file

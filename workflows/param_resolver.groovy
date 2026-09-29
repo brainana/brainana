@@ -653,6 +653,28 @@ def getYamlList = { yamlKey, defaultValue ->
 }
 
 /**
+ * Parse general.gpu_device into [mode: 'auto'|'cpu'|'index', index: Integer].
+ * Accepts the same spellings as the Python resolve_device(): auto, cuda, gpu,
+ * cpu, -1 (int or quoted), N / "N" / "cuda:N" for a physical GPU index.
+ */
+def parseGpuDevice = { value ->
+    def s = value == null ? 'auto' : value.toString().trim().toLowerCase()
+    if (s in ['', 'auto', 'cuda', 'gpu']) {
+        return [mode: 'auto', index: null]
+    }
+    if (s in ['cpu', '-1']) {
+        return [mode: 'cpu', index: null]
+    }
+    def digits = s.startsWith('cuda:') ? s.substring(5) : s
+    if (digits.isInteger() && digits.toInteger() >= 0) {
+        return [mode: 'index', index: digits.toInteger()]
+    }
+    throw new IllegalArgumentException(
+        "general.gpu_device must be auto, cpu, -1, a GPU index (0, 1, ...) or cuda:N; got '${value}'"
+    )
+}
+
+/**
  * Whether workflows should schedule GPU processes on GPU tokens.
  * True when a GPU was detected (params.gpu_count, set in nextflow.config) and
  * general.gpu_device does not force CPU (-1 / "cpu").
@@ -660,10 +682,47 @@ def getYamlList = { yamlKey, defaultValue ->
  * nextflow.config is read-only to the script, so a runtime assignment is ignored.
  */
 def resolveUseGpu = { params ->
-    def gpuDevice = getYamlParam('general.gpu_device', 'auto')
-    def gpuDeviceStr = gpuDevice == null ? 'auto' : gpuDevice.toString().trim().toLowerCase()
-    def forcedCpu = (gpuDeviceStr == 'cpu' || gpuDeviceStr == '-1')
-    return !forcedCpu && ((params.gpu_count ?: 0) > 0)
+    def spec = parseGpuDevice(getYamlParam('general.gpu_device', 'auto'))
+    return spec.mode != 'cpu' && ((params.gpu_count ?: 0) > 0)
+}
+
+/**
+ * Whether a registration step should take a GPU token: only FireANTs SyN uses the
+ * GPU, so ANTs-only and rigid/affine registration stay CPU tasks and do not hold
+ * a token another GPU step could use.
+ */
+def registrationUsesGpu = { params, List xfmKeys ->
+    if (!resolveUseGpu(params)) {
+        return false
+    }
+    def fireants = getYamlParam('registration.enable_fireants', true)
+    if (!(fireants.toString().trim().toLowerCase() in ['true', 'yes', '1'])) {
+        return false
+    }
+    return xfmKeys.any { key ->
+        getYamlParam(key, 'syn').toString().trim().toLowerCase() == 'syn'
+    }
+}
+
+/**
+ * Physical GPU ids the token pool may hand out. Empty when GPU scheduling is off.
+ * An explicit general.gpu_device index pins every GPU task to that one GPU.
+ */
+def resolveGpuIds = { params ->
+    if (!resolveUseGpu(params)) {
+        return []
+    }
+    def gpuCount = params.gpu_count ?: 0
+    def spec = parseGpuDevice(getYamlParam('general.gpu_device', 'auto'))
+    if (spec.mode == 'index') {
+        if (spec.index >= gpuCount) {
+            throw new IllegalArgumentException(
+                "general.gpu_device: ${spec.index} but only ${gpuCount} GPU(s) detected (valid: 0..${gpuCount - 1})"
+            )
+        }
+        return [spec.index]
+    }
+    return (0..<gpuCount).toList()
 }
 
 /**
@@ -831,7 +890,9 @@ with open(output_path, 'w') as f:
         getYamlInt: { yamlKey, defaultValue = null, min = null, max = null -> getYamlInt(yamlKey, defaultValue, min, max) },
         getYamlFloat: { yamlKey, defaultValue = null, min = null, max = null -> getYamlFloat(yamlKey, defaultValue, min, max) },
         getYamlList: { yamlKey, defaultValue = null -> getYamlList(yamlKey, defaultValue) },
-        resolveUseGpu: { params -> resolveUseGpu(params) }
+        resolveUseGpu: { params -> resolveUseGpu(params) },
+        resolveGpuIds: { params -> resolveGpuIds(params) },
+        registrationUsesGpu: { params, xfmKeys -> registrationUsesGpu(params, xfmKeys) }
     ]
 }
 

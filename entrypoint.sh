@@ -41,6 +41,77 @@ set -e
 
 # --- functions ----------------------------------------------------------------
 
+# CPUs this container may use: the cgroup CPU quota (docker --cpus, Docker Desktop
+# VM size) when set, else nproc. nproc alone ignores --cpus.
+container_cpu_limit() {
+    local n quota period
+    n=$(nproc 2>/dev/null || echo 1)
+    if [ -r /sys/fs/cgroup/cpu.max ]; then
+        read -r quota period < /sys/fs/cgroup/cpu.max
+    elif [ -r /sys/fs/cgroup/cpu/cpu.cfs_quota_us ]; then
+        quota=$(cat /sys/fs/cgroup/cpu/cpu.cfs_quota_us)
+        period=$(cat /sys/fs/cgroup/cpu/cpu.cfs_period_us 2>/dev/null || echo 100000)
+    fi
+    if [ -n "$quota" ] && [ "$quota" != "max" ] && [ "$quota" -gt 0 ] 2>/dev/null; then
+        local q=$(( (quota + period - 1) / period ))
+        [ "$q" -lt "$n" ] && n=$q
+    fi
+    echo "$n"
+}
+
+# Memory (bytes) this container may use: cgroup limit (docker --memory) or MemTotal
+# (the Docker Desktop VM size on macOS/Windows).
+container_memory_limit() {
+    local total limit
+    # printf, not print: mawk (the image's awk) prints large products as 5.4e+11.
+    total=$(awk '/^MemTotal:/ {printf "%.0f\n", $2 * 1024}' /proc/meminfo 2>/dev/null)
+    if [ -r /sys/fs/cgroup/memory.max ]; then
+        limit=$(cat /sys/fs/cgroup/memory.max)
+    elif [ -r /sys/fs/cgroup/memory/memory.limit_in_bytes ]; then
+        limit=$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes)
+    fi
+    if [ -n "$limit" ] && [ "$limit" != "max" ] && [ -n "$total" ] && [ "$limit" -lt "$total" ] 2>/dev/null; then
+        echo "$limit"
+    else
+        echo "${total:-0}"
+    fi
+}
+
+# "20g", "20 GB", "20480MB" -> bytes (empty on parse failure).
+memory_to_bytes() {
+    echo "$1" | awk '{
+        s = toupper($0); gsub(/[ \t]/, "", s)
+        if (match(s, /^[0-9]+(\.[0-9]+)?/) == 0) exit
+        v = substr(s, 1, RLENGTH); u = substr(s, RLENGTH + 1); sub(/B$/, "", u)
+        m = (u == "" ? 1 : u == "K" ? 1024 : u == "M" ? 1024^2 : u == "G" ? 1024^3 : u == "T" ? 1024^4 : 0)
+        if (m) printf "%.0f\n", v * m
+    }'
+}
+
+# Clamp NXF_MAX_CPUS / NXF_MAX_MEMORY to what this container actually has. Leaves
+# ~10% of memory for the Nextflow JVM and the OS. Asking for more than exists makes
+# Nextflow schedule tasks the container cannot hold (OOM kill, exit 137).
+clamp_executor_limits() {
+    local cpus mem_bytes want_bytes budget_mb
+    cpus=$(container_cpu_limit)
+    if [ "$NXF_MAX_CPUS" -gt "$cpus" ] 2>/dev/null; then
+        echo "WARNING: NXF_MAX_CPUS=$NXF_MAX_CPUS but this container has $cpus CPU(s); using $cpus." >&2
+        echo "         (Docker Desktop: raise CPUs under Settings > Resources.)" >&2
+        NXF_MAX_CPUS=$cpus
+    fi
+    mem_bytes=$(container_memory_limit)
+    want_bytes=$(memory_to_bytes "$NXF_MAX_MEMORY")
+    if [ -n "$want_bytes" ] && [ "${mem_bytes:-0}" -gt 0 ] 2>/dev/null; then
+        budget_mb=$(( mem_bytes * 9 / 10 / 1024 / 1024 ))
+        if [ "$want_bytes" -gt $(( budget_mb * 1024 * 1024 )) ]; then
+            echo "WARNING: NXF_MAX_MEMORY=$NXF_MAX_MEMORY but this container has $(( mem_bytes / 1024 / 1024 )) MB; using ${budget_mb} MB." >&2
+            echo "         (Docker Desktop: raise Memory under Settings > Resources, or pass --memory.)" >&2
+            NXF_MAX_MEMORY="${budget_mb}MB"
+        fi
+    fi
+    export NXF_MAX_CPUS NXF_MAX_MEMORY
+}
+
 freesurfer_license_probe() {
     local probe_input="${FREESURFER_HOME:-/usr/local/freesurfer}/average/pons.mni152.2mm.mgz"
     local probe_output="/tmp/brainana_fs_license_test.nii.gz"
@@ -198,6 +269,10 @@ export NXF_NO_DOCKER=1
 export NXF_ANSI_LOG="${NXF_ANSI_LOG:-true}"
 export NXF_MAX_CPUS="${NXF_MAX_CPUS:-8}"
 export NXF_MAX_MEMORY="${NXF_MAX_MEMORY:-20g}"
+clamp_executor_limits
+# nvidia-smi numbers GPUs in PCI order; make CUDA agree so a GPU token (an
+# nvidia-smi index exported as CUDA_VISIBLE_DEVICES) is the same physical GPU.
+export CUDA_DEVICE_ORDER=PCI_BUS_ID
 
 DEFAULT_CONFIG="/opt/brainana/src/nhp_mri_prep/config/defaults.yaml"
 PROJECT_ROOT="/opt/brainana"

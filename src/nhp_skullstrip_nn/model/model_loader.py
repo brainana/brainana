@@ -40,7 +40,9 @@ class ModelLoader:
 
         # Load checkpoint first to extract config if needed
         logger.info("Loading checkpoint...")
-        checkpoint = torch.load(model_path, map_location=device, weights_only=False)
+        # Load on CPU, then move (model.to(device) below): loading straight onto MPS
+        # is known to yield zeros (see fastsurfer_nn Inference.load_checkpoint).
+        checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
 
         # Extract config from checkpoint if not provided
         if config is None and "config" in checkpoint:

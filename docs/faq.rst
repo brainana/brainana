@@ -96,6 +96,20 @@ the CPU.
    ``.command.err``. The same run passes with ``--gpus all`` omitted. Either run on the GPU
    (``--gpus all`` with the default ``general.gpu_device: auto``) or leave ``--gpus all`` out.
 
+.. rst-class:: faq-question
+
+Which values does ``general.gpu_device`` take?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- ``auto`` (default): use the NVIDIA GPUs the container can see, otherwise the CPU.
+- ``-1`` or ``cpu``: run every step on the CPU, even when a GPU is visible.
+- ``0``, ``1``, …: run every GPU step on that one GPU (numbered as ``nvidia-smi`` lists them).
+  The run stops at start-up if that GPU does not exist.
+
+Steps that use the GPU are skull stripping and segmentation, the functional brain mask, and
+FireANTs SyN registration. Every other step runs on the CPU and never sees a GPU. Apple
+silicon GPUs (MPS) are not used.
+
 ----
 
 Running on your system
@@ -188,6 +202,11 @@ The container defaults to 8 CPUs and 20 GB for Nextflow (controlled by ``NXF_MAX
 - Pass ``-e NXF_MAX_CPUS=<n>`` and ``-e NXF_MAX_MEMORY=<n>g`` to ``docker run``.
 - Use ``-profile minimal`` (4 CPUs, 16 GB) or ``-profile recommended`` (8+ CPUs, 32 GB) for preset profiles.
 
+If either value is more than the container actually has (Docker Desktop's VM size on macOS and
+Windows, or ``docker run --cpus/--memory``), the container lowers it to what is available (about
+90% of the memory) and prints a ``WARNING`` at start-up. Steps that ask for more CPUs or memory
+than that limit are given the limit instead.
+
 See :ref:`command-line-arguments` for the full resource options.
 
 .. rst-class:: faq-question
@@ -214,6 +233,10 @@ By default, this limit is **50% of your host RAM** (see `Docker Desktop advanced
 If this default (for example, 4 GB on an 8 GB machine) is too low, the pipeline can run out of memory even though the host itself still has free RAM.
 
 To fix this, open Docker Desktop and go to ``Settings → Resources → Advanced``. Increase the **Memory** allocation (for example, to 6–7 GB on an 8 GB machine), apply the changes, and rerun the pipeline.
+
+**On a Mac with Apple silicon (M1 and later):** the Brainana image is built for x86-64, so Docker
+Desktop runs it under emulation. It runs on the CPU only and is noticeably slower than on an
+x86-64 machine with the same number of cores.
 
 **On native Docker on Linux (no Docker Desktop):**
 

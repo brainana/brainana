@@ -29,7 +29,6 @@ from fastsurfer_nn.utils import logging, parser_defaults
 __all__ = [
     "assert_no_root",
     "find_device",
-    "handle_cuda_memory_exception",
     "iterate",
     "SerialExecutor",
     "pipeline",
@@ -43,15 +42,9 @@ LOGGER = logging.getLogger(__name__)
 _T = TypeVar("_T")
 _Ti = TypeVar("_Ti")
 
-# Import GPU utilities for least-busy GPU selection
-from fastsurfer_nn.utils.gpu_utils import cuda_available
-
-try:
-    from fastsurfer_nn.utils.gpu_utils import get_least_busy_gpu
-except ImportError:
-    # Fallback if gpu_utils is not available
-    def get_least_busy_gpu():
-        return 0
+# The device policy itself lives in fastsurfer_nn.utils.gpu_utils (one implementation
+# for every brainana package); find_device adapts it to FastSurfer's interface.
+from fastsurfer_nn.utils.gpu_utils import resolve_device
 
 
 def find_device(
@@ -82,30 +75,14 @@ def find_device(
         The torch.device object.
     """
     logger = logging.get_logger(__name__ + ".auto_device")
-    # if specific device is requested, check and stop if not available:
-    has_cuda = cuda_available()
-    has_mps = hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
-    msg = None
-    if str(device).startswith("cuda") and not has_cuda:
-        msg = f"cuda not available, try switching to cpu: --{flag_name} cpu"
-    if str(device) == "mps" and not has_mps:
-        msg = f"mps not available, try switching to cpu: --{flag_name} cpu"
-    if msg is not None:
+    spec = default_cuda_device if (str(device) == "auto" or not device) else device
+    try:
+        device = resolve_device(spec)
+    except RuntimeError as e:
+        # FastSurfer's contract: an unavailable explicit device is a ValueError.
+        msg = f"{e} (try --{flag_name} cpu)"
         logger.info(f"System: {msg}")
-        raise ValueError(msg)
-    # If auto detect:
-    if str(device) == "auto" or not device:
-        # 1st check cuda / also finds AMD ROCm, then mps, finally cpu
-        device = default_cuda_device if has_cuda else "mps" if has_mps else "cpu"
-
-    # If device is "cuda" (not a specific device like "cuda:0"), find least busy GPU
-    device_str = str(device)
-    if device_str == "cuda" and has_cuda:
-        best_gpu = get_least_busy_gpu()
-        device = f"cuda:{best_gpu}"
-        logger.info(f"System: auto-selected least busy GPU={device}")
-
-    device = torch.device(device)
+        raise ValueError(msg) from e
 
     if device.type == "cuda" and min_memory > 0:
         dev_num = torch.cuda.current_device() if device.index is None else device.index
@@ -153,41 +130,6 @@ def assert_no_root() -> bool:
             )
         )
     return True
-
-
-def handle_cuda_memory_exception(exception: BaseException) -> bool:
-    """
-    Handle CUDA out of memory exception and print a help text.
-
-    Parameters
-    ----------
-    exception : builtins.BaseException
-        Received exception.
-
-    Returns
-    -------
-    bool
-        Whether the exception was a RuntimeError caused by Cuda out memory.
-    """
-    if not isinstance(exception, RuntimeError):
-        return False
-    message = exception.args[0]
-    if message.startswith("CUDA out of memory. "):
-        LOGGER.critical("ERROR - INSUFFICIENT GPU MEMORY")
-        LOGGER.info(
-            "The memory requirements exceeds the available GPU memory, try using a "
-            "smaller batch size (--batch_size <int>) and/or view aggregation on the "
-            "cpu (--viewagg_device 'cpu')."
-        )
-        LOGGER.info(
-            "Note: View Aggregation on the GPU is particularly memory-hungry at "
-            "approx. 5 GB for standard 256x256x256 images."
-        )
-        memory_message = message[message.find("(") + 1 : message.find(")")]
-        LOGGER.info(f"Using {memory_message}.")
-        return True
-    else:
-        return False
 
 
 def pipeline(

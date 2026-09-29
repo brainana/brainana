@@ -23,9 +23,12 @@ runs
 # Declared in nextflow.config params{}, so they are ALWAYS present in params at runtime and
 # MUST stay listed here, or main.nf's guard would abort every run. Not meant to be passed by
 # users (set by hardware detection / config-parse).
-use_gpu
 gpu_count
 max_jobs_per_gpu
+
+# Deprecated: no longer a param (GPU use follows general.gpu_device). Still tolerated so old
+# command lines run; main.nf warns that it is ignored.
+use_gpu
 
 # Optional internal override; NOT declared in nextflow.config params{} (params.python_exe
 # defaults to 'python3' when unset). Listed here only so the guard tolerates it when passed.

@@ -57,7 +57,6 @@ workflow FUNC_WF {
     surf_actual_subject_id  // [sub, ses, fastsurfer_dir_name] from surface recon; empty when surf recon skipped
     anat_skull_seg      // [sub, ses, T1w-space segmentation] (for confounds tissue regressors)
     anat_skull_seg_lut  // [sub, ses, atlas LUT tsv]
-    gpu_queue
 
     main:
     // ============================================
@@ -187,14 +186,8 @@ workflow FUNC_WF {
             }
             .set { func_coreg_multi }
         
-        // Use GPU token only when workflow-level GPU scheduling is enabled.
-        def use_coreg_gpu = paramResolver.resolveUseGpu(params)
-        def coreg_gpu_input = use_coreg_gpu ? gpu_queue : Channel.value('none')
-
-        FUNC_WITHIN_SES_COREG(func_coreg_multi.combined, func_coreg_multi.reference, func_coreg_multi.ref_run_identifier_val, config_file, coreg_gpu_input)
-        if (use_coreg_gpu) {
-            FUNC_WITHIN_SES_COREG.out.gpu_token.subscribe { gpu_queue << it }
-        }
+        // No GPU token: within-session coregistration is always rigid (CPU ANTs).
+        FUNC_WITHIN_SES_COREG(func_coreg_multi.combined, func_coreg_multi.reference, func_coreg_multi.ref_run_identifier_val, config_file)
         func_coreg_transforms_ch = FUNC_WITHIN_SES_COREG.out.transforms
         
         // Separate multi-run sessions (need averaging) from single-run sessions (skip averaging)
@@ -349,7 +342,10 @@ workflow FUNC_WF {
             }
             .set { func_compute_conform_multi }
 
-        FUNC_COMPUTE_CONFORM(func_compute_conform_multi.combined, func_compute_conform_multi.reference, config_file)
+        // GPU token for the skull-strip network conform runs before its rigid registration.
+        def use_conform_gpu = paramResolver.resolveUseGpu(params)
+        def conform_gpu_input = Channel.value(use_conform_gpu)
+        FUNC_COMPUTE_CONFORM(func_compute_conform_multi.combined, func_compute_conform_multi.reference, config_file, conform_gpu_input)
         func_compute_conform_output = FUNC_COMPUTE_CONFORM.out.output
         func_compute_conform_transforms = FUNC_COMPUTE_CONFORM.out.transforms
     } else {
@@ -376,15 +372,10 @@ workflow FUNC_WF {
                 [sub, ses, run_id, conformed_tmean, bids_name]
             }
         
-        // Use GPU token only when workflow-level GPU scheduling is enabled (use_gpu).
-        // Without this gate, brain-mask always pulls gpu_id=0 from gpu_queue and runs on
-        // GPU even in CPU mode (general.gpu_device=-1).
+        // GPU slot only when workflow-level GPU scheduling is enabled (use_gpu).
         def use_mask_gpu = paramResolver.resolveUseGpu(params)
-        def mask_gpu_input = use_mask_gpu ? gpu_queue : Channel.value('none')
+        def mask_gpu_input = Channel.value(use_mask_gpu)
         FUNC_COMPUTE_BRAIN_MASK(func_compute_mask_input, config_file, mask_gpu_input)
-        if (use_mask_gpu) {
-            FUNC_COMPUTE_BRAIN_MASK.out.gpu_token.subscribe { gpu_queue << it }
-        }
         func_compute_mask_output = FUNC_COMPUTE_BRAIN_MASK.out.output
     } else {
         func_compute_mask_output = func_compute_conform_output
@@ -417,13 +408,13 @@ workflow FUNC_WF {
             }
             .set { func_compute_reg_multi }
 
-        def use_registration_gpu = paramResolver.resolveUseGpu(params)
-        def gpu_input = use_registration_gpu ? gpu_queue : Channel.value('none')
+        // GPU token only when this registration runs FireANTs SyN on a GPU.
+        def use_registration_gpu = paramResolver.registrationUsesGpu(
+            params, ['registration.func2anat_xfm_type', 'registration.func2template_xfm_type']
+        )
+        def gpu_input = Channel.value(use_registration_gpu)
 
         FUNC_COMPUTE_REGISTRATION(func_compute_reg_multi.combined, func_compute_reg_multi.reference, config_file, gpu_input)
-        if (use_registration_gpu) {
-            FUNC_COMPUTE_REGISTRATION.out.gpu_token.subscribe { gpu_queue << it }
-        }
         func_compute_reg_output = FUNC_COMPUTE_REGISTRATION.out.output
         func_reg_transforms = FUNC_COMPUTE_REGISTRATION.out.transforms
         func_reg_reference = FUNC_COMPUTE_REGISTRATION.out.reference

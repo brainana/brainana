@@ -47,6 +47,7 @@ def validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
     func_config = validated_config.get("func", {})
     anat_config = validated_config.get("anat", {})
 
+    validate_gpu_device(validated_config.get("general", {}).get("gpu_device", "auto"))
     validate_func_config(func_config)
     validate_anat_config(anat_config)
     validate_slice_timing_config(func_config.get("slice_timing_correction", {}))
@@ -67,6 +68,25 @@ def validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
     )
 
     return validated_config
+
+
+def validate_gpu_device(gpu_device: Any, key: str = "general.gpu_device") -> None:
+    """Validate a device spec: auto, cpu, -1, a GPU index (int or quoted) or cuda:N.
+
+    Mirrors what resolve_device() and the Nextflow resolver (parseGpuDevice) accept,
+    so a bad value fails at config load instead of deep inside a GPU step.
+    """
+    s = "auto" if gpu_device is None else str(gpu_device).strip().lower()
+    if isinstance(gpu_device, bool):
+        s = "invalid"
+    digits = s[len("cuda:"):] if s.startswith("cuda:") else s
+    if s in ("auto", "cuda", "gpu", "cpu", "-1") or digits.isdigit():
+        return
+    raise ValueError(
+        f"Configuration error in {key}: must be 'auto', 'cpu', -1 (CPU), a GPU index "
+        f"(0, 1, ...) or 'cuda:N', got: {gpu_device!r}. "
+        f"Please fix this in your configuration file."
+    )
 
 
 def validate_func_config(config: Dict[str, Any]) -> None:
@@ -345,17 +365,11 @@ def validate_skullstripping_config(config: Dict[str, Any]) -> None:
     elif method == "fastSurferCNN":
         fscnn_cfg = config.get("fastSurferCNN", {})
 
-        # Validate gpu_device
-        gpu_device = fscnn_cfg.get("gpu_device", "auto")
-        if (
-            not (isinstance(gpu_device, int) and gpu_device >= -1)
-            and gpu_device != "auto"
-        ):
-            raise ValueError(
-                f"Configuration error in skullstripping.fastSurferCNN: "
-                f"gpu_device must be integer >= -1 (where -1 means CPU) or 'auto' for automatic selection, got: {gpu_device}. "
-                f"Please fix this in your configuration file."
-            )
+        # Legacy key; general.gpu_device takes precedence when set.
+        validate_gpu_device(
+            fscnn_cfg.get("gpu_device", "auto"),
+            key="skullstripping.fastSurferCNN.gpu_device",
+        )
 
         # Validate batch_size
         batch_size = fscnn_cfg.get("batch_size", 1)

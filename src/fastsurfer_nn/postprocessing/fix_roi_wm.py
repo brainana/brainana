@@ -12,6 +12,7 @@ Copyright 2024
 """
 
 import logging
+import os
 import nibabel as nib
 import numpy as np
 import pandas as pd
@@ -297,6 +298,8 @@ def fix_roi_wm(
     backup_original: bool = True,
     logger: Optional[logging.Logger] = None,
     registration_threads: Optional[int] = None,
+    gpu_device: str = "auto",
+    enable_fireants: bool = True,
 ) -> None:
     """
     Fix missing thin WM in V1 by registering template V1 WM to individual space.
@@ -329,8 +332,13 @@ def fix_roi_wm(
         Logger for progress information (defaults to module logger). The active
         log level controls verbosity, consistent with the rest of the pipeline.
     registration_threads : int, optional
-        Number of threads to use for ANTs registration (default: None, uses config or 8)
-        Increasing this can speed up registration but uses more CPU/memory
+        Recorded as registration.threads in the registration config. The ANTs CLI
+        takes its thread count from OMP_NUM_THREADS (the task's CPU allocation).
+    gpu_device : str, optional
+        general.gpu_device of the calling step, so the template registration (FireANTs
+        SyN) uses the same device policy as the segmentation (default: "auto").
+    enable_fireants : bool, optional
+        registration.enable_fireants of the calling step (default: True).
     """
     if logger is None:
         logger = logging.getLogger(__name__)
@@ -462,22 +470,16 @@ def fix_roi_wm(
         # Ensure registration.threads is set
         if "registration" not in config:
             config["registration"] = {}
-        # Override with explicit registration_threads if provided, otherwise use config or default
         if registration_threads is not None:
             config["registration"]["threads"] = registration_threads
-        elif "threads" not in config.get("registration", {}):
-            # Default to 32 threads for faster processing
-            config["registration"]["threads"] = 32
         if "general" not in config:
             config["general"] = {}
         if "verbose" not in config.get("general", {}):
             config["general"]["verbose"] = 2 if logger.isEnabledFor(logging.INFO) else 1
     except Exception:
-        # Fallback: create minimal config with reasonable thread count
-        num_threads = registration_threads if registration_threads is not None else 32
+        # Fallback: minimal config
         config = {
             "registration": {
-                "threads": num_threads,
                 "interpolation": "BSpline",
             },
             "general": {
@@ -485,8 +487,12 @@ def fix_roi_wm(
             },
         }
 
-    num_threads = config.get("registration", {}).get("threads", 32)
-    logger.debug(f"  Using {num_threads} threads for registration")
+    # The caller's device setting, not the package default: under Nextflow the task's
+    # CUDA_VISIBLE_DEVICES already enforces it, but standalone runs rely on this.
+    config["general"]["gpu_device"] = gpu_device
+    logger.debug(
+        f"  Registration threads: OMP_NUM_THREADS={os.environ.get('OMP_NUM_THREADS', 'unset')}"
+    )
 
     reg_outputs = ants_register(
         fixedf=str(t1w_roi_f),
@@ -496,6 +502,7 @@ def fix_roi_wm(
         config=config,
         xfm_type="syn",
         compute_inverse=False,
+        enable_fireants=enable_fireants,
     )
 
     logger.debug(f"  Forward transform: {reg_outputs['forward_transform']}")

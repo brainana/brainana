@@ -202,6 +202,7 @@ def anat_conform(input: StepInput, template_file: Path) -> StepOutput:
         logger=logger,
         modal="anat",
         skip_skullstripping=skip_skullstripping,
+        config=input.config,
         rigid_method=rigid_method,
         # Anatomical only: also emit the conform on a grid large enough to keep every
         # scanner-space voxel (recording chamber, head-post, neck). Leaf output.

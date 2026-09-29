@@ -24,7 +24,10 @@ import shutil
 from pathlib import Path
 from typing import Dict, Optional, Union, Literal
 
+import torch
+
 from fastsurfer_nn.inference.api import segmentation
+from fastsurfer_nn.utils.gpu_utils import resolve_device, run_with_cpu_fallback
 from fastsurfer_nn.inference.predictor_utils import setup_atlas_from_checkpoints
 from fastsurfer_nn.utils.checkpoint import extract_atlas_metadata, is_binary_checkpoint
 from fastsurfer_nn.utils.constants import (
@@ -99,6 +102,7 @@ def run_segmentation(
     wm_thr: float = 0.5,
     save_debug_intermediates: bool = False,
     registration_threads: Optional[int] = None,
+    enable_fireants: bool = True,
     logger: Optional[logging.Logger] = None,
 ) -> Dict[str, str]:
     """
@@ -162,8 +166,9 @@ def run_segmentation(
             Threshold for WM probability map in ROI WM fixing.
         registration_threads: int, optional
             Number of threads to use for ANTs registration when fix_roi_wm=True.
-            If None, uses config default (typically 8). Note: ANTs may show N+1 threads
-            (N worker threads + 1 main thread) in process monitors.
+            The ANTs CLI itself follows OMP_NUM_THREADS (the task's CPU allocation).
+        enable_fireants: bool, default=True
+            registration.enable_fireants for the ROI WM fix's template registration.
 
         Note: Preprocessing parameters (vox_size, orientation, image_size)
         are automatically read from checkpoint metadata (required), ensuring consistency
@@ -307,40 +312,41 @@ def run_segmentation(
                 f"Atlas: using fallback {atlas_name} (metadata will be auto-detected)"
             )
 
-    # Convert device_id to device string
-    if device_id == "auto":
-        device_str = "auto"
-    elif device_id == -1:
-        device_str = "cpu"
-    else:
-        device_str = (
-            f"cuda:{device_id}" if isinstance(device_id, int) else str(device_id)
-        )
+    # One device policy for every step (auto / cpu / -1 / index / cuda:N); a quoted
+    # "0" or "-1" from YAML used to reach torch.device() verbatim and crash.
+    device_str = str(resolve_device(device_id))
 
     try:
         # Run segmentation using the high-level API
         # This will create segmentation, mask, and hemimask
         logger.info(f"Segmentation: running on {input_image}")
-        seg_results = segmentation(
-            input_image=input_image,
-            output_dir=output_dir,
-            atlas_name=atlas_name,
-            atlas_metadata=atlas_metadata,
-            ckpt_ax=checkpoints.get("axial"),
-            ckpt_cor=checkpoints.get("coronal"),
-            ckpt_sag=checkpoints.get("sagittal"),
-            device=device_str,
-            viewagg_device=device_str,
-            plane_weight_coronal=plane_weight_coronal,
-            plane_weight_axial=plane_weight_axial,
-            plane_weight_sagittal=plane_weight_sagittal,
-            fix_wm_islands=fix_wm_islands,
-            label_island_min_volume_mm3=label_island_min_volume_mm3,
-            create_hemimask=create_hemimask,
-            output_data_format=output_data_format,
-            enable_crop_2round=enable_crop_2round,
-            logger=logger,
-            save_debug_intermediates=save_debug_intermediates,
+        # A CUDA out-of-memory error reruns the network once on the CPU (logged,
+        # and recorded in the step's metadata JSON) instead of failing the step.
+        seg_results = run_with_cpu_fallback(
+            lambda dev: segmentation(
+                input_image=input_image,
+                output_dir=output_dir,
+                atlas_name=atlas_name,
+                atlas_metadata=atlas_metadata,
+                ckpt_ax=checkpoints.get("axial"),
+                ckpt_cor=checkpoints.get("coronal"),
+                ckpt_sag=checkpoints.get("sagittal"),
+                device=str(dev),
+                viewagg_device=str(dev),
+                plane_weight_coronal=plane_weight_coronal,
+                plane_weight_axial=plane_weight_axial,
+                plane_weight_sagittal=plane_weight_sagittal,
+                fix_wm_islands=fix_wm_islands,
+                label_island_min_volume_mm3=label_island_min_volume_mm3,
+                create_hemimask=create_hemimask,
+                output_data_format=output_data_format,
+                enable_crop_2round=enable_crop_2round,
+                logger=logger,
+                save_debug_intermediates=save_debug_intermediates,
+            ),
+            torch.device(device_str),
+            "segmentation network",
+            logger,
         )
 
         logger.info("Segmentation (fastsurfer_nn): completed successfully")
@@ -488,6 +494,8 @@ def run_segmentation(
                         backup_original=True,
                         logger=logger,
                         registration_threads=registration_threads,
+                        gpu_device=device_str,
+                        enable_fireants=enable_fireants,
                     )
                     logger.info(
                         f"{roi_name} white matter fixing completed successfully"

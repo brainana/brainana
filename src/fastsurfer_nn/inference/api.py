@@ -65,7 +65,7 @@ def _apply_two_pass_refinement(
     ckpt_cor: Path | None,
     device: str,
     viewagg_device: str,
-    threads: int,
+    threads: int | None,
     batch_size: int,
     plane_weight_coronal: float | None,
     plane_weight_axial: float | None,
@@ -102,8 +102,8 @@ def _apply_two_pass_refinement(
         Device to run inference on
     viewagg_device : str
         Device to run view aggregation on
-    threads : int
-        Number of threads for CPU operations
+    threads : int or None
+        Number of threads for CPU operations (None: get_num_threads())
     batch_size : int
         Batch size for inference
     plane_weight_coronal, plane_weight_axial, plane_weight_sagittal : float, optional
@@ -234,7 +234,7 @@ def segmentation(
     ckpt_cor: Path | None = None,
     device: str = "auto",
     viewagg_device: str = "cpu",
-    threads: int = 8,
+    threads: int | None = None,
     batch_size: int = 1,
     plane_weight_coronal: float | None = None,
     plane_weight_axial: float | None = None,
@@ -284,8 +284,9 @@ def segmentation(
         Device to run inference on
     viewagg_device : str, default="cpu"
         Device to run view aggregation on
-    threads : int, default=8
-        Number of threads for CPU operations (defaults to 8, or uses get_num_threads() if None)
+    threads : int, optional
+        Number of threads for CPU operations. None uses get_num_threads(), which
+        follows OMP_NUM_THREADS (the task's CPU allocation under Nextflow)
     batch_size : int, default=1
         Batch size for inference
     plane_weight_coronal, plane_weight_axial, plane_weight_sagittal : float, optional

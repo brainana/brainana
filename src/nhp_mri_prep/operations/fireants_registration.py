@@ -262,6 +262,7 @@ def fireants_registration(
     logger: Optional[logging.Logger] = None,
     xfm_type: Optional[str] = "syn",
     compute_inverse: Optional[bool] = True,
+    device: Optional[Any] = None,
 ) -> Dict[str, Optional[str]]:
     """Run FireANTs (GPU) registration with same output format as ants_cpu_register.
 
@@ -273,6 +274,8 @@ def fireants_registration(
         config: Configuration dictionary (optional; only used to get xfm_type if not provided)
         logger: Logger instance (optional)
         xfm_type: One of 'rigid', 'affine', 'syn'.
+        device: torch.device to run on, as resolved by the ants_register dispatcher.
+            None resolves config general.gpu_device here.
 
     Returns:
         Dictionary with keys: output_path_prefix, imagef_registered, forward_transform, inverse_transform.
@@ -337,11 +340,12 @@ def fireants_registration(
     if moving_pad_left is not None:
         moving_path = Path(padded_moving_f)
 
-    gpu_spec = "auto"
-    if config is not None:
-        gpu_spec = config.get("general", {}).get("gpu_device", "auto")
-    dev = resolve_device(gpu_spec)
-    device = str(dev)  # "cuda:0", "cpu", or "mps"
+    if device is None:
+        gpu_spec = "auto"
+        if config is not None:
+            gpu_spec = config.get("general", {}).get("gpu_device", "auto")
+        device = resolve_device(gpu_spec)
+    device = str(device)  # "cuda:0" or "cpu"
     if device == "cpu":
         logger.warning("Using CPU for FireANTs registration.")
 
