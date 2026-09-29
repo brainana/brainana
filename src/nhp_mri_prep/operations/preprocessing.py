@@ -1505,6 +1505,20 @@ def apply_segmentation(
                 fscnn_cfg.get("label_island_min_volume_mm3") or 0.0
             )
 
+        # For anatomy the ROI white-matter fix runs once, on the pass that is
+        # kept, instead of inside every CNN pass.
+        roi_fix = None
+        if modal == "anat" and segmentation_kwargs["fix_roi_wm"]:
+            from fastsurfer_nn.utils.gpu_utils import resolve_device
+
+            roi_fix = {
+                "roi_name": segmentation_kwargs.pop("roi_name", "V1"),
+                "wm_thr": segmentation_kwargs.pop("wm_thr", 0.5),
+                "device_str": str(resolve_device(gpu_device)),
+                "enable_fireants": segmentation_kwargs["enable_fireants"],
+            }
+            segmentation_kwargs["fix_roi_wm"] = False
+
         # fastsurfer_nn emits progress via raw print()/tqdm; route it through the
         # logger (and disable tqdm) when not verbose so skullstripping honors VERBOSE.
         with quiet_external_output(logger):
@@ -1512,6 +1526,7 @@ def apply_segmentation(
 
         if modal == "anat":
             result, segmentation_qc = _anat_segmentation_checks(
+                roi_fix=roi_fix,
                 image_path=image_path,
                 result=result,
                 segmentation_kwargs=segmentation_kwargs,
@@ -1645,6 +1660,23 @@ def apply_segmentation(
 # (the NMT2Sym template brain is 92.5 cm^3, so the cut sits at ~74 cm^3).
 MASK_UNDERSIZED_RATIO = 0.8
 
+# Pre-inference N4. The spline distance is in mm: the pipeline's 150 mm is one
+# span across a ~70 mm macaque head, too smooth for a surface coil's fall-off.
+PRE_INFERENCE_N4_SHRINK = 4
+PRE_INFERENCE_N4_BSPLINE = 60
+
+# Template prior: a first-pass miss above this triggers the second pass. On
+# correctly segmented subjects it measures 0.0-0.4 cm^3, on failures 0.9-40.
+TEMPLATE_PRIOR_MIN_MISSED_CM3 = 0.5
+# ...and a smaller miss does when the first mask is also under 80% of the
+# template brain: two weak signals agreeing (PRIME-DE rockefeller 032117 misses
+# 0.46 cm^3 and gains 5 cm^3 from the second pass). A small mask the template
+# agrees with (miss ~0: a small brain) does not trigger.
+UNDERSIZED_MIN_MISSED_CM3 = 0.25
+# Pass 2 is kept unless its Dice with the template falls below pass 1's by
+# more than this.
+PASS2_DICE_TOLERANCE = 0.005
+
 
 def _template_brain_volume_mm3(config: Dict[str, Any]) -> Optional[float]:
     """Brain volume of the configured output template (bundled templates only).
@@ -1700,41 +1732,35 @@ def _mask_volume_check(
 
 def _pre_inference_n4(
     image_path: Path,
-    mask_path: Union[str, Path],
     work_dir: Path,
     n4_cfg: Dict[str, Any],
     config: Dict[str, Any],
     logger: logging.Logger,
 ) -> Path:
-    """N4 inside the dilated pass-1 mask; the result is only used as CNN input."""
-    from scipy.ndimage import distance_transform_edt
+    """N4 inside the search region; the result is only CNN and registration input.
+
+    The region is the rigidly placed template brain widened by 15 mm, within
+    the head, not the first-pass mask: a lobe the first pass dropped is
+    exactly the part that needs correcting. It excludes the air behind the
+    occipital scalp and the MP2RAGE UNI background (see ``search_region``).
+    """
+    from .segmentation_prior import search_region
 
     n4_dir = work_dir / "pre_inference_n4"
     n4_dir.mkdir(parents=True, exist_ok=True)
 
-    mask_img = nib.load(str(mask_path))
-    mask = np.asanyarray(mask_img.dataobj) > 0
-    dilation_mm = float(n4_cfg.get("dilation_mm", 6.0))
-    # Every voxel within dilation_mm (Euclidean, in mm) of the mask: isotropic
-    # in mm whatever the voxel shape, unlike iterating a voxel-sized element.
-    zooms = tuple(float(z) for z in mask_img.header.get_zooms()[:3])
-    dilated = mask | (distance_transform_edt(~mask, sampling=zooms) <= dilation_mm)
-    dilated_path = n4_dir / "pass1_mask_dilated.nii.gz"
-    nib.save(
-        nib.Nifti1Image(dilated.astype(np.uint8), mask_img.affine, mask_img.header),
-        str(dilated_path),
-    )
-    logger.info(
-        f"Workflow: pre-inference N4 inside pass-1 mask dilated by {dilation_mm:g} mm"
-    )
+    region, img = search_region(image_path)
+    region_path = n4_dir / "search_region.nii.gz"
+    nib.save(nib.Nifti1Image(region.astype(np.uint8), img.affine, img.header), str(region_path))
+    logger.info("Workflow: pre-inference N4 inside the template search region")
 
     n4_config = dict(config)
     n4_config["anat"] = dict(config.get("anat") or {})
     n4_config["anat"]["bias_correction"] = {
         "enabled": True,
         "algorithm": "N4BiasFieldCorrection",
-        "shrink_factor": n4_cfg.get("shrink_factor", 4),
-        "bspline_fitting": n4_cfg.get("bspline_fitting", 150),
+        "shrink_factor": n4_cfg.get("shrink_factor", PRE_INFERENCE_N4_SHRINK),
+        "bspline_fitting": n4_cfg.get("bspline_fitting", PRE_INFERENCE_N4_BSPLINE),
         "rescale_mean_to_100": True,
     }
     out = bias_correction(
@@ -1744,7 +1770,7 @@ def _pre_inference_n4(
         output_name="pre_inference_n4.nii.gz",
         config=n4_config,
         logger=logger,
-        maskf=dilated_path,
+        maskf=region_path,
     )
     return Path(out["imagef_bias_corrected"])
 
@@ -1775,66 +1801,171 @@ def _anat_segmentation_checks(
     fscnn_cfg: Dict[str, Any],
     config: Dict[str, Any],
     logger: logging.Logger,
+    roi_fix: Optional[Dict[str, Any]] = None,
 ) -> tuple:
-    """Intensity-cap provenance, mask-volume check and the optional second pass.
+    """Provenance, the template check, the optional second pass and the V1 fix.
 
-    Returns the (possibly second-pass) segmentation result and the provenance
-    fields for the mask/segmentation sidecars.
+    The template prior only measures. A second CNN pass on an N4-corrected
+    input runs when forced, when the template finds more than
+    ``min_missed_cm3`` of brain the first pass missed, when the first mask is
+    under 80% of the template brain and the template finds more than
+    ``UNDERSIZED_MIN_MISSED_CM3`` missed, or -- only when the prior is off or
+    its registration failed -- on the undersized mask alone. The second pass is kept unless it agrees with
+    the template worse than the first. The ROI white-matter fix (``roi_fix``,
+    the keyword arguments of ``apply_roi_wm_fix``) then runs once, on the pass
+    kept.
+
+    Returns the final segmentation result and the provenance fields for the
+    mask/segmentation sidecars.
     """
+    from .segmentation_prior import missed_brain, register_template_prior
+
     qc: Dict[str, Any] = _intensity_cap_check(image_path, logger)
     qc.update(_mask_volume_check(result["brain_mask"], config, logger))
     qc["SegmentationPasses"] = 1
 
     n4_cfg = fscnn_cfg.get("pre_inference_n4") or {}
-    mode = n4_cfg.get("enabled", "auto")
-    run_second_pass = mode is True or (mode == "auto" and qc.get("MaskUndersized"))
-    if not run_second_pass:
+    n4_mode = n4_cfg.get("enabled", "auto")
+    prior_cfg = fscnn_cfg.get("template_prior") or {}
+    prior_on = prior_cfg.get("enabled", True) is not False
+    min_missed = float(prior_cfg.get("min_missed_cm3", TEMPLATE_PRIOR_MIN_MISSED_CM3))
+    use_prior = prior_on and bool(result.get("atlas_name"))
+
+    def load(path):
+        return np.asanyarray(nib.load(str(path)).dataobj)
+
+    def finish(result):
+        if roi_fix:
+            from fastsurfer_nn.inference.segmentation import apply_roi_wm_fix
+
+            seg_results = {
+                "segmentation": result.get("segmentation"),
+                "mask": result.get("brain_mask"),
+                "hemimask": result.get("hemimask"),
+            }
+            if all(seg_results.values()):
+                apply_roi_wm_fix(
+                    seg_results, result["input_image"], result.get("atlas_name"),
+                    logger=logger, **roi_fix,
+                )
         return result, qc
 
-    logger.info(
-        "Workflow: second segmentation pass on a bias-corrected input "
-        f"(pre_inference_n4.enabled={mode})"
-    )
-    n4_input = _pre_inference_n4(
-        image_path, result["brain_mask"], work_dir, n4_cfg, config, logger
-    )
+    if not use_prior and n4_mode is not True and not (
+        n4_mode == "auto" and qc.get("MaskUndersized")
+    ):
+        return finish(result)
 
-    # Keep pass 1 for inspection; pass 2 writes the same file names.
-    pass1_dir = temp_output_dir / "pass1"
-    pass1_dir.mkdir(exist_ok=True)
-    for entry in list(temp_output_dir.iterdir()):
-        if entry != pass1_dir:
-            shutil.move(str(entry), str(pass1_dir / entry.name))
+    n4_path = _pre_inference_n4(image_path, work_dir, n4_cfg, config, logger)
+    n4_img = nib.load(str(n4_path))
+    n4_data = np.asanyarray(n4_img.dataobj).astype(np.float32)
+    zooms = tuple(float(z) for z in n4_img.header.get_zooms()[:3])
 
-    pass1 = {
-        k: qc.pop(k)
-        for k in (
-            "IntensityCapApplied",
-            "IntensityCapRatio",
-            "MaskVolumeCm3",
-            "MaskToTemplateBrainRatio",
-            "MaskUndersized",
+    prior = None
+    prior_qc: Dict[str, Any] = {}
+    if use_prior:
+        try:
+            prior = register_template_prior(
+                n4_path, work_dir / "template_prior", result["atlas_name"], config, logger
+            )
+            prior_qc["Engine"] = prior.engine
+        except Exception as e:  # noqa: BLE001 - the prior is a check, never a failure
+            logger.warning(f"QC: template prior registration failed: {e}")
+            prior_qc["RegistrationFailed"] = str(e)
+    if prior is not None:
+        prior_qc["Pass1"] = missed_brain(load(result["brain_mask"]), n4_data, prior, zooms)
+        logger.info(
+            f"QC: template prior on pass 1 -- Dice {prior_qc['Pass1']['TemplateDice']}, "
+            f"missed {prior_qc['Pass1']['MissedCm3']} cm^3"
         )
-        if k in qc
-    }
-    kwargs = dict(segmentation_kwargs, input_image=n4_input)
-    with quiet_external_output(logger):
-        result = run_segmentation(**kwargs)
 
-    # The top-level fields describe the pass that produced the final
-    # segmentation: the CNN rescaled the N4 image, whose ratio differs from
-    # the original's once the coil's intensity gradient is flattened.
-    qc.update(_intensity_cap_check(n4_input, logger))
-    qc.update(_mask_volume_check(result["brain_mask"], config, logger))
-    qc["SegmentationPasses"] = 2
-    qc["Pass1"] = pass1
-    qc["PreInferenceN4"] = {
-        "Trigger": "forced" if mode is True else "undersized mask",
-        "MaskDilationMM": float(n4_cfg.get("dilation_mm", 6.0)),
-        "ShrinkFactor": n4_cfg.get("shrink_factor", 4),
-        "BSplineFitting": n4_cfg.get("bspline_fitting", 150),
-    }
-    return result, qc
+    trigger = None
+    if n4_mode is True:
+        trigger = "forced"
+    elif n4_mode == "auto":
+        missed = prior_qc["Pass1"]["MissedCm3"] if prior is not None else None
+        if missed is not None and missed > min_missed:
+            trigger = "template prior"
+        elif (
+            missed is not None
+            and qc.get("MaskUndersized")
+            and missed > UNDERSIZED_MIN_MISSED_CM3
+        ):
+            trigger = "undersized mask + template prior"
+        elif prior is None and qc.get("MaskUndersized"):
+            # Without a prior, fall back on volume. With one, a small brain is
+            # not a failure: the template registers onto it.
+            trigger = "undersized mask"
+
+    if trigger:
+        logger.info(
+            "Workflow: second segmentation pass on a bias-corrected input "
+            f"(pre_inference_n4.enabled={n4_mode}, trigger: {trigger})"
+        )
+        pass1_result = result
+        pass1_dir = temp_output_dir / "pass1"
+        pass1_dir.mkdir(exist_ok=True)
+        for entry in list(temp_output_dir.iterdir()):
+            if entry != pass1_dir:
+                shutil.move(str(entry), str(pass1_dir / entry.name))
+        pass1 = {
+            k: qc.pop(k)
+            for k in (
+                "IntensityCapApplied",
+                "IntensityCapRatio",
+                "MaskVolumeCm3",
+                "MaskToTemplateBrainRatio",
+                "MaskUndersized",
+            )
+            if k in qc
+        }
+        kwargs = dict(segmentation_kwargs, input_image=n4_path)
+        with quiet_external_output(logger):
+            result = run_segmentation(**kwargs)
+
+        keep = True
+        if prior is not None:
+            prior_qc["Pass2"] = missed_brain(load(result["brain_mask"]), n4_data, prior, zooms)
+            keep = (
+                prior_qc["Pass2"]["TemplateDice"]
+                >= prior_qc["Pass1"]["TemplateDice"] - PASS2_DICE_TOLERANCE
+            )
+        qc["SegmentationPasses"] = 2
+        qc["PreInferenceN4"] = {
+            "Trigger": trigger,
+            "Region": "template brain + 15 mm, within the head",
+            "ShrinkFactor": n4_cfg.get("shrink_factor", PRE_INFERENCE_N4_SHRINK),
+            "BSplineFitting": n4_cfg.get("bspline_fitting", PRE_INFERENCE_N4_BSPLINE),
+            "Pass2Kept": keep,
+        }
+        if keep:
+            # Top-level fields describe the pass that produced the final segmentation.
+            qc.update(_intensity_cap_check(n4_path, logger))
+            qc.update(_mask_volume_check(result["brain_mask"], config, logger))
+            qc["Pass1"] = pass1
+        else:
+            logger.warning(
+                "QC: second pass agrees less with the template than the first "
+                f"(Dice {prior_qc['Pass2']['TemplateDice']} vs "
+                f"{prior_qc['Pass1']['TemplateDice']}); keeping the first pass"
+            )
+            rejected = temp_output_dir / "pass2_rejected"
+            rejected.mkdir(exist_ok=True)
+            for entry in list(temp_output_dir.iterdir()):
+                if entry not in (pass1_dir, rejected):
+                    shutil.move(str(entry), str(rejected / entry.name))
+            for entry in list(pass1_dir.iterdir()):
+                shutil.move(str(entry), str(temp_output_dir / entry.name))
+            pass1_dir.rmdir()
+            qc.update(pass1)
+            result = pass1_result
+
+    if prior is not None:
+        final = prior_qc.get("Pass2") if qc.get("PreInferenceN4", {}).get("Pass2Kept") else prior_qc["Pass1"]
+        prior_qc.update({"TemplateDice": final["TemplateDice"], "MissedCm3": final["MissedCm3"],
+                         "Reliable": final["Reliable"], "MinMissedCm3": min_missed})
+    if prior_qc:
+        qc["TemplatePrior"] = prior_qc
+    return finish(result)
 
 
 def apply_skullstripping(

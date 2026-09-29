@@ -222,3 +222,192 @@ def test_second_pass_reports_the_cap_on_the_image_it_segmented(
     assert qc["SegmentationPasses"] == 2
     assert qc["Pass1"]["IntensityCapApplied"] is True
     assert qc["IntensityCapApplied"] is False
+
+
+# ------------------------------------------------ template prior
+
+
+def _prior(brain, labels):
+    from nhp_mri_prep.operations.segmentation_prior import TemplatePrior
+
+    return TemplatePrior(brain_prob=brain.astype(np.float32), labels=labels.astype(np.int32))
+
+
+def _cube(lo, hi, shape=(48, 48, 48)):
+    m = np.zeros(shape, bool)
+    m[lo:hi, lo:hi, lo:hi] = True
+    return m
+
+
+def test_missed_brain_counts_a_dropped_slab():
+    from nhp_mri_prep.operations.segmentation_prior import missed_brain
+
+    template = _cube(8, 40)
+    mask = template.copy()
+    mask[8:40, 8:40, 30:40] = False
+    stats = missed_brain(mask, np.where(template, 100.0, 0.0),
+                         _prior(template, np.where(template, 7, 0)), (1.0, 1.0, 1.0))
+    assert stats["MissedCm3"] > 0 and stats["Reliable"] is False
+
+
+def test_missed_brain_ignores_dark_and_unlabelled_voxels():
+    from nhp_mri_prep.operations.segmentation_prior import missed_brain
+
+    template = _cube(8, 40)
+    mask = template.copy()
+    mask[8:40, 8:40, 30:40] = False
+    dark = missed_brain(mask, np.where(mask, 100.0, 1.0),
+                        _prior(template, np.where(template, 7, 0)), (1.0, 1.0, 1.0))
+    unlabelled = missed_brain(mask, np.where(template, 100.0, 0.0),
+                              _prior(template, np.where(mask, 7, 0)), (1.0, 1.0, 1.0))
+    assert dark["MissedCm3"] == 0 and unlabelled["MissedCm3"] == 0
+
+
+def test_agreeing_mask_is_reliable_and_misses_nothing():
+    from nhp_mri_prep.operations.segmentation_prior import missed_brain
+
+    template = _cube(8, 40)
+    stats = missed_brain(template, np.where(template, 100.0, 0.0),
+                         _prior(template, np.where(template, 7, 0)), (1.0, 1.0, 1.0))
+    assert stats == {"TemplateDice": 1.0, "MissedCm3": 0.0, "Reliable": True}
+
+
+def test_search_region_holds_the_brain_and_drops_the_air():
+    from nhp_mri_prep.operations.segmentation_prior import (
+        PRIOR_TEMPLATE_BRAINMASK, PRIOR_TEMPLATE_HEAD, _template_file, search_region,
+    )
+
+    head_img = nib.load(str(_template_file(PRIOR_TEMPLATE_HEAD)))
+    brain = np.asanyarray(nib.load(str(_template_file(PRIOR_TEMPLATE_BRAINMASK))).dataobj) > 0
+    region, _ = search_region(_template_file(PRIOR_TEMPLATE_HEAD))
+    air = np.asanyarray(head_img.dataobj) < 1e-3
+    air &= ~__import__("scipy.ndimage", fromlist=["x"]).binary_dilation(~air, iterations=3)
+    # The fit region may miss dark surface voxels open to the outside (hole
+    # filling cannot reach them); the fitted field still covers the image.
+    assert region[brain].mean() > 0.99
+    assert region.sum() > brain.sum()
+    assert not region[air].any()
+
+
+@pytest.fixture
+def prior_env(seg_env, monkeypatch):
+    """seg_env with a CNN that writes labels, a mocked prior and a recording V1 fix."""
+    from fastsurfer_nn.inference import segmentation as fseg
+    from nhp_mri_prep.operations import preprocessing as pp
+    from nhp_mri_prep.operations import segmentation_prior as sp
+
+    state, run, out_dir = seg_env
+    template = np.zeros((64, 64, 64), bool)
+    template[:44, :44, :44] = True
+    calls, roi_calls = [], []
+
+    def fake_register(image_path, work_dir, atlas_name, config, logger):
+        calls.append(Path(image_path).name)
+        return _prior(template, np.where(template, 7, 0))
+
+    def fake_region(image_path):
+        img = nib.load(str(image_path))
+        return np.ones(img.shape[:3], bool), img
+
+    monkeypatch.setattr(sp, "register_template_prior", fake_register)
+    monkeypatch.setattr(sp, "search_region", fake_region)
+    monkeypatch.setattr(fseg, "apply_roi_wm_fix",
+                        lambda seg_results, input_image, atlas_name, **kw: roi_calls.append(Path(input_image).name))
+    real_seg = pp.run_segmentation
+
+    def seg_with_labels(input_image, output_dir, **kw):
+        res = real_seg(input_image=input_image, output_dir=output_dir, **kw)
+        mask = np.asanyarray(nib.load(res["brain_mask"]).dataobj)
+        res["segmentation"] = str(_nifti(Path(output_dir) / "segmentation.nii.gz", (mask * 3).astype(np.int16)))
+        res["hemimask"] = str(_nifti(Path(output_dir) / "mask_hemi.nii.gz", mask.astype(np.int16)))
+        res["atlas_name"] = "ARM2"
+        res["input_image"] = str(input_image)
+        return res
+
+    monkeypatch.setattr(pp, "run_segmentation", seg_with_labels)
+    image = out_dir.parent / "t1w.nii.gz"
+
+    def run_prior(n4_cfg, prior_cfg):
+        first = seg_with_labels(input_image=image, output_dir=out_dir)
+        return pp._anat_segmentation_checks(
+            image_path=image,
+            result=first,
+            segmentation_kwargs={"input_image": image, "output_dir": out_dir},
+            temp_output_dir=out_dir,
+            work_dir=out_dir.parent,
+            fscnn_cfg={"pre_inference_n4": n4_cfg, "template_prior": prior_cfg},
+            config={},
+            logger=__import__("logging").getLogger("test"),
+            roi_fix={"roi_name": "V1"},
+        )
+
+    return state, run_prior, calls, roi_calls
+
+
+def test_agreeing_first_pass_runs_once(prior_env):
+    state, run_prior, calls, roi_calls = prior_env
+    state["mask_side"] = [44]
+    _, qc = run_prior({"enabled": "auto"}, {"enabled": True})
+    assert state["inputs"] == ["t1w.nii.gz"]
+    assert calls == ["pre_inference_n4.nii.gz"]
+    assert qc["TemplatePrior"]["MissedCm3"] == 0 and qc["TemplatePrior"]["Reliable"] is True
+    assert roi_calls == ["t1w.nii.gz"]  # V1 fix once, on pass 1
+
+
+def test_small_brain_is_not_a_failure_when_the_prior_agrees(prior_env, monkeypatch):
+    """Under 80% of the template volume, but the registered template agrees."""
+    from nhp_mri_prep.operations import preprocessing as pp
+
+    state, run_prior, _, _ = prior_env
+    monkeypatch.setattr(pp, "_template_brain_volume_mm3", lambda cfg: 120.0**3)
+    state["mask_side"] = [44]
+    _, qc = run_prior({"enabled": "auto"}, {"enabled": True})
+    assert qc["MaskUndersized"] is True and qc["SegmentationPasses"] == 1
+
+
+def test_undersized_fallback_without_prior(prior_env):
+    state, run_prior, calls, _ = prior_env
+    state["mask_side"] = [20, 40]
+    _, qc = run_prior({"enabled": "auto"}, {"enabled": False})
+    assert calls == [] and qc["PreInferenceN4"]["Trigger"] == "undersized mask"
+
+
+def test_missed_brain_triggers_second_pass_and_keeps_the_better_one(prior_env):
+    state, run_prior, _, roi_calls = prior_env
+    state["mask_side"] = [38, 42]  # pass 2 agrees better with the template
+    result, qc = run_prior({"enabled": "auto"}, {"enabled": True})
+    assert qc["PreInferenceN4"]["Trigger"] == "template prior"
+    assert qc["PreInferenceN4"]["Pass2Kept"] is True
+    assert roi_calls == ["pre_inference_n4.nii.gz"]  # V1 fix once, on pass 2
+    assert np.asanyarray(nib.load(result["brain_mask"]).dataobj).sum() == 42**3
+
+
+def test_worse_second_pass_is_rejected(prior_env):
+    state, run_prior, _, roi_calls = prior_env
+    state["mask_side"] = [38, 30]  # pass 2 agrees worse
+    result, qc = run_prior({"enabled": "auto"}, {"enabled": True})
+    assert qc["PreInferenceN4"]["Pass2Kept"] is False
+    assert qc["MaskVolumeCm3"] == round(38**3 / 1000, 2)
+    assert np.asanyarray(nib.load(result["brain_mask"]).dataobj).sum() == 38**3
+    assert roi_calls == ["t1w.nii.gz"]
+    assert (Path(result["brain_mask"]).parent / "pass2_rejected" / "mask.nii.gz").exists()
+
+
+def test_undersized_mask_with_a_small_miss_triggers(prior_env, monkeypatch):
+    """Two weak signals together: under 80% of the template, and a small miss."""
+    from nhp_mri_prep.operations import preprocessing as pp
+    from nhp_mri_prep.operations import segmentation_prior as sp
+
+    state, run_prior, _, _ = prior_env
+    monkeypatch.setattr(sp, "missed_brain", lambda mask, image, prior, zooms: {
+        "TemplateDice": 0.95, "MissedCm3": 0.4, "Reliable": True})
+    monkeypatch.setattr(pp, "_template_brain_volume_mm3", lambda cfg: 120.0**3)
+    state["mask_side"] = [44, 44]
+    _, qc = run_prior({"enabled": "auto"}, {"enabled": True})
+    assert qc["PreInferenceN4"]["Trigger"] == "undersized mask + template prior"
+
+    state["inputs"].clear()
+    state["mask_side"] = [44]
+    monkeypatch.setattr(pp, "_template_brain_volume_mm3", lambda cfg: 40.0**3)
+    _, qc = run_prior({"enabled": "auto"}, {"enabled": True})
+    assert qc["SegmentationPasses"] == 1  # same miss, normal-sized mask

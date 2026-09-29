@@ -148,24 +148,36 @@ findings**; section omitted if empty):
   all brain. On ordinary data the cap does not bind and nothing changes.
   The same scaling is used for the 8-bit volume that surface
   reconstruction starts from.
-- **Second pass on a bias-corrected input:** A brain mask far smaller than
-  the template's brain (under 80% of its volume) means the segmentation
-  failed, usually because of strong intensity non-uniformity. In that case
-  N4 is fitted inside the first-pass mask dilated by 6 mm and the network
-  is run again on the corrected image
-  (``anat.skullstripping_segmentation.fastSurferCNN.pre_inference_n4``;
-  ``enabled: true`` runs it for every subject, which suits surface-coil
-  data where the mask can be incomplete without being tiny). The corrected
-  image is only used as network input; the bias correction in 2.4 still
-  starts from the uncorrected image.
+- **Second pass on a bias-corrected input:** Strong intensity
+  non-uniformity — a surface receive coil, or a site with a strong bias
+  field — makes the network leave out brain that looks too dark, such as
+  the occipital pole far from a coil or a whole lobe. After the first pass
+  the template brain is registered to the subject and compared with the
+  mask. If the template shows brain the mask missed, the image is
+  bias-corrected with N4 and the network runs a second time on the
+  corrected image. The second result replaces the first only if it agrees
+  with the template at least as well. A mask much smaller than the
+  template's brain also triggers the second pass when the template shows
+  even a small miss; a small brain that the template agrees with does not.
+  The template is only used for this check; the segmentation always comes
+  from the network. Settings are under
+  ``anat.skullstripping_segmentation.fastSurferCNN``: ``pre_inference_n4``
+  (``enabled: true`` always runs and keeps the second pass) and
+  ``template_prior`` (``enabled: false`` skips the registration, and the
+  mask volume alone then decides). The corrected image is only network
+  input; the bias correction in 2.4 still starts from the uncorrected
+  image. Cost on a subject that needs no second pass: about half a minute
+  on a GPU.
 - **Provenance:** The brain-mask and segmentation sidecars record the mask
   volume and its ratio to the template brain (``MaskVolumeCm3``,
   ``MaskToTemplateBrainRatio``, ``MaskUndersized``), whether the intensity
-  cap applied (``IntensityCapApplied``, ``IntensityCapRatio``), and how many
-  passes ran (``SegmentationPasses``, ``Pass1``, ``PreInferenceN4``). After
-  a second pass, the top-level fields describe the corrected image that
-  produced the final segmentation, and ``Pass1`` keeps the first pass's
-  values. An undersized mask is also logged as a warning.
+  cap applied (``IntensityCapApplied``, ``IntensityCapRatio``), how many
+  passes ran and why (``SegmentationPasses``, ``Pass1``,
+  ``PreInferenceN4``), and the template comparison (``TemplatePrior``: how
+  much brain the mask missed and its agreement with the template). After a
+  second pass that was kept, the top-level fields describe it and ``Pass1``
+  keeps the first pass's values. An undersized mask is also logged as a
+  warning.
 - **Label fragments (optional):** Detached label pieces smaller than
   ``fastSurferCNN.label_island_min_volume_mm3`` are relabelled to the label
   surrounding them; the largest piece of every label is always kept. Such

@@ -434,7 +434,6 @@ def validate_skullstripping_config(config: Dict[str, Any]) -> None:
                     f"Please fix this in your configuration file."
                 )
             for key, positive_int in (
-                ("dilation_mm", False),
                 ("shrink_factor", True),
                 ("bspline_fitting", False),
             ):
@@ -454,6 +453,31 @@ def validate_skullstripping_config(config: Dict[str, Any]) -> None:
                         f"{key} must be {kind}, got: {value}. "
                         f"Please fix this in your configuration file."
                     )
+
+        prior_cfg = fscnn_cfg.get("template_prior")
+        if prior_cfg is not None:
+            if not isinstance(prior_cfg, dict):
+                raise ValueError(
+                    f"Configuration error in skullstripping.fastSurferCNN: "
+                    f"template_prior must be a mapping, got: {prior_cfg}. "
+                    f"Please fix this in your configuration file."
+                )
+            enabled = prior_cfg.get("enabled", True)
+            if not isinstance(enabled, bool):
+                raise ValueError(
+                    f"Configuration error in skullstripping.fastSurferCNN.template_prior: "
+                    f"enabled must be true or false, got: {enabled}. "
+                    f"Please fix this in your configuration file."
+                )
+            value = prior_cfg.get("min_missed_cm3")
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0
+            ):
+                raise ValueError(
+                    f"Configuration error in skullstripping.fastSurferCNN.template_prior: "
+                    f"min_missed_cm3 must be a number >= 0, got: {value}. "
+                    f"Please fix this in your configuration file."
+                )
 
     elif method == "macacaMRINN":
         mrin_cfg = config.get("macacaMRINN", {})
