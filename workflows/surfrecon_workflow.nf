@@ -106,7 +106,9 @@ workflow SURF_RECON_WF {
         def surf_recon_input_with_mask = surf_recon_input_base
             .join(anat_skull_mask.map { sub, ses, mask_file -> [sub, ses, mask_file] }, by: [0, 1], remainder: true)
             .map { sub, ses, anat_file, bids_name, seg_file, mask_file ->
-                def final_mask = mask_file ?: file("${workDir}/dummy_brain_mask.dummy").tap { it.toFile().text = "" }
+                // Placeholders are written only when missing: rewriting one gives it a new mtime, which
+                // changes the task hash of every consumer, so -resume re-ran them on every run.
+                def final_mask = mask_file ?: file("${workDir}/dummy_brain_mask.dummy").tap { if (!it.exists()) it.toFile().text = "" }
                 [sub, ses, anat_file, bids_name, seg_file, final_mask]
             }
 
@@ -114,7 +116,7 @@ workflow SURF_RECON_WF {
         def surf_recon_input_with_arm6 = surf_recon_input_with_mask
             .join(anat_arm6_atlas.map { sub, ses, arm6_file -> [sub, ses, arm6_file] }, by: [0, 1], remainder: true)
             .map { sub, ses, anat_file, bids_name, seg_file, mask_file, arm6_file ->
-                def final_arm6 = arm6_file ?: file("${workDir}/dummy_arm6_atlas.dummy").tap { it.toFile().text = "" }
+                def final_arm6 = arm6_file ?: file("${workDir}/dummy_arm6_atlas.dummy").tap { if (!it.exists()) it.toFile().text = "" }
                 [sub, ses, anat_file, bids_name, seg_file, mask_file, final_arm6]
             }
 
@@ -491,7 +493,7 @@ workflow SURF_RECON_WF {
                     def tsv = file("${params.bids_dir}/sub-${sub}/sub-${sub}_sessions.tsv")
                     def sessions_tsv = tsv.exists()
                         ? tsv
-                        : file("${workDir}/no_sessions_tsv.dummy").tap { it.toFile().text = "" }
+                        : file("${workDir}/no_sessions_tsv.dummy").tap { if (!it.exists()) it.toFile().text = "" }
                     [sub, long_ids_csv, long_dirs, base_dir, base_id, atlas_name, sessions_tsv]
                 }
 

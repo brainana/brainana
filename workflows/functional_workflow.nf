@@ -207,6 +207,10 @@ workflow FUNC_WF {
         def func_for_averaging_ch = func_multi_run_ses
             .groupTuple(by: [0, 1])
             .map { sub, ses, run_identifier_list, bold_list, tmean_list, bids_list ->
+                // Run-id order, not completion order, so the task script is stable across runs.
+                def order = (0..<run_identifier_list.size()).toList().sort { run_identifier_list[it].toString() }
+                tmean_list = order.collect { tmean_list[it] }
+                bids_list = order.collect { bids_list[it] }
                 def tmean_paths = tmean_list.collect { file -> file.toString() }
                 def tmean_paths_json = groovy.json.JsonOutput.toJson(tmean_paths)
                 def bids_name = bids_list[0]
@@ -260,8 +264,10 @@ workflow FUNC_WF {
     // Input: func_after_coreg: [sub, ses, run_id, bold_file, tmean_file, bids_name]
     //        anat_after_bias_brain: [sub, ses, brain_file, bids_name] (Phase 1 final output - brain version)
     // Output: [sub, ses, anat_file, anat_ses] (session-level only, no run_id)
+    // Placeholders are written only when missing: rewriting one gives it a new mtime, which
+    // changes the task hash of every consumer, so -resume re-ran them on every run.
     def dummy_anat = file("${workDir}/dummy_anat.dummy")
-    dummy_anat.toFile().text = ""
+    if (!dummy_anat.exists()) dummy_anat.toFile().text = ""
     def func_anat_selection = channelHelpers.performFuncAnatomicalSelection(
         func_after_coreg,
         anat_after_bias_brain,
@@ -354,9 +360,9 @@ workflow FUNC_WF {
                 [sub, ses, run_id, tmean, bids_name]
             }
         def dummy_forward_transform = file("${workDir}/dummy_conform_forward_transform.dummy")
-        dummy_forward_transform.toFile().text = ""
+        if (!dummy_forward_transform.exists()) dummy_forward_transform.toFile().text = ""
         def dummy_inverse_transform = file("${workDir}/dummy_conform_inverse_transform.dummy")
-        dummy_inverse_transform.toFile().text = ""
+        if (!dummy_inverse_transform.exists()) dummy_inverse_transform.toFile().text = ""
         func_compute_conform_transforms = func_after_bias
             .map { sub, ses, run_id, tmean, bids_name ->
                 [sub, ses, run_id, dummy_forward_transform, dummy_inverse_transform]
@@ -380,7 +386,7 @@ workflow FUNC_WF {
     } else {
         func_compute_mask_output = func_compute_conform_output
             .map { sub, ses, run_id, conformed_tmean, bids_name ->
-                def dummy_mask = file("${workDir}/dummy_brain_mask.dummy").tap { it.toFile().text = "" }
+                def dummy_mask = file("${workDir}/dummy_brain_mask.dummy").tap { if (!it.exists()) it.toFile().text = "" }
                 [sub, ses, run_id, conformed_tmean, bids_name, dummy_mask]
             }
     }
@@ -421,7 +427,7 @@ workflow FUNC_WF {
     } else {
         func_compute_reg_output = func_compute_mask_output
             .map { sub, ses, run_id, masked_tmean, bids_name, mask ->
-                def dummy_transform = file("${workDir}/dummy_reg_transform.dummy").tap { it.toFile().text = "" }
+                def dummy_transform = file("${workDir}/dummy_reg_transform.dummy").tap { if (!it.exists()) it.toFile().text = "" }
                 [sub, ses, run_id, masked_tmean, bids_name, dummy_transform, ""]
             }
     }
@@ -541,9 +547,9 @@ workflow FUNC_WF {
         // Input: func_compute_reg_output: [sub, ses, run_id, registered_tmean, bids_name, anat_ses]
         // Output: [sub, ses, dummy_xfm, dummy_ref]
         def dummy_anat2template_xfm = file("${workDir}/dummy_anat2template_xfm.dummy")
-        dummy_anat2template_xfm.toFile().text = ""
+        if (!dummy_anat2template_xfm.exists()) dummy_anat2template_xfm.toFile().text = ""
         def dummy_anat_reg_ref = file("${workDir}/dummy_anat_reg_ref.dummy")
-        dummy_anat_reg_ref.toFile().text = ""
+        if (!dummy_anat_reg_ref.exists()) dummy_anat_reg_ref.toFile().text = ""
         
         def anat_reg_all_dummy = func_compute_reg_output
             .map { sub, ses, run_id, registered_tmean, bids_name, anat_ses -> [sub, ses] }
@@ -759,7 +765,7 @@ workflow FUNC_WF {
         } else {
             tsnr_run_input = tsnr_base
                 .map { sub, ses, run_id, bold_sel, bids_name, space_label, space_token ->
-                    def dm = file("${workDir}/dummy_brain_mask_tsnr.dummy").tap { it.toFile().text = "" }
+                    def dm = file("${workDir}/dummy_brain_mask_tsnr.dummy").tap { if (!it.exists()) it.toFile().text = "" }
                     [sub, ses, run_id, bold_sel, bids_name, dm, space_label]
                 }
         }
@@ -770,6 +776,13 @@ workflow FUNC_WF {
             .filter { sub, ses, run_id, tsnr_nii, bids_name, bold_space -> tsnr_nii && !"${tsnr_nii}".endsWith('.dummy') }
             .groupTuple(by: [0, 1])
             .map { sub, ses, run_ids, tsnr_files, bids_names, spaces ->
+                // Runs in run-id order: groupTuple collects them in completion order, which
+                // varies between runs and changes this task's script (its cache key) on -resume.
+                def order = (0..<run_ids.size()).toList().sort { run_ids[it].toString() }
+                run_ids = order.collect { run_ids[it] }
+                tsnr_files = order.collect { tsnr_files[it] }
+                bids_names = order.collect { bids_names[it] }
+                spaces = order.collect { spaces[it] }
                 def session_space = spaces.every { it == 'T1w' } ? 'T1w' : spaces[0]
                 [sub, ses, run_ids[0], groovy.json.JsonOutput.toJson(tsnr_files*.toString()), bids_names[0], session_space]
             }
@@ -782,8 +795,8 @@ workflow FUNC_WF {
 
         def tsnr_qc_input
         // Separate LH/RH dummy paths so Nextflow does not collide staging two path() inputs with the same basename.
-        def dummy_sf_lh = file("${workDir}/dummy_surf_tsnr_lh.dummy").tap { it.toFile().text = "" }
-        def dummy_sf_rh = file("${workDir}/dummy_surf_tsnr_rh.dummy").tap { it.toFile().text = "" }
+        def dummy_sf_lh = file("${workDir}/dummy_surf_tsnr_lh.dummy").tap { if (!it.exists()) it.toFile().text = "" }
+        def dummy_sf_rh = file("${workDir}/dummy_surf_tsnr_rh.dummy").tap { if (!it.exists()) it.toFile().text = "" }
 
         if (surf_recon_enabled) {
             def surf_actual_subject_id_logged = surf_actual_subject_id
@@ -873,9 +886,9 @@ workflow FUNC_WF {
                 .filter { sub, ses_func, anat_ses, anat_seg_ses, seg, lut -> normSes(anat_ses) == normSes(anat_seg_ses) }
                 .map { sub, ses_func, anat_ses, anat_seg_ses, seg, lut -> [sub, ses_func, seg, lut] }
                 .unique()
-            def dummy_seg = file("${workDir}/dummy_confounds_seg.dummy").tap { it.toFile().text = "" }
-            def dummy_lut = file("${workDir}/dummy_confounds_lut.dummy").tap { it.toFile().text = "" }
-            def dummy_motion = file("${workDir}/dummy_confounds_motion.dummy").tap { it.toFile().text = "" }
+            def dummy_seg = file("${workDir}/dummy_confounds_seg.dummy").tap { if (!it.exists()) it.toFile().text = "" }
+            def dummy_lut = file("${workDir}/dummy_confounds_lut.dummy").tap { if (!it.exists()) it.toFile().text = "" }
+            def dummy_motion = file("${workDir}/dummy_confounds_motion.dummy").tap { if (!it.exists()) it.toFile().text = "" }
             def func_seg_lut = func_anat_selection
                 .map { sub, ses_func, anat_file, anat_ses -> [sub, ses_func] }
                 .unique()
@@ -941,7 +954,7 @@ workflow FUNC_WF {
         // skipped by FUNC_COMPUTE_CONFOUNDS, or a run that errored out) get a .dummy sentinel that
         // QC_MOTION_CORRECTION's _real() maps back to None. Keeping it run-key-driven means the
         // join below never drops a run from motion QC. (Same idiom as motion_for_runs above.)
-        def dummy_motion_qc_confounds = file("${workDir}/dummy_motion_qc_confounds.dummy").tap { it.toFile().text = "" }
+        def dummy_motion_qc_confounds = file("${workDir}/dummy_motion_qc_confounds.dummy").tap { if (!it.exists()) it.toFile().text = "" }
         def confounds_for_motion_qc = motion_qc_base
             .map { sub, ses, run_id, motion_file, tmean_file, bids_name -> [sub, ses, run_id] }
             .unique()

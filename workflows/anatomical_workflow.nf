@@ -293,12 +293,14 @@ workflow ANAT_WF {
     // Principle: anat_after_xxxstep = full head (_T1w), anat_after_xxxstep_brain = brain (_T1w_brain)
     // ============================================
     // Initialize with dummy mask and segmentation from anat_after_conform (never null)
+    // Placeholders are written only when missing: rewriting one gives it a new mtime, which
+    // changes the task hash of every consumer, so -resume re-ran them on every run.
     def dummy_mask = file("${workDir}/dummy_brain_mask.dummy")
-    dummy_mask.toFile().text = ""
+    if (!dummy_mask.exists()) dummy_mask.toFile().text = ""
     def dummy_seg = file("${workDir}/dummy_brain_segmentation.dummy")
-    dummy_seg.toFile().text = ""
+    if (!dummy_seg.exists()) dummy_seg.toFile().text = ""
     def dummy_brain = file("${workDir}/dummy_brain.dummy")
-    dummy_brain.toFile().text = ""
+    if (!dummy_brain.exists()) dummy_brain.toFile().text = ""
     def anat_skull_mask_dummy = anat_after_conform.map { sub, ses, anat_file, bids_name ->
         [sub, ses, dummy_mask]
     }
@@ -610,7 +612,7 @@ workflow ANAT_WF {
         // untouched when a session carries more than one conformed anatomical. No
         // right-only rows are possible: full_fov is emitted by the same process as
         // `output`, so its keys are always a subset.
-        def dummy_full_fov = file("${workDir}/dummy_conform_full_fov.dummy").tap { it.toFile().text = "" }
+        def dummy_full_fov = file("${workDir}/dummy_conform_full_fov.dummy").tap { if (!it.exists()) it.toFile().text = "" }
         anat_after_conform
             .join(anat_conform_reference, by: [0, 1])
             .join(anat_conform_full_fov, by: [0, 1], remainder: true)
