@@ -36,10 +36,14 @@ version=3.0.0
 # bids_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/dataset_example
 # output_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/dataset_example_docker_v${version}
 
+# # ------------------------------------------------------------
+# # long test
+# bids_dir=/mnt/DataDrive3/swap/test_brainana/raw/long_test
+# output_dir=/mnt/DataDrive3/swap/test_brainana/preproc/long_test_docker_v${version}
+
 # ------------------------------------------------------------
-# long test
-bids_dir=/mnt/DataDrive3/swap/test_brainana/raw/long_test
-output_dir=/mnt/DataDrive3/swap/test_brainana/preproc/long_test_docker_v${version}
+bids_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/dataset_surfcoil
+output_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/dataset_surfcoil_docker_v${version}
 
 # run docker without custom template
 docker run --rm -t --gpus all \
