@@ -277,6 +277,45 @@ class ReconSurfConfig(BaseModel):
         description="Path to registration template subject dir (e.g. sub-MEBRAINS). If set, use its surf/label/atlas; else use fsaverage from FREESURFER_HOME. When set, fsaparc (mris_ca_label) is skipped.",
     )
 
+    # --- Template-initialised surfaces -----------------------------------------
+    # Instead of tessellating the white-matter volume (s08-s12), start from the
+    # template's white surface carried into the subject by the subject-to-template
+    # registration, and hold template_freeze_label (V1) at the template during
+    # white-surface placement. Off by default in the library; the brainana
+    # pipeline turns it on (anat.surface_reconstruction.template_surface).
+    template_init: bool = Field(
+        default=False,
+        description=(
+            "Start from the template white surface warped into the subject "
+            "(stage s12b) instead of tessellation + topology fix (s08-s12)."
+        ),
+    )
+    template_subject_dir: Optional[Path] = Field(
+        default=None,
+        description=(
+            "Template FreeSurfer subject dir with surf/{lh,rh}.white, "
+            "surf/{lh,rh}.sphere and label/{lh,rh}.<template_freeze_label>.label. "
+            "Relative paths resolve against the brainana repo root."
+        ),
+    )
+    template_xfm: Optional[Path] = Field(
+        default=None,
+        description=(
+            "ANTs transform (.nii.gz displacement field, .h5 or .mat) that maps "
+            "template points into the subject's T1w space -- i.e. the "
+            "subject-to-template *image* transform (from-T1w_to-<template>). "
+            "The subject's orig.mgz must share the T1w's world space."
+        ),
+    )
+    template_freeze_label: Optional[str] = Field(
+        default="V1",
+        description=(
+            "Template label whose vertices keep the template's white surface "
+            "(ripped in both white passes). None fits the whole white surface "
+            "to the image."
+        ),
+    )
+
     # Sub-configurations
     atlas: AtlasConfig = Field()
     processing: ProcessingConfig = Field()
@@ -364,7 +403,7 @@ class ReconSurfConfig(BaseModel):
         return Path(v).expanduser().resolve()
 
     @field_validator(
-        "mask", "log_file", "freesurfer_home", "tp_to_base_lta", mode="before"
+        "mask", "log_file", "freesurfer_home", "tp_to_base_lta", "template_xfm", mode="before"
     )
     @classmethod
     def resolve_optional_path(cls, v: Path | str | None) -> Path | None:
@@ -373,10 +412,10 @@ class ReconSurfConfig(BaseModel):
             return None
         return Path(v).expanduser().resolve()
 
-    @field_validator("registration_template", mode="before")
+    @field_validator("registration_template", "template_subject_dir", mode="before")
     @classmethod
     def resolve_registration_template(cls, v: Path | str | None) -> Path | None:
-        """Resolve registration_template to absolute. Relative paths are resolved against brainana repo root."""
+        """Resolve template subject dirs to absolute. Relative paths are resolved against brainana repo root."""
         if v is None:
             return None
         p = Path(v).expanduser()
@@ -477,6 +516,45 @@ class ReconSurfConfig(BaseModel):
         if not self.tp_to_base_lta.exists():
             raise ValueError(f"tp_to_base_lta not found: {self.tp_to_base_lta}")
 
+        return self
+
+    @model_validator(mode="after")
+    def validate_template_init(self) -> "ReconSurfConfig":
+        """A template-initialised run must have its template and transform.
+
+        Checked up front because the alternative is a half-built tree: s08-s12
+        disable themselves when template_init is on, so a missing input would
+        otherwise surface only after the volume stages as an s13 failure on a
+        missing orig. Longitudinal timepoints inherit the base's mesh (s00) and
+        never warp anything, so they need neither.
+        """
+        if not self.template_init or self.longitudinal:
+            return self
+        if self.template_subject_dir is None:
+            raise ValueError("template_init=True requires template_subject_dir.")
+        if self.template_xfm is None:
+            raise ValueError(
+                "template_init=True requires template_xfm (the subject-to-template "
+                "image transform, which maps template points into the subject)."
+            )
+        if not self.template_xfm.exists():
+            raise ValueError(f"template_xfm not found: {self.template_xfm}")
+        needed = [
+            self.template_subject_dir / "surf" / f"{h}.{name}"
+            for h in ("lh", "rh")
+            for name in ("white", "sphere")
+        ]
+        if self.template_freeze_label:
+            needed += [
+                self.template_subject_dir / "label" / f"{h}.{self.template_freeze_label}.label"
+                for h in ("lh", "rh")
+            ]
+        missing = [str(p) for p in needed if not p.exists()]
+        if missing:
+            raise ValueError(
+                "template_init=True but the template is incomplete; missing: "
+                + ", ".join(missing)
+            )
         return self
 
     @property

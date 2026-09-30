@@ -13,6 +13,9 @@ import subprocess
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
+import nibabel as nib
+import numpy as np
+
 from .types import StepInput, StepOutput
 from ..operations.preprocessing import (
     conform_to_template,
@@ -31,6 +34,7 @@ from ..operations.sitk_rigid_registration import (
 )
 import SimpleITK as sitk
 from ..utils.bids import get_bids_prefix, parse_bids_entities
+from ..utils.nextflow import config_value
 from ..utils.templates import (
     discover_atlases_in_space,
     get_template_manager,
@@ -1029,12 +1033,79 @@ def anat_t2w_to_t1w_registration(input: StepInput, t1w_reference: Path) -> StepO
     )
 
 
+# The surface prior is always this template, whatever template.output_space is:
+# surface reconstruction runs in the subject's own space, and only the mesh and its
+# frozen label come from the template (template_zoo/fastsurfer/sub-NMT2Sym).
+SURFACE_PRIOR_TEMPLATE = "NMT2Sym"
+SURFACE_PRIOR_TEMPLATE_SPEC = "NMT2Sym:res-05"
+
+
+def surface_prior_transform(
+    input: StepInput,
+    t1w_file: Path,
+    brain_mask: Path,
+    template_xfm: Optional[Path],
+    work_dir: Path,
+) -> tuple[Path, str]:
+    """The subject-to-NMT2Sym image transform the template surface prior is warped with.
+
+    Reuses the run's own anatomical registration when it targeted NMT2Sym (the
+    default output space). Otherwise registers the skull-stripped T1w to the
+    NMT2Sym brain here, with the same function and settings as the anatomical
+    registration step, so the prior does not depend on the chosen output space.
+
+    Returns:
+        (transform path, how it was obtained: "reused" or "registered").
+    """
+    if template_xfm is not None and template_xfm.exists() and template_xfm.stat().st_size > 0:
+        if f"_to-{SURFACE_PRIOR_TEMPLATE}_" in template_xfm.name:
+            if template_xfm.suffix == ".mat":
+                logger.warning(
+                    "Step: template surface prior reuses an affine-only registration "
+                    "(%s); V1 is placed less accurately than with anat2template_xfm_type: syn",
+                    template_xfm.name,
+                )
+            return template_xfm, "reused"
+        logger.info(
+            "Step: anatomical registration targets another space (%s); registering "
+            "to %s for the template surface prior",
+            template_xfm.name,
+            SURFACE_PRIOR_TEMPLATE,
+        )
+
+    reg_config = config_value(input.config, "registration", {}) or {}
+    xfm_type = reg_config.get("anat2template_xfm_type", "syn")
+    work_dir.mkdir(parents=True, exist_ok=True)
+    t1 = nib.load(str(t1w_file))
+    mask = np.asarray(nib.load(str(brain_mask)).dataobj) > 0
+    brain = np.asarray(t1.dataobj, dtype=np.float32) * mask
+    brain_file = work_dir / "surface_prior_moving_brain.nii.gz"
+    nib.save(nib.Nifti1Image(brain, t1.affine, t1.header), str(brain_file))
+    result = ants_register(
+        movingf=str(brain_file),
+        fixedf=get_template_manager().resolve_template(SURFACE_PRIOR_TEMPLATE_SPEC),
+        working_dir=str(work_dir),
+        output_prefix="surface_prior_to_NMT2Sym",
+        config=input.config,
+        logger=logger,
+        xfm_type=xfm_type,
+        compute_inverse=False,
+        enable_fireants=reg_config.get("enable_fireants", True),
+        fireants_allow_cpu=reg_config.get("fireants_allow_cpu", True),
+    )
+    xfm = result.get("forward_transform")
+    if not xfm or not Path(xfm).exists():
+        raise RuntimeError("Registration for the template surface prior produced no transform")
+    return Path(xfm), "registered"
+
+
 def anat_surface_reconstruction(
     input: StepInput,
     t1w_file: Path,
     segmentation_file: Path,
     brain_mask: Optional[Path] = None,
     arm6_atlas: Optional[Path] = None,
+    template_xfm: Optional[Path] = None,
 ) -> StepOutput:
     """
     Perform surface reconstruction using fastsurfer_surfrecon.
@@ -1045,6 +1116,10 @@ def anat_surface_reconstruction(
         segmentation_file: Segmentation file (from skullstripping step)
         brain_mask: Brain mask file (required for surface reconstruction)
         arm6_atlas: Optional ARM6 atlas for claustrum fix (stage s07b)
+        template_xfm: Optional subject-to-template image transform from the
+            anatomical registration (from-T1w_to-<space>). Reused for the
+            template surface prior when it targets NMT2Sym; otherwise, or when
+            absent, the prior registers to NMT2Sym itself.
 
     Returns:
         StepOutput with surface reconstruction directory path
@@ -1171,6 +1246,25 @@ def anat_surface_reconstruction(
         # Get thread count from config
         threads = input.config.get("processing", {}).get("threads", 1)
 
+        # Template surface prior: start from the NMT2Sym white surface and hold
+        # its V1 at the template (see template_zoo/fastsurfer/sub-NMT2Sym/README.md).
+        template_prior = {}
+        if config_value(
+            input.config, "anat.surface_reconstruction.template_surface.enabled", True
+        ):
+            xfm, xfm_source = surface_prior_transform(
+                input,
+                t1w_file=t1w_file,
+                brain_mask=brain_mask,
+                template_xfm=template_xfm,
+                work_dir=Path(input.working_dir) / "surface_prior_registration",
+            )
+            logger.info(f"Step: template surface prior on ({xfm_source} transform {xfm.name})")
+            template_prior = {"template_init": True, "template_xfm": str(xfm)}
+            prior_metadata = {"template_surface": True, "template_surface_transform": xfm_source}
+        else:
+            prior_metadata = {"template_surface": False}
+
         # Create configuration using defaults from YAML, only override non-default values
         recon_config = ReconSurfConfig.with_defaults(
             subject_id=subject_id,
@@ -1182,6 +1276,7 @@ def anat_surface_reconstruction(
                 "skip_talairach": True,
             },  # Default for macaque
             verbose=1,
+            **template_prior,
         )
 
         # Run pipeline
@@ -1202,6 +1297,7 @@ def anat_surface_reconstruction(
             "subject_id": subject_id,
             "atlas_name": atlas_name,
             "subjects_dir": str(subjects_dir),
+            **prior_metadata,
         },
     )
 

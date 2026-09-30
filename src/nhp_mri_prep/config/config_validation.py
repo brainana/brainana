@@ -380,8 +380,18 @@ def validate_skullstripping_config(config: Dict[str, Any]) -> None:
                 f"Please fix this in your configuration file."
             )
 
+        # fix_V1_WM: bool or "auto" (on only when the template surface prior is off)
+        if "fix_V1_WM" in fscnn_cfg:
+            value = fscnn_cfg.get("fix_V1_WM")
+            if not (isinstance(value, bool) or value == "auto"):
+                raise ValueError(
+                    f"Configuration error in skullstripping.fastSurferCNN: "
+                    f'fix_V1_WM must be true, false or "auto", got: {value}. '
+                    f"Please fix this in your configuration file."
+                )
+
         # Validate boolean options
-        for bool_param in ["use_mixed_model", "enable_crop_2round", "fix_V1_WM"]:
+        for bool_param in ["use_mixed_model", "enable_crop_2round"]:
             if bool_param in fscnn_cfg:
                 value = fscnn_cfg.get(bool_param)
                 if not isinstance(value, bool):
@@ -720,6 +730,21 @@ def validate_surface_reconstruction_config(config: Dict[str, Any]) -> None:
                 f"Configuration error in anat.surface_reconstruction: "
                 f"use_t1wt2wcombined must be boolean, got: {type(config['use_t1wt2wcombined']).__name__}. "
                 f"Please fix this in your configuration file."
+            )
+
+    if "template_surface" in config and config["template_surface"] is not None:
+        prior = config["template_surface"]
+        if not isinstance(prior, dict):
+            raise ValueError(
+                "Configuration error in anat.surface_reconstruction.template_surface: "
+                f"must be a mapping, got: {type(prior).__name__}. "
+                "Please fix this in your configuration file."
+            )
+        if "enabled" in prior and not isinstance(prior["enabled"], bool):
+            raise ValueError(
+                "Configuration error in anat.surface_reconstruction.template_surface: "
+                f"enabled must be boolean, got: {type(prior['enabled']).__name__}. "
+                "Please fix this in your configuration file."
             )
 
     if "longitudinal" in config:

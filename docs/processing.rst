@@ -250,8 +250,47 @@ maps.
   - Convert CNN-derived ARM2 labels into a FreeSurfer-compatible segmentation.
   - Tune surface reconstruction parameters for submillimeter macaque MRI.
   - Apply targeted segmentation refinements in error-prone regions,
-    including the occipital calcarine cortex, claustrum, and
-    orbitofrontal cortex.
+    including the claustrum and orbitofrontal cortex (and, when template
+    surfaces are off, the occipital calcarine cortex; see
+    ``fix_V1_WM`` below).
+
+- **Starting surface: the NMT2Sym template** (default,
+  ``anat.surface_reconstruction.template_surface.enabled: true``). Instead of
+  tessellating the white-matter segmentation, the white surface of
+  the NMT2Sym template (``template_zoo/fastsurfer/sub-NMT2Sym``) is carried
+  into the subject by the subject-to-NMT2Sym registration and used as the
+  starting mesh. That mesh is already closed and genus 0, so no topology
+  correction is needed, and every subject shares the template's vertex
+  numbering. The white surface is then fitted to the image everywhere
+  except V1, whose white surface stays at the template (only the light
+  smoothing ``mris_place_surface --nsmooth`` applies moves it); the pial
+  surface, including over V1, is fitted to the image as before.
+
+  - **Why V1 is held:** on T1w data V1's heavily myelinated cortex gives
+    little grey/white contrast. A white surface fitted to the image there sat
+    about 0.4 mm too far out (V1 thickness 1.3–1.4 mm against the expected
+    1.7–2.0 mm), and on images with strong bias it lost V1's characteristic
+    fold shape. In blind visual comparisons the template-held V1 was
+    preferred on hard data (surface coil, strong bias) and was as good or
+    better on 21 of 24 normal-quality PRIME-DE subjects.
+  - **Transform:** the anatomical registration's transform is reused when
+    ``template.output_space`` is NMT2Sym (the default). For any other output
+    space, surface reconstruction registers the skull-stripped T1w to the
+    NMT2Sym brain itself, with the same ``registration`` settings, so the
+    surface prior does not depend on the chosen output space. An affine-only
+    registration (``anat2template_xfm_type`` other than ``syn``) places V1
+    less accurately and is logged as a warning.
+  - **fix_V1_WM:** ``anat.skullstripping_segmentation.fastSurferCNN.fix_V1_WM``
+    (fills missing thin V1 white matter from the template's) defaults to
+    ``"auto"``: on only when template surfaces are off, where it improved
+    surfaces; with template surfaces it made no visible difference.
+  - **Longitudinal:** the base template is reconstructed this way, and each
+    timepoint inherits its mesh and the V1 label, so V1 stays held there too.
+
+- **Starting surface: tessellation** (``template_surface.enabled: false``, the
+  v3.0.0 behaviour). The white-matter segmentation is tessellated and
+  topology-corrected:
+
   - Run an additional topology correction step for surface defects that
     commonly arise in macaque reconstructions and are not reliably
     resolved by FreeSurfer alone.
@@ -271,6 +310,10 @@ maps.
     default search is also run and the result that keeps more of the
     surface is used. A mesh that comes out consistently wound but
     inside-out is flipped before it is checked and promoted.
+
+- **Template-surface record:** with template surfaces, ``scripts/?h.template_init.json``
+  records the template, the transform used and the held label, and
+  ``label/?h.template.V1.label`` lists the held vertices.
 
 - **Surface QC record:** ``scripts/surface_qc.json`` records the topology
   of every key surface, which topology-fix path was taken per hemisphere

@@ -37,6 +37,7 @@ from .sitk_rigid_registration import (
     sitk_resample_to_spacing,
     world_mat_to_vox2vox,
 )
+from ..utils.nextflow import config_value
 from ..utils import (
     run_command,
     calculate_func_tmean,
@@ -1376,6 +1377,27 @@ def despike(
         raise RuntimeError(f"Despiking failed: {e}") from e
 
 
+
+def resolve_fix_v1_wm(value, config, modal: str) -> bool:
+    """Resolve anat.skullstripping_segmentation.fastSurferCNN.fix_V1_WM.
+
+    true/false are taken as given. "auto" turns the V1 white-matter fill on only
+    for anatomical data whose surfaces are not built from the template: with
+    anat.surface_reconstruction.template_surface on, V1's white surface is the
+    template's, and in blind comparisons the fill no longer helped there, while
+    for tessellated surfaces it did.
+    """
+    if value != "auto":
+        return bool(value)
+    if modal != "anat":
+        return False
+    template_surfaces = config_value(
+        config, "anat.surface_reconstruction.enabled", True
+    ) and config_value(
+        config, "anat.surface_reconstruction.template_surface.enabled", True
+    )
+    return not template_surfaces
+
 def apply_segmentation(
     imagef: Union[str, Path],
     modal: str,
@@ -1460,7 +1482,7 @@ def apply_segmentation(
         # Get fix_roi_wm and roi_name settings from config
         # Support legacy 'fix_V1_WM' config key for backward compatibility
         if "fix_V1_WM" in fscnn_cfg:
-            fix_roi_wm = fscnn_cfg.get("fix_V1_WM", False)
+            fix_roi_wm = resolve_fix_v1_wm(fscnn_cfg.get("fix_V1_WM", False), config, modal)
             roi_name = "V1" if fix_roi_wm else fscnn_cfg.get("roi_name", "V1")
         else:
             # Use explicit fix_roi_wm and roi_name settings

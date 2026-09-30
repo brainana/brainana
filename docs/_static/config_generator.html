@@ -561,9 +561,15 @@ button#generate:hover{filter:brightness(.95);}
                             <div class="param-row">
                                 <span class="param-check"></span>
                                 <label for="anat_skullstripping_segmentation_fastSurferCNN_fix_V1_WM">fix_V1_WM</label>
-                                <span class="param-control"><input type="checkbox" id="anat_skullstripping_segmentation_fastSurferCNN_fix_V1_WM" name="anat_skullstripping_segmentation_fastSurferCNN_fix_V1_WM" checked></span>
+                                <span class="param-control">
+                                    <select id="anat_skullstripping_segmentation_fastSurferCNN_fix_V1_WM" name="anat_skullstripping_segmentation_fastSurferCNN_fix_V1_WM">
+                                        <option value="auto" selected>auto</option>
+                                        <option value="true">true</option>
+                                        <option value="false">false</option>
+                                    </select>
+                                </span>
                             </div>
-                            <span class="help-text">(fix thin V1 white matter by registering template V1 WM to subject space)</span>
+                            <span class="help-text">(fill missing thin V1 white matter from the template's V1 white matter registered to the subject; "auto" = only when surface_reconstruction template_surface is off)</span>
                         </div>
                         <div class="param-block">
                             <div class="param-row">
@@ -705,6 +711,14 @@ button#generate:hover{filter:brightness(.95);}
                             <span class="param-control"><input type="checkbox" id="anat_surface_reconstruction_use_t1wt2wcombined" name="anat_surface_reconstruction_use_t1wt2wcombined"></span>
                         </div>
                         <span class="help-text">(use T1w and T2w combined (enhanced T1w) image if available)</span>
+                    </div>
+                    <div class="param-block">
+                        <div class="param-row">
+                            <span class="param-check"></span>
+                            <label for="anat_surface_reconstruction_template_surface_enabled">template_surface</label>
+                            <span class="param-control"><input type="checkbox" id="anat_surface_reconstruction_template_surface_enabled" name="anat_surface_reconstruction_template_surface_enabled" checked></span>
+                        </div>
+                        <span class="help-text">(start from the NMT2Sym template's white surface carried into the subject, and keep V1's white surface at the template; off = tessellate the white-matter segmentation as in v3.0.0)</span>
                     </div>
                     <div id="anat_surface_reconstruction_longitudinal_options" class="advanced-subgroup">
                         <h4 class="advanced-subgroup-title">longitudinal</h4>
@@ -1240,7 +1254,7 @@ button#generate:hover{filter:brightness(.95);}
                         plane_weight_coronal: 0.4,
                         plane_weight_axial: 0.4,
                         plane_weight_sagittal: 0.2,
-                        fix_V1_WM: true,
+                        fix_V1_WM: "auto",
                         label_island_min_volume_mm3: 0,
                         pre_inference_n4: {
                             enabled: "auto",
@@ -1263,6 +1277,9 @@ button#generate:hover{filter:brightness(.95);}
                 surface_reconstruction: {
                     enabled: true,
                     use_t1wt2wcombined: false,
+                    template_surface: {
+                        enabled: true
+                    },
                     longitudinal: {
                         iscale: false,
                         subsample: null,
@@ -1713,7 +1730,8 @@ button#generate:hover{filter:brightness(.95);}
                 config.anat.skullstripping_segmentation.fastSurferCNN.plane_weight_coronal = parseFloat(document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_plane_weight_coronal').value);
                 config.anat.skullstripping_segmentation.fastSurferCNN.plane_weight_axial = parseFloat(document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_plane_weight_axial').value);
                 config.anat.skullstripping_segmentation.fastSurferCNN.plane_weight_sagittal = parseFloat(document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_plane_weight_sagittal').value);
-                config.anat.skullstripping_segmentation.fastSurferCNN.fix_V1_WM = document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_fix_V1_WM').checked;
+                const _fixV1 = document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_fix_V1_WM').value;
+                config.anat.skullstripping_segmentation.fastSurferCNN.fix_V1_WM = _fixV1 === 'auto' ? 'auto' : _fixV1 === 'true';
                 config.anat.skullstripping_segmentation.fastSurferCNN.label_island_min_volume_mm3 = parseFloat(document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_label_island_min_volume_mm3').value) || 0;
                 const _n4Enabled = document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_enabled').value;
                 config.anat.skullstripping_segmentation.fastSurferCNN.pre_inference_n4 = {
@@ -1735,6 +1753,9 @@ button#generate:hover{filter:brightness(.95);}
             
             config.anat.surface_reconstruction.enabled = document.getElementById('anat_surface_reconstruction_enabled').checked;
             config.anat.surface_reconstruction.use_t1wt2wcombined = document.getElementById('anat_surface_reconstruction_use_t1wt2wcombined').checked;
+            config.anat.surface_reconstruction.template_surface = {
+                enabled: document.getElementById('anat_surface_reconstruction_template_surface_enabled').checked
+            };
             config.anat.surface_reconstruction.longitudinal.iscale = document.getElementById('anat_surface_reconstruction_longitudinal_iscale').checked;
             const _longSubsample = document.getElementById('anat_surface_reconstruction_longitudinal_subsample').value;
             config.anat.surface_reconstruction.longitudinal.subsample = _longSubsample === '' ? null : parseInt(_longSubsample);

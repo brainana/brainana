@@ -28,6 +28,7 @@ from .stages import (
     Inflation,
     SphericalProjection,
     TopologyFix,
+    TemplateInit,
     WhitePreaparc,
     Parcellation,
     SurfacePlacement,
@@ -193,6 +194,7 @@ class ReconSurfPipeline:
             Inflation(self.config, self.sd, hemi),
             SphericalProjection(self.config, self.sd, hemi),
             TopologyFix(self.config, self.sd, hemi),
+            TemplateInit(self.config, self.sd, hemi),
             WhitePreaparc(self.config, self.sd, hemi),
             Parcellation(self.config, self.sd, hemi),
             SurfacePlacement(self.config, self.sd, hemi),
@@ -239,6 +241,7 @@ class ReconSurfPipeline:
         - s10: Inflation
         - s11: Spherical projection
         - s12: Topology fix (optional)
+        - s12b: Template-initialised surface (replaces s08-s12 when template_init)
         - s13: White preaparc
         - s14: Parcellation mapping
         - s15: Surface placement
@@ -318,11 +321,14 @@ class ReconSurfPipeline:
                     if path.exists():
                         report["surfaces"][f"{hemi}.{name}"] = validate_surface(path)
 
-                record = self.sd.scripts_dir / f"{hemi}.topology_fix.json"
-                if record.exists():
-                    report.setdefault("topology_fix", {})[hemi] = json.loads(
-                        record.read_text()
-                    )
+                # Which starting surface this hemisphere had: tessellation
+                # (topology_fix) or the template (template_init).
+                for key in ("topology_fix", "template_init"):
+                    record = self.sd.scripts_dir / f"{hemi}.{key}.json"
+                    if record.exists():
+                        report.setdefault(key, {})[hemi] = json.loads(
+                            record.read_text()
+                        )
 
                 thickness = self._thickness_summary(hemi)
                 if thickness is not None:

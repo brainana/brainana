@@ -1191,7 +1191,10 @@ workflow ANAT_WF {
     // SURFACE RECONSTRUCTION
     // ============================================
     def anat_for_surf_recon = use_t1wt2wcombined ? anat_after_t1wt2wcombined : anat_after_bias
-    SURF_RECON_WF(anat_for_surf_recon, anat_skull_seg, anat_skull_mask, anat_arm6_atlas)
+    // Subject-to-template transform, reused by the template surface prior when the
+    // registration targeted NMT2Sym. [sub, ses, bids_name, fwd, inv] -> [sub, ses, fwd]
+    def anat_template_xfm = anat_reg_transforms.map { sub, ses, bids_name, fwd, inv -> [sub, ses, fwd] }
+    SURF_RECON_WF(anat_for_surf_recon, anat_skull_seg, anat_skull_mask, anat_arm6_atlas, anat_template_xfm)
 
     // Note on the longitudinal stream (anat.synthesis_level: session_longitudinal):
     // SURF_RECON_WF also emits surf_base_dir_ch / surf_long_subject_dir_ch, and

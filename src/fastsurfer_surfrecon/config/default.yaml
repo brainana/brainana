@@ -59,6 +59,14 @@ processing:
 # Registration template (optional). Path relative to brainana repo root.
 registration_template: template_zoo/fastsurfer/sub-NMT2Sym
 
+# Template-initialised surfaces (off here; the brainana pipeline turns it on via
+# anat.surface_reconstruction.template_surface). When on, s08-s12 are replaced by
+# s12b: the template white surface, carried into the subject by template_xfm, is
+# the starting mesh, and template_freeze_label keeps the template's white surface.
+template_init: false
+template_subject_dir: template_zoo/fastsurfer/sub-NMT2Sym
+template_freeze_label: V1
+
 # Output control
 verbose: 1  # Verbosity level (0=WARNING, 1=INFO, 2=DEBUG)
 

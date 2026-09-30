@@ -190,6 +190,8 @@ Surface reconstruction (``fastsurfer/``)
 
 When surface reconstruction is enabled, FreeSurfer-compatible outputs are written under ``fastsurfer/sub-<id>/`` (or ``fastsurfer/sub-<id>_ses-<id>/`` when multiple sessions are reconstructed separately). This includes ``label/``, ``mri/``, ``surf/``, and ``stats/`` (meshes, parcellations, and morphometric maps).
 
+With template surfaces (the default, ``anat.surface_reconstruction.template_surface.enabled``), every subject's surfaces use the NMT2Sym template's mesh (40962 vertices per hemisphere) and vertex numbering: a vertex starts at the same template location in every subject, and surface placement then moves it, typically by under 1 mm. ``label/?h.template.V1.label`` lists the vertices whose white surface is held at the template, and ``scripts/?h.template_init.json`` records the transform used.
+
 .. rubric:: Longitudinal stream (``anat.synthesis_level: "session_longitudinal"``)
 
 With the longitudinal stream enabled (see :doc:`synthesis_level`), two further kinds of subject directory appear alongside the cross-sectional ones, which are still produced and are still what functional outputs are registered to:

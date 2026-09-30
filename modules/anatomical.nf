@@ -556,7 +556,10 @@ process ANAT_SURFACE_RECONSTRUCTION {
         }
     
     input:
-    tuple val(subject_id), val(session_id), path(t1w_file), val(bids_name), path(segmentation_file), path(brain_mask), path(arm6_atlas_file), val(session_count)
+    // template_xfm_file: the anatomical registration's subject-to-template transform
+    // (from-T1w_to-<space>), or an empty placeholder. The template surface prior reuses
+    // it when <space> is NMT2Sym and registers to NMT2Sym itself otherwise.
+    tuple val(subject_id), val(session_id), path(t1w_file), val(bids_name), path(segmentation_file), path(brain_mask), path(arm6_atlas_file), path(template_xfm_file), val(session_count)
     path config_file
     
     output:
@@ -618,13 +621,19 @@ arm6_atlas_path = None
 if '${arm6_atlas_file}' and Path('${arm6_atlas_file}').exists() and Path('${arm6_atlas_file}').stat().st_size > 0:
     arm6_atlas_path = Path('${arm6_atlas_file}')
 
+# Subject-to-template transform for the template surface prior (empty placeholder = none)
+template_xfm_path = None
+if '${template_xfm_file}' and Path('${template_xfm_file}').exists() and Path('${template_xfm_file}').stat().st_size > 0:
+    template_xfm_path = Path('${template_xfm_file}')
+
 # Run surface reconstruction
 result = anat_surface_reconstruction(
     input_obj,
     t1w_file=Path('${t1w_file}'),
     segmentation_file=Path('${segmentation_file}'),
     brain_mask=brain_mask_path,
-    arm6_atlas=arm6_atlas_path
+    arm6_atlas=arm6_atlas_path,
+    template_xfm=template_xfm_path
 )
 
 # Copy directory to work directory root so Nextflow can find it

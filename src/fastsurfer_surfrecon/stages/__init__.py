@@ -23,6 +23,7 @@ from .s09_smoothing import Smoothing
 from .s10_inflation import Inflation
 from .s11_spherical_projection import SphericalProjection
 from .s12_topology_fix import TopologyFix
+from .s12b_template_init import TemplateInit
 from .s13_white_preaparc import WhitePreaparc
 from .s14_parcellation import Parcellation
 from .s15_surface_placement import SurfacePlacement
@@ -54,6 +55,7 @@ __all__ = [
     "Inflation",
     "SphericalProjection",
     "TopologyFix",
+    "TemplateInit",
     "WhitePreaparc",
     "Parcellation",
     "SurfacePlacement",

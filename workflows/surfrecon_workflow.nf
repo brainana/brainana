@@ -39,6 +39,7 @@ workflow SURF_RECON_WF {
     anat_skull_seg         // [sub, ses, seg_file]
     anat_skull_mask        // [sub, ses, mask_file]
     anat_arm6_atlas        // [sub, ses, arm6_atlas_file]
+    anat_template_xfm      // [sub, ses, subject_to_template_xfm] (anatomical registration's forward transform)
 
     main:
     // ============================================
@@ -120,16 +121,27 @@ workflow SURF_RECON_WF {
                 [sub, ses, anat_file, bids_name, seg_file, mask_file, final_arm6]
             }
 
+        // Step 3b: Join with the subject-to-template transform for the template surface
+        // prior (optional: the step registers to NMT2Sym itself when it is absent or
+        // targets another space)
+        def surf_recon_input_with_xfm = surf_recon_input_with_arm6
+            .join(anat_template_xfm.map { sub, ses, xfm -> [sub, ses, xfm] }, by: [0, 1], remainder: true)
+            .filter { it.size() > 2 && it[2] != null }   // remainder rows from a transform with no anatomy
+            .map { sub, ses, anat_file, bids_name, seg_file, mask_file, arm6_file, xfm ->
+                def final_xfm = xfm ?: file("${workDir}/dummy_template_xfm.dummy").tap { if (!it.exists()) it.toFile().text = "" }
+                [sub, ses, anat_file, bids_name, seg_file, mask_file, arm6_file, final_xfm]
+            }
+
         // Step 4: Join with session count
         def anat_sessions_clean = anat_sessions_per_subject
             .unique { sub, session_count -> sub }
             .map { sub, session_count -> [sub, session_count] }
 
-        def surf_recon_input = surf_recon_input_with_arm6
+        def surf_recon_input = surf_recon_input_with_xfm
             .combine(anat_sessions_clean, by: 0)
-            .map { sub, ses, anat_file, bids_name, seg_file, mask_file, arm6_atlas_file, session_count ->
+            .map { sub, ses, anat_file, bids_name, seg_file, mask_file, arm6_atlas_file, template_xfm, session_count ->
                 def count = session_count instanceof List ? session_count[0] : session_count
-                [sub, ses, anat_file, bids_name, seg_file, mask_file, arm6_atlas_file, count]
+                [sub, ses, anat_file, bids_name, seg_file, mask_file, arm6_atlas_file, template_xfm, count]
             }
 
         ANAT_SURFACE_RECONSTRUCTION(surf_recon_input, config_file)
