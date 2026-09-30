@@ -324,8 +324,6 @@ a.gchip.sub-link:hover{text-decoration:none;background:var(--bn-accent)}
 .fig.step-fig img{margin-top:10px}
 .step-missing{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:8px 0 0}
 .step-cap{margin:-8px 0 8px}
-.topbar .kbd-hint{margin-left:auto;color:var(--bn-muted);font-size:12px;white-space:nowrap}
-@media (max-width:900px){.topbar .kbd-hint{display:none}}
 """
 
 # Hash routes: #sub-XXX (subject view) and #step-N (by-step view). Any other
@@ -449,7 +447,6 @@ _DATASET_TEMPLATE = """<!DOCTYPE html>
 </div>
 <span class="mode"><a id="mode-sub" class="on" href="#{FIRST_SUB}">Subject</a><a id="mode-step" href="#">By step</a></span>
 <nav id="nav"></nav>
-<span class="kbd-hint">← → to switch</span>
 </header>
 <main></main>
 {TEMPLATES}
