@@ -1057,7 +1057,15 @@ def surface_prior_transform(
     Returns:
         (transform path, how it was obtained: "reused" or "registered").
     """
-    if template_xfm is not None and template_xfm.exists() and template_xfm.stat().st_size > 0:
+    # With registration off, the passthrough still names its identity transform
+    # _to-<output space>_, so the name alone cannot tell a real registration.
+    registration_ran = config_value(input.config, "registration.enabled", True)
+    if (
+        registration_ran
+        and template_xfm is not None
+        and template_xfm.exists()
+        and template_xfm.stat().st_size > 0
+    ):
         if f"_to-{SURFACE_PRIOR_TEMPLATE}_" in template_xfm.name:
             if template_xfm.suffix == ".mat":
                 logger.warning(

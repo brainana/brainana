@@ -122,6 +122,22 @@ def test_registers_to_nmt2sym_otherwise(step_input, tmp_path, fake_register, nam
     assert call["xfm_type"] == "syn"  # registration.anat2template_xfm_type default
 
 
+def test_registration_off_passthrough_is_not_reused(tmp_path, fake_register):
+    """With registration off, the identity passthrough is still named _to-NMT2Sym_."""
+    step_input = StepInput(
+        input_file=tmp_path / "t1w.nii.gz",
+        working_dir=tmp_path,
+        config={"registration": {"enabled": False}},
+        metadata={},
+    )
+    xfm = _xfm(tmp_path, "sub-01_from-T1w_to-NMT2Sym_mode-image_xfm.h5")
+    _, source = anatomical.surface_prior_transform(
+        step_input, tmp_path / "t1w.nii.gz", tmp_path / "mask.nii.gz", xfm, tmp_path / "reg"
+    )
+    assert source == "registered"
+    assert len(fake_register) == 1
+
+
 def test_empty_placeholder_is_not_a_transform(step_input, tmp_path, fake_register):
     """Nextflow passes an empty placeholder when no registration output joined."""
     placeholder = tmp_path / "dummy_template_xfm.dummy"
