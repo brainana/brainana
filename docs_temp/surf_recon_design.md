@@ -106,7 +106,8 @@ in the subject's space, and only the mesh and its held label come from the templ
 - **Register** otherwise: the skull-stripped T1w (T1w × brain mask) to
   `tpl-NMT2Sym_res-05_T1w_brain`, with `ants_register` and the run's `registration` settings
   (`anat2template_xfm_type`, `enable_fireants`, `fireants_allow_cpu`). This covers other output
-  spaces, `registration.enabled: false` (the passthrough writes `from-T1w_to-T1w`), and the
+  spaces, `registration.enabled: false` (the passthrough names its identity transform
+  `_to-<output space>_`, so reuse also requires `registration.enabled`), and the
   longitudinal base, which is built by `reconstruct_base()` without a transform. On CPU it
   took about a minute (032116) and placed V1 within a median 0.10–0.17 mm of the reused one.
 - **Rejected:** reusing the segmentation template-prior registration

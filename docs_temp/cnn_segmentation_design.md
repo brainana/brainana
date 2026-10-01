@@ -93,6 +93,7 @@ Two facts shape the design:
         │                                                          │
  ★ keep pass 2 only if Dice(pass 2) ≥ Dice(pass 1) − 0.005          │
      otherwise: pass 2 → pass2_rejected/, pass 1 restored           │
+     (also when pass 2 raises; the forced mode uses the same rule)  │
         │◄─────────────────────────────────────────────────────────┘
         ▼
  ★ V1 white-matter fix, once, on the kept pass
@@ -221,7 +222,8 @@ pass's input image. Functional segmentation is unchanged.
 | `IntensityCapApplied`, `IntensityCapRatio` | whether the 0–255 cap bound, for the image that produced the final segmentation |
 | `SegmentationPasses` | 1 or 2 |
 | `Pass1` | pass-1 volume and cap fields, when pass 2 was kept |
-| `PreInferenceN4` | `Trigger`, `Region`, `ShrinkFactor`, `BSplineFitting`, `Pass2Kept` |
+| `PreInferenceN4` | `Trigger`, `Region`, `ShrinkFactor`, `BSplineFitting`, `Pass2Kept`; `Error` when pass 2 itself failed (pass 1 kept) |
+| `SegmentationCheckFailed` | the N4 or the prior failed before any decision; pass 1 kept, single pass |
 | `TemplatePrior` | `Pass1` / `Pass2` {`TemplateDice`, `MissedCm3`, `Reliable`}, final `TemplateDice`, `MissedCm3`, `Reliable`, `MinMissedCm3`, `Engine`; or `RegistrationFailed` |
 
 Work files: `pre_inference_n4/{search_region,pre_inference_n4}.nii.gz`,

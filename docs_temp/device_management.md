@@ -54,9 +54,16 @@ main.nf / workflows (run start)
   GPU step? ─► process input `val use_gpu` = true | false
 
 task script (GPU step, use_gpu = true)
-  source brainana_gpu_slot.sh ─► flock a free slot (waits if none), export
-                                 CUDA_VISIBLE_DEVICES=<gpu> BRAINANA_DEVICE=cuda;
+  source brainana_gpu_slot.sh ─► flock -n -E 75 a free slot (waits if all are busy,
+                                 logged every 10 min; any other flock error, e.g. a
+                                 work dir on Lustre/NFS without locks, fails the task),
+                                 export CUDA_VISIBLE_DEVICES=<gpu> BRAINANA_DEVICE=cuda;
                                  released by the kernel when the task ends
+
+per-task Docker (Nextflow starts one container per task)
+  beforeScript runs on the host, before `docker run`; docker.envWhitelist passes the
+  slot table, CUDA_VISIBLE_DEVICES/BRAINANA_DEVICE/CUDA_DEVICE_ORDER and the thread caps
+  into the container (`-e NAME` copies the value from that shell)
 
 python
   resolve_device(spec) ─► [Device] cuda:0 | cpu ─► metadata.json "device"
@@ -260,9 +267,16 @@ Whole run: about 4 min on the GPU and 13–14 min on the CPU.
 - **Per-job VRAM budget.** `perJobVramMiB` stays at 4096 until res-05 (the default
   template, about 8× the voxels of res-1) is measured. The res-1 peaks above do not justify
   lowering it.
-- **Waiting for a slot costs a reservation.** A GPU step waiting for a slot has already
-  been launched and holds its CPU/memory reservation. The per-process `maxForks` caps keep
-  this small.
+- **Waiting for a slot costs a reservation and counts against the task's time limit.** A
+  GPU step waiting for a slot has already been launched and holds its CPU/memory
+  reservation. Every slot-taking step is capped at the slot count (`slotForks2`,
+  `slotForksConform` in `nextflow.config`; `withLabel: 'gpu'` uses `gpuSlotCount`), so
+  each process has at most that many tasks waiting. The cap is per process, not global:
+  seven slot-taking processes can still queue up to seven times the slot count.
+  `ANAT_SURFACE_BASE_ATLAS` (failure terminates the run) has `time = '8h'` for that
+  reason. In CPU mode the caps fall back to the previous values.
+- **`unset LD_PRELOAD` in CPU mode does not reach a per-task container**: an unset variable
+  is not passed by `envWhitelist`, so the image's own `LD_PRELOAD` stays there.
 - **Registration and conform carry `label 'cpu'`**, so `withLabel: 'gpu'` settings do not
   apply to them. The slots still bound their GPU use.
 - **Surface reconstruction has its own thread setting** (`processing.threads`, default 1,
