@@ -287,6 +287,11 @@ def validateList = { value ->
     if (value instanceof List || value instanceof Object[]) {
         return true
     }
+
+    // Nextflow turns a single numeric CLI value (--subjects 01, --runs 1) into a number
+    if (value instanceof Number) {
+        return true
+    }
     
     if (value instanceof String) {
         // Empty string is not a valid list
@@ -314,6 +319,13 @@ def toList = { value, defaultVal = [] ->
     
     if (value instanceof Object[]) {
         return value.toList()
+    }
+
+    // A single numeric CLI value. Nextflow has already parsed it, so a leading
+    // zero (--subjects 01) is gone here; BIDS discovery, which does the actual
+    // filtering, receives the original text.
+    if (value instanceof Number) {
+        return [value.toString()]
     }
     
     if (value instanceof String) {
