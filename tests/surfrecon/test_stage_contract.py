@@ -84,7 +84,7 @@ def test_s12_skip_set_excludes_sphere():
     assert {"lh.orig", "lh.smoothwm", "lh.inflated"} <= set(names)
 
 
-def test_s02_normalises_on_the_aseg_mapped_volume(tmp_path, monkeypatch):
+def test_s02_normalises_on_the_aseg_mapped_volume(tmp_path, monkeypatch, freesurfer_home):
     """WM normalisation reads labels 2/41 as WM, which only holds in the aseg
     mapping; the raw atlas volume has cortex at ID 2 (ARM2: right ACgG)."""
     from fastsurfer_surfrecon.config import ReconSurfConfig

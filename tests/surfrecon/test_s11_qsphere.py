@@ -20,7 +20,7 @@ from test_s12_topology_fix import _icosphere
 
 
 @pytest.fixture
-def stage(tmp_path):
+def stage(tmp_path, freesurfer_home):
     config = ReconSurfConfig.with_defaults(
         subject_id="sub-01",
         subjects_dir=tmp_path,

@@ -61,7 +61,7 @@ def _icosphere(levels: int = 4):
 
 
 @pytest.fixture
-def stage(tmp_path, monkeypatch):
+def stage(tmp_path, monkeypatch, freesurfer_home):
     config = ReconSurfConfig.with_defaults(
         subject_id="sub-01",
         subjects_dir=tmp_path,

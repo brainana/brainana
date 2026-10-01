@@ -104,7 +104,7 @@ def test_volume_info_round_trips_through_a_surface(tmp_path):
 
 
 @needs_ants
-def test_ants_point_transform_uses_lps(tmp_path):
+def test_ants_point_transform_uses_lps(tmp_path, freesurfer_home):
     """A +2 mm LPS x shift moves RAS points 2 mm toward -x (to the right)."""
     xfm = _itk_translation(tmp_path / "shift.txt", (2.0, 0.0, 0.0))
     pts = np.array([[1.0, 2.0, 3.0], [-4.0, 0.5, 9.0]])
@@ -113,7 +113,7 @@ def test_ants_point_transform_uses_lps(tmp_path):
 
 
 @needs_ants
-def test_warp_places_template_in_subject_surface_ras(tmp_path):
+def test_warp_places_template_in_subject_surface_ras(tmp_path, freesurfer_home):
     """Identity transform: same world position, re-expressed in the subject's frame."""
     tpl_mgz = _mgz(tmp_path / "tpl.mgz", np.diag([0.5, 0.5, 0.5, 1.0]))
     subj_mgz = _mgz(tmp_path / "orig.mgz", _oblique_affine())

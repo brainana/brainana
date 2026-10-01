@@ -91,3 +91,12 @@ def write_surf(tmp_path):
         return path
 
     return _write
+
+
+@pytest.fixture
+def freesurfer_home(tmp_path, monkeypatch):
+    """An existing, empty FREESURFER_HOME so ReconSurfConfig validates without FreeSurfer."""
+    fs_home = tmp_path / "fs"
+    fs_home.mkdir()
+    monkeypatch.setenv("FREESURFER_HOME", str(fs_home))
+    return fs_home

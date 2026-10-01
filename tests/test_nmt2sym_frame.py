@@ -164,8 +164,9 @@ def test_rigid_needs_a_brain(tmp_path):
 
 
 @pytest.mark.skipif(shutil.which("antsApplyTransformsToPoints") is None, reason="ANTs not installed")
-def test_post_transform_is_applied_after_xfm(tmp_path):
+def test_post_transform_is_applied_after_xfm(tmp_path, monkeypatch):
     """antsApplyTransformsToPoints applies its -t list to points in the order given."""
+    monkeypatch.setenv("FREESURFER_HOME", str(tmp_path))  # run_fs_command requires it
     from fastsurfer_surfrecon.processing.template_init import transform_points_ants
 
     rot = _rotation_x(90.0)  # LPS point maps
