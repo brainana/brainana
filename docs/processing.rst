@@ -162,7 +162,7 @@ findings**; section omitted if empty):
   The template is only used for this check; the segmentation always comes
   from the network. Settings are under
   ``anat.skullstripping_segmentation.fastSurferCNN``: ``pre_inference_n4``
-  (``enabled: true`` always runs and keeps the second pass) and
+  (``enabled: true`` always runs the second pass, kept by the same rule) and
   ``template_prior`` (``enabled: false`` skips the registration, and the
   mask volume alone then decides). The corrected image is only network
   input; the bias correction in 2.4 still starts from the uncorrected
@@ -301,7 +301,8 @@ maps.
     spectral projection folded more and led to larger cuts, notably at the
     occipital pole. The spectral projection can still be selected with
     ``processing.use_fs_qsphere: false`` in the surface-reconstruction
-    configuration.
+    package defaults (``src/fastsurfer_surfrecon/config/default.yaml``; it
+    is not a brainana config key).
   - Fix topology with ``mris_fix_topology -ga``. If the genetic-algorithm
     search crashes on a large defect (seen with FreeSurfer 7.4.1), the fix
     is retried with the default search rather than abandoning the

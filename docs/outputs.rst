@@ -217,6 +217,7 @@ Quality control report
 ----------------------
 
 - ``sub-<id>.html`` — Browsable HTML report at the **output directory root** (alongside ``sub-<id>/``, not inside it), with summaries, QC snapshots, and methods. View a `sample report for sub-example <_static/QCreport_example/sub-example.html>`_.
+- ``all_subjects_report.html`` — written beside the per-subject reports when a run has two or more subjects. Switch subjects from one page, or use the "By step" view to see one QC figure (for example skull stripping) for every subject stacked. Each subject report's ``brainana`` badge links back to it.
 
 The report is **always generated on completion**, even after a partial failure, and carries a status badge:
 
