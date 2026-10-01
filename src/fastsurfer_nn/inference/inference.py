@@ -57,8 +57,6 @@ class Inference:
         Default device specification for distributed computation usage.
     cfg : yacs.config.CfgNode
         Configuration Node
-    model_parallel : bool
-        Option for parallel run
     model : torch.nn.Module
         Neural network model
     model_name : str
@@ -119,13 +117,6 @@ class Inference:
         torch.set_flush_denormal(True)
 
         self.default_device = device
-
-        # Options for parallel run
-        self.model_parallel = (
-            torch.cuda.device_count() > 1
-            and self.default_device.type == "cuda"
-            and self.default_device.index is None
-        )
 
         # Initial model setup
         self.model = None
@@ -202,10 +193,6 @@ class Inference:
         device : Optional[torch.device]
             The desired device of the parameters and buffers in this module (Default value = None).
         """
-        if self.model_parallel:
-            raise RuntimeError(
-                "Moving the model to other devices is not supported for multi-device models."
-            )
         _device = self.default_device if device is None else device
         self.device = _device
         self.model.to(device=_device)
@@ -275,9 +262,6 @@ class Inference:
         # workaround for mps (move the model back to mps)
         if self.device.type == "mps":
             self.model.to(self.device)
-
-        if self.model_parallel:
-            self.model = torch.nn.DataParallel(self.model)
 
         return atlas_metadata
 

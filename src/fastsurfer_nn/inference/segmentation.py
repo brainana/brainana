@@ -22,9 +22,12 @@ which generates segmentation, brain mask, and hemisphere mask outputs.
 import logging
 import shutil
 from pathlib import Path
-from typing import Dict, Optional, Union, Literal
+from typing import Any, Dict, Optional, Union, Literal
+
+import torch
 
 from fastsurfer_nn.inference.api import segmentation
+from fastsurfer_nn.utils.gpu_utils import resolve_device, run_with_cpu_fallback
 from fastsurfer_nn.inference.predictor_utils import setup_atlas_from_checkpoints
 from fastsurfer_nn.utils.checkpoint import extract_atlas_metadata, is_binary_checkpoint
 from fastsurfer_nn.utils.constants import (
@@ -80,6 +83,170 @@ def _extract_atlas_from_checkpoint(ckpt_path: Path) -> Optional[str]:
     return None
 
 
+def apply_roi_wm_fix(
+    seg_results: Dict[str, Any],
+    input_image: Union[str, Path],
+    atlas_name: Optional[str],
+    roi_name: str = "V1",
+    wm_thr: float = 0.5,
+    registration_threads: Optional[int] = None,
+    device_str: str = "cpu",
+    enable_fireants: bool = True,
+    enable_crop_2round: bool = False,
+    logger: Optional[logging.Logger] = None,
+    world_to_nmt2sym=None,
+) -> None:
+    """Add the template's thin ROI white matter to a finished segmentation, in place.
+
+    ``seg_results`` holds the ``segmentation``, ``mask`` and ``hemimask`` paths
+    of one CNN pass. Split out of :func:`run_segmentation` so a caller running
+    several passes can apply it once, to the pass it keeps.
+    ``world_to_nmt2sym`` (4x4, RAS) places the subject in NMT2Sym world for the
+    template registration when it is not there already (see ``fix_roi_wm``).
+    """
+    if logger is None:
+        logger = logging.getLogger(__name__)
+    # Skip ROI WM fixing for brainmask atlas
+    if atlas_name == "brainmask":
+        logger.info(
+            f"Skipping {roi_name} white matter fixing: not applicable for brainmask atlas"
+        )
+    else:
+        if enable_crop_2round and "input_cropped" in seg_results:
+            logger.info(
+                "2-pass refinement was applied - applying ROI WM fixing to final pass results only"
+            )
+        elif enable_crop_2round:
+            logger.info(
+                "2-pass criteria not met (single pass) - applying ROI WM fixing to results"
+            )
+        logger.info(f"Applying {roi_name} white matter fixing...")
+
+        # Check required files exist
+        if "segmentation" not in seg_results:
+            raise ValueError(
+                f"{roi_name} WM fixing requires segmentation file, but segmentation was not generated. "
+                "This may occur with binary brain mask models."
+            )
+        if "hemimask" not in seg_results:
+            raise ValueError(
+                f"{roi_name} WM fixing requires hemisphere mask file, but hemimask was not generated."
+            )
+
+        seg_file = Path(seg_results["segmentation"])
+        mask_file = Path(seg_results["mask"])
+        hemi_mask_file = Path(seg_results["hemimask"])
+
+        # Determine LUT path from checkpoint (same logic as predictor)
+        if atlas_name is None:
+            raise ValueError(
+                "Cannot determine LUT path: atlas_name is None. "
+                f"{roi_name} WM fixing requires a multi-class model with atlas_name in checkpoint metadata."
+            )
+
+        # Use the same logic as RunModelOnData to determine LUT path from atlas_name
+        fastsurfercnn_dir = REPO_ROOT / "src" / "fastsurfer_nn"
+        lut_path = (
+            fastsurfercnn_dir
+            / "atlas"
+            / f"atlas-{atlas_name}"
+            / f"{atlas_name}_ColorLUT.tsv"
+        )
+
+        if not lut_path.exists():
+            raise FileNotFoundError(
+                f"LUT file not found at {lut_path}. "
+                f"This is determined from checkpoint atlas_name='{atlas_name}'. "
+                "Please ensure the atlas is installed correctly."
+            )
+        logger.info(f"LUT path (from checkpoint): {lut_path}")
+
+        # Resolve template file paths from template_zoo/template/ and template_zoo/atlas/
+        tpl_T1w_f = _resolve_template_path(
+            "tpl-NMT2Sym_res-05_T1w_brain.nii.gz"
+        )
+        tpl_roi_wm_f = _resolve_template_path(
+            f"tpl-NMT2Sym_res-05_T1w_WM_{roi_name}.nii.gz"
+        )
+        tpl_seg_f = _resolve_atlas_path(
+            f"atlas-{atlas_name}_space-NMT2Sym_res-05.nii.gz"
+        )
+
+        # Validate template files exist
+        if not tpl_seg_f.exists():
+            raise FileNotFoundError(
+                f"Template segmentation file not found: {tpl_seg_f}"
+            )
+        if not tpl_T1w_f.exists():
+            raise FileNotFoundError(f"Template T1w file not found: {tpl_T1w_f}")
+        if not tpl_roi_wm_f.exists():
+            raise FileNotFoundError(
+                f"Template WM file not found: {tpl_roi_wm_f}"
+            )
+
+        # Import fix_roi_wm
+        try:
+            from fastsurfer_nn.postprocessing.fix_roi_wm import (
+                fix_roi_wm,
+                _get_stem_without_extension,
+            )
+        except ImportError as e:
+            logger.error(f"Failed to import fix_roi_wm: {e}")
+            raise ImportError(
+                "Cannot import fix_roi_wm. Please ensure fastsurfer_nn.postprocessing.fix_roi_wm is available."
+            ) from e
+
+        # Determine which T1w to use (original or cropped if 2-round was applied)
+        t1w_file = Path(input_image)
+        if "input_cropped" in seg_results:
+            # If 2-round cropping was applied, use the cropped input
+            t1w_file = Path(seg_results["input_cropped"])
+            logger.info(
+                f"Using cropped input for {roi_name} WM fixing: {t1w_file}"
+            )
+
+        # Call fix_roi_wm
+        try:
+            fix_roi_wm(
+                seg_f=str(seg_file),
+                t1w_f=str(t1w_file),
+                mask_f=str(mask_file),
+                hemi_mask_f=str(hemi_mask_file),
+                lut_path=str(lut_path),
+                tpl_seg_f=str(tpl_seg_f),
+                tpl_t1w_f=str(tpl_T1w_f),
+                tpl_roi_wm_f=str(tpl_roi_wm_f),
+                roi_name=roi_name,
+                wm_thr=wm_thr,
+                backup_original=True,
+                logger=logger,
+                registration_threads=registration_threads,
+                gpu_device=device_str,
+                enable_fireants=enable_fireants,
+                world_to_nmt2sym=world_to_nmt2sym,
+            )
+            logger.info(
+                f"{roi_name} white matter fixing completed successfully"
+            )
+        except Exception as e:
+            logger.warning(
+                f"{roi_name} WM fixing failed: {e}. "
+                f"Falling back to unfixed segmentation."
+            )
+            logger.debug(
+                f"{roi_name} WM fixing exception details:", exc_info=True
+            )
+            backup_f = seg_file.with_name(
+                _get_stem_without_extension(seg_file) + "_orig.nii.gz"
+            )
+            if backup_f.exists():
+                shutil.copy(str(backup_f), str(seg_file))
+                logger.info(
+                    f"Restored segmentation from pre-fix backup: {backup_f}"
+                )
+
+
+
 def run_segmentation(
     input_image: Union[str, Path],
     modal: str,
@@ -92,12 +259,14 @@ def run_segmentation(
     plane_weight_sagittal: Optional[float] = None,
     use_mixed_model: bool = False,
     fix_wm_islands: bool = True,
+    label_island_min_volume_mm3: float = 0.0,
     create_hemimask: bool = True,
     fix_roi_wm: bool = False,
     roi_name: str = "V1",
     wm_thr: float = 0.5,
     save_debug_intermediates: bool = False,
     registration_threads: Optional[int] = None,
+    enable_fireants: bool = True,
     logger: Optional[logging.Logger] = None,
 ) -> Dict[str, str]:
     """
@@ -143,6 +312,9 @@ def run_segmentation(
             If True, apply WM island correction after segmentation. This fixes mislabeled
             disconnected WM regions by flipping them to the correct hemisphere based on
             spatial proximity. Only applies to multi-class models (ignored for binary models).
+        label_island_min_volume_mm3: float, default=0.0
+            Relabel detached label fragments smaller than this volume (mm^3) to their
+            neighbours' label; 0 disables. Multi-class models only.
             Requires extended ColorLUT with region and hemisphere columns.
         create_hemimask: bool, default=True
             If True, create hemisphere mask from segmentation (multi-class only, requires LUT).
@@ -158,8 +330,9 @@ def run_segmentation(
             Threshold for WM probability map in ROI WM fixing.
         registration_threads: int, optional
             Number of threads to use for ANTs registration when fix_roi_wm=True.
-            If None, uses config default (typically 8). Note: ANTs may show N+1 threads
-            (N worker threads + 1 main thread) in process monitors.
+            The ANTs CLI itself follows OMP_NUM_THREADS (the task's CPU allocation).
+        enable_fireants: bool, default=True
+            registration.enable_fireants for the ROI WM fix's template registration.
 
         Note: Preprocessing parameters (vox_size, orientation, image_size)
         are automatically read from checkpoint metadata (required), ensuring consistency
@@ -303,39 +476,41 @@ def run_segmentation(
                 f"Atlas: using fallback {atlas_name} (metadata will be auto-detected)"
             )
 
-    # Convert device_id to device string
-    if device_id == "auto":
-        device_str = "auto"
-    elif device_id == -1:
-        device_str = "cpu"
-    else:
-        device_str = (
-            f"cuda:{device_id}" if isinstance(device_id, int) else str(device_id)
-        )
+    # One device policy for every step (auto / cpu / -1 / index / cuda:N); a quoted
+    # "0" or "-1" from YAML used to reach torch.device() verbatim and crash.
+    device_str = str(resolve_device(device_id))
 
     try:
         # Run segmentation using the high-level API
         # This will create segmentation, mask, and hemimask
         logger.info(f"Segmentation: running on {input_image}")
-        seg_results = segmentation(
-            input_image=input_image,
-            output_dir=output_dir,
-            atlas_name=atlas_name,
-            atlas_metadata=atlas_metadata,
-            ckpt_ax=checkpoints.get("axial"),
-            ckpt_cor=checkpoints.get("coronal"),
-            ckpt_sag=checkpoints.get("sagittal"),
-            device=device_str,
-            viewagg_device=device_str,
-            plane_weight_coronal=plane_weight_coronal,
-            plane_weight_axial=plane_weight_axial,
-            plane_weight_sagittal=plane_weight_sagittal,
-            fix_wm_islands=fix_wm_islands,
-            create_hemimask=create_hemimask,
-            output_data_format=output_data_format,
-            enable_crop_2round=enable_crop_2round,
-            logger=logger,
-            save_debug_intermediates=save_debug_intermediates,
+        # A CUDA out-of-memory error reruns the network once on the CPU (logged,
+        # and recorded in the step's metadata JSON) instead of failing the step.
+        seg_results = run_with_cpu_fallback(
+            lambda dev: segmentation(
+                input_image=input_image,
+                output_dir=output_dir,
+                atlas_name=atlas_name,
+                atlas_metadata=atlas_metadata,
+                ckpt_ax=checkpoints.get("axial"),
+                ckpt_cor=checkpoints.get("coronal"),
+                ckpt_sag=checkpoints.get("sagittal"),
+                device=str(dev),
+                viewagg_device=str(dev),
+                plane_weight_coronal=plane_weight_coronal,
+                plane_weight_axial=plane_weight_axial,
+                plane_weight_sagittal=plane_weight_sagittal,
+                fix_wm_islands=fix_wm_islands,
+                label_island_min_volume_mm3=label_island_min_volume_mm3,
+                create_hemimask=create_hemimask,
+                output_data_format=output_data_format,
+                enable_crop_2round=enable_crop_2round,
+                logger=logger,
+                save_debug_intermediates=save_debug_intermediates,
+            ),
+            torch.device(device_str),
+            "segmentation network",
+            logger,
         )
 
         logger.info("Segmentation (fastsurfer_nn): completed successfully")
@@ -368,141 +543,18 @@ def run_segmentation(
 
         # Apply ROI WM fixing if enabled
         if fix_roi_wm:
-            # Skip ROI WM fixing for brainmask atlas
-            if atlas_name == "brainmask":
-                logger.info(
-                    f"Skipping {roi_name} white matter fixing: not applicable for brainmask atlas"
-                )
-            else:
-                if enable_crop_2round and "input_cropped" in seg_results:
-                    logger.info(
-                        "2-pass refinement was applied - applying ROI WM fixing to final pass results only"
-                    )
-                elif enable_crop_2round:
-                    logger.info(
-                        "2-pass criteria not met (single pass) - applying ROI WM fixing to results"
-                    )
-                logger.info(f"Applying {roi_name} white matter fixing...")
-
-                # Check required files exist
-                if "segmentation" not in seg_results:
-                    raise ValueError(
-                        f"{roi_name} WM fixing requires segmentation file, but segmentation was not generated. "
-                        "This may occur with binary brain mask models."
-                    )
-                if "hemimask" not in seg_results:
-                    raise ValueError(
-                        f"{roi_name} WM fixing requires hemisphere mask file, but hemimask was not generated."
-                    )
-
-                seg_file = Path(seg_results["segmentation"])
-                mask_file = Path(seg_results["mask"])
-                hemi_mask_file = Path(seg_results["hemimask"])
-
-                # Determine LUT path from checkpoint (same logic as predictor)
-                if atlas_name is None:
-                    raise ValueError(
-                        "Cannot determine LUT path: atlas_name is None. "
-                        f"{roi_name} WM fixing requires a multi-class model with atlas_name in checkpoint metadata."
-                    )
-
-                # Use the same logic as RunModelOnData to determine LUT path from atlas_name
-                fastsurfercnn_dir = REPO_ROOT / "src" / "fastsurfer_nn"
-                lut_path = (
-                    fastsurfercnn_dir
-                    / "atlas"
-                    / f"atlas-{atlas_name}"
-                    / f"{atlas_name}_ColorLUT.tsv"
-                )
-
-                if not lut_path.exists():
-                    raise FileNotFoundError(
-                        f"LUT file not found at {lut_path}. "
-                        f"This is determined from checkpoint atlas_name='{atlas_name}'. "
-                        "Please ensure the atlas is installed correctly."
-                    )
-                logger.info(f"LUT path (from checkpoint): {lut_path}")
-
-                # Resolve template file paths from template_zoo/template/ and template_zoo/atlas/
-                tpl_T1w_f = _resolve_template_path(
-                    "tpl-NMT2Sym_res-05_T1w_brain.nii.gz"
-                )
-                tpl_roi_wm_f = _resolve_template_path(
-                    f"tpl-NMT2Sym_res-05_T1w_WM_{roi_name}.nii.gz"
-                )
-                tpl_seg_f = _resolve_atlas_path(
-                    f"atlas-{atlas_name}_space-NMT2Sym_res-05.nii.gz"
-                )
-
-                # Validate template files exist
-                if not tpl_seg_f.exists():
-                    raise FileNotFoundError(
-                        f"Template segmentation file not found: {tpl_seg_f}"
-                    )
-                if not tpl_T1w_f.exists():
-                    raise FileNotFoundError(f"Template T1w file not found: {tpl_T1w_f}")
-                if not tpl_roi_wm_f.exists():
-                    raise FileNotFoundError(
-                        f"Template WM file not found: {tpl_roi_wm_f}"
-                    )
-
-                # Import fix_roi_wm
-                try:
-                    from fastsurfer_nn.postprocessing.fix_roi_wm import (
-                        fix_roi_wm,
-                        _get_stem_without_extension,
-                    )
-                except ImportError as e:
-                    logger.error(f"Failed to import fix_roi_wm: {e}")
-                    raise ImportError(
-                        "Cannot import fix_roi_wm. Please ensure fastsurfer_nn.postprocessing.fix_roi_wm is available."
-                    ) from e
-
-                # Determine which T1w to use (original or cropped if 2-round was applied)
-                t1w_file = Path(input_image)
-                if "input_cropped" in seg_results:
-                    # If 2-round cropping was applied, use the cropped input
-                    t1w_file = Path(seg_results["input_cropped"])
-                    logger.info(
-                        f"Using cropped input for {roi_name} WM fixing: {t1w_file}"
-                    )
-
-                # Call fix_roi_wm
-                try:
-                    fix_roi_wm(
-                        seg_f=str(seg_file),
-                        t1w_f=str(t1w_file),
-                        mask_f=str(mask_file),
-                        hemi_mask_f=str(hemi_mask_file),
-                        lut_path=str(lut_path),
-                        tpl_seg_f=str(tpl_seg_f),
-                        tpl_t1w_f=str(tpl_T1w_f),
-                        tpl_roi_wm_f=str(tpl_roi_wm_f),
-                        roi_name=roi_name,
-                        wm_thr=wm_thr,
-                        backup_original=True,
-                        logger=logger,
-                        registration_threads=registration_threads,
-                    )
-                    logger.info(
-                        f"{roi_name} white matter fixing completed successfully"
-                    )
-                except Exception as e:
-                    logger.warning(
-                        f"{roi_name} WM fixing failed: {e}. "
-                        f"Falling back to unfixed segmentation."
-                    )
-                    logger.debug(
-                        f"{roi_name} WM fixing exception details:", exc_info=True
-                    )
-                    backup_f = seg_file.with_name(
-                        _get_stem_without_extension(seg_file) + "_orig.nii.gz"
-                    )
-                    if backup_f.exists():
-                        shutil.copy(str(backup_f), str(seg_file))
-                        logger.info(
-                            f"Restored segmentation from pre-fix backup: {backup_f}"
-                        )
+            apply_roi_wm_fix(
+                seg_results,
+                input_image,
+                atlas_name,
+                roi_name=roi_name,
+                wm_thr=wm_thr,
+                registration_threads=registration_threads,
+                device_str=device_str,
+                enable_fireants=enable_fireants,
+                enable_crop_2round=enable_crop_2round,
+                logger=logger,
+            )
 
         # Return all output file paths
         result = {

@@ -108,8 +108,11 @@ uses the value*, not an invocation layer (discovery is a subprocess of `run_brai
 >
 > - `gpu_count` — detected via `nvidia-smi`.
 > - `max_jobs_per_gpu` — derived from free VRAM (~4 GiB/job, bounded 1–4).
-> - `use_gpu` — recomputed in `main.nf` from `gpu_count` + `general.gpu_device`; **a value you
-> pass is ignored**.
+> - `use_gpu` — not a real param (kept in `known_flags.txt` only so an old `--use_gpu` does not
+> abort). GPU scheduling is derived per workflow by `paramResolver.resolveUseGpu(params)` from
+> `gpu_count` + `general.gpu_device`; **a value you pass is ignored**. Never declare it in
+> `nextflow.config` `params{}` — config params are read-only to the script, which pinned every
+> GPU process to CPU.
 > - `python_exe` — the active venv/conda `python3` (else bare `python3`), for config-parse
 > helper calls only.
 

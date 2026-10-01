@@ -94,6 +94,10 @@ def _resample_file_to_native(path: str, native_ref_img, order: int) -> None:
 
 
 # %%
+# no_grad: inference only. Without it every forward pass built an autograd graph
+# (outputs were read through .data, so results were unaffected, but memory was not).
+# no_grad rather than inference_mode: the returned tensors stay ordinary tensors.
+@torch.no_grad()
 def predict_volumes(
     model: torch.nn.Module,
     rescale_dim: int = 256,

@@ -10,6 +10,7 @@ import shutil
 from .base import HemisphereStage
 from ..processing.surface_fix import assert_surface_invariants
 from ..processing.spherical import spherically_project_surface
+from ..wrappers.mris import mris_sphere_quick
 
 logger = logging.getLogger(__name__)
 
@@ -23,41 +24,36 @@ class SphericalProjection(HemisphereStage):
     def _run(self) -> None:
         """Project to sphere."""
         sphere = self.hemi_path("sphere")
-        smoothwm_nofix = self.hemi_path("smoothwm.nofix")
         qsphere_nofix = self.hemi_path("qsphere.nofix")
 
-        # if self.config.processing.fsqsphere:
-        #     # Use FreeSurfer qsphere
-        #     logger.info(f"Using FreeSurfer qsphere for {self.hemi}")
-        #     flags = []
-        #     if self.config.hires:
-        #         flags.append("-hires")
-        #     run_recon_all(
-        #         subject=self.config.subject_id,
-        #         hemi=self.hemi,
-        #         steps=["-qsphere"],
-        #         flags=flags,
-        #         threads=self.threads,
-        #         log_file=self.config.log_file,
-        #         subjects_dir=self.config.subjects_dir,
-        #     )
-        # else:
+        # mris_fix_topology (s12) marks as defects the faces that overlap on
+        # this map. FreeSurfer's quasi-homeomorphic sphere is the map it was
+        # designed around; the spectral projection folds more, and the folds
+        # enlarge and merge defects that the topology fix then cuts away --
+        # on the test cohort most visibly in thin occipital/V1 white matter.
+        if self.config.processing.use_fs_qsphere:
+            # recon-all -qsphere: mris_sphere -q from the inflated surface
+            source = self.hemi_path("inflated.nofix")
+            method = "FreeSurfer qsphere (mris_sphere -q)"
+            prerequisite = "Inflation stage (s10)"
+        else:
+            # FastSurfer: spectral projection of smoothwm.nofix
+            source = self.hemi_path("smoothwm.nofix")
+            method = "spectral projection"
+            prerequisite = "Smoothing stage (s09)"
+        logger.info(f"Using {method} for {self.hemi}")
 
-        # Use spectral projection
-        logger.info(f"Using spectral projection for {self.hemi}")
-        # FastSurfer uses smoothwm.nofix as input for spherical projection
-
-        if not smoothwm_nofix.exists():
+        if not source.exists():
             raise FileNotFoundError(
-                f"{smoothwm_nofix} not found. " "Smoothing stage must run first."
+                f"{source} not found. {prerequisite} must run first."
             )
 
-        # Entry gate. spherically_project() rejects non-closed meshes with a
-        # bare "Can only project closed meshes", which names neither the file
-        # nor the defect. Checking here reports the offending surface and its
+        # Entry gate. A non-closed input fails both methods with a message that
+        # names neither the file nor the defect (spectral: "Can only project
+        # closed meshes"). Checking here reports the offending surface and its
         # actual V/F/closed/oriented/euler state instead.
         assert_surface_invariants(
-            smoothwm_nofix,
+            source,
             closed=True,
             oriented=False,  # orientation is not required to project
             euler=None,  # not topology-corrected yet
@@ -65,25 +61,33 @@ class SphericalProjection(HemisphereStage):
             strict=self.config.processing.strict_surface_checks,
         )
 
-        # FastSurfer creates qsphere.nofix directly, so we do the same
-        # Also create sphere for consistency with FreeSurfer naming
-        spherically_project_surface(
-            input_path=smoothwm_nofix,
-            output_path=qsphere_nofix,
-            threads=self.threads,
-        )
+        if self.config.processing.use_fs_qsphere:
+            mris_sphere_quick(
+                input_surf=source,
+                output_surf=qsphere_nofix,
+                log_file=self.config.log_file,
+                subject_dir=self.sd.subject_dir,
+            )
+        else:
+            spherically_project_surface(
+                input_path=source,
+                output_path=qsphere_nofix,
+                threads=self.threads,
+            )
         # Also create sphere as an alias (copy for compatibility)
         if not sphere.exists():
             shutil.copy(qsphere_nofix, sphere)
 
     def is_disabled(self) -> bool:
-        """Longitudinal timepoints inherit this geometry from the base template.
+        """Off when the geometry comes from elsewhere.
 
-        See stages/s00_long_init.py: the base's surfaces are seeded into this
-        timepoint, so recomputing them here would discard the shared topology
-        that makes cross-timepoint vertex correspondence exact.
+        Longitudinal timepoints inherit it from the base template (see
+        stages/s00_long_init.py): recomputing it here would discard the shared
+        topology that makes cross-timepoint vertex correspondence exact.
+        Template-initialised runs build it in s12b from the template's white
+        surface instead of tessellating the white-matter volume.
         """
-        return self.config.longitudinal
+        return self.config.longitudinal or self.config.template_init
 
     def expected_outputs(self) -> list:
         """Both spheres this stage writes.

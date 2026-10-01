@@ -28,6 +28,7 @@ if str(_src_dir) not in sys.path:
 from nhp_mri_prep.config.config_io import get_nested_config_value, load_yaml_config
 from nhp_mri_prep.config.config_validation import validate_config
 from nhp_mri_prep.steps.bids_discovery import (
+    _NON_MAGNITUDE_PARTS,
     _normalize_bids_id,
     _normalize_to_list,
     discover_bids_dataset,
@@ -39,7 +40,8 @@ SEVERITY_WARNING = "warning"
 
 # Datatype directories the pipeline reads, and the suffixes it consumes in each.
 # Mirrors the pybids filters in steps/bids_discovery.py (datatype="anat",
-# suffix=["T1w", "T2w"] / datatype="func", suffix="bold").
+# suffix=["T1w", "T2w"] / datatype="func", suffix="bold"), including its
+# magnitude-only rule for anatomicals (_NON_MAGNITUDE_PARTS there).
 _CONSUMED_SUFFIXES: Dict[str, set] = {"anat": {"T1w", "T2w"}, "func": {"bold"}}
 
 # Recognized BIDS datatype directories. A NIfTI under any other directory is not
@@ -214,6 +216,14 @@ def _scan_bids_layout(
                 reason = (
                     f"'{suffix}' is not a suffix Brainana reads from "
                     f"{datatype}/ (expected: {consumed})"
+                )
+                not_discoverable.setdefault(reason, []).append(rel)
+                continue
+            part = entities.get("part")
+            if datatype == "anat" and part in _NON_MAGNITUDE_PARTS:
+                reason = (
+                    f"it is a non-magnitude image (part-{part}); Brainana reads "
+                    f"only magnitude anatomicals"
                 )
                 not_discoverable.setdefault(reason, []).append(rel)
                 continue
@@ -686,6 +696,18 @@ def print_summary(
     print("\n")
 
 
+def _parse_bool(value: str) -> bool:
+    """Boolean CLI value, accepting what param_resolver.groovy accepts."""
+    v = str(value).strip().lower()
+    if v in ("true", "1", "yes", "on"):
+        return True
+    if v in ("false", "0", "no", "off"):
+        return False
+    raise argparse.ArgumentTypeError(
+        f"expected true/false, 1/0, yes/no or on/off, got {value!r}"
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Discover BIDS dataset for Nextflow pipeline"
@@ -726,6 +748,17 @@ def main():
         default=None,
         help="Comma-separated list of run numbers to filter",
     )
+    parser.add_argument(
+        "--anat_only",
+        nargs="?",
+        const=True,
+        default=None,
+        type=_parse_bool,
+        help=(
+            "Skip functional discovery. A bare flag means true; an explicit "
+            "true/false overrides general.anat_only in the config either way."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -749,13 +782,21 @@ def main():
     # skullstripping method, an out-of-range weight) fail fast here with a
     # clear message, rather than surfacing as an opaque error deep in a
     # process after minutes of compute. validate_config() merges the user
-    # config over the defaults, so it checks the effective settings.
+    # config over the package defaults and returns the merged result, which is
+    # what discovery must run on: a partial --config would otherwise leave
+    # every key it omits to discovery's own fallback, and those need not match
+    # the defaults the rest of the pipeline resolves (anat.synthesis_level did
+    # not: discovery assumed "session" while the pipeline recorded "subject").
     try:
-        validate_config(config)
+        config = validate_config(config)
     except (ValueError, TypeError) as e:
         print(f"ERROR: Invalid configuration in {args.config_file}:", file=sys.stderr)
         print(f"  {e}", file=sys.stderr)
         sys.exit(1)
+
+    # The CLI flag wins over the YAML key, matching param_resolver.groovy.
+    if args.anat_only is not None:
+        config.setdefault("general", {})["anat_only"] = args.anat_only
 
     # Parse filtering parameters
     subjects_list = None

@@ -39,7 +39,7 @@ workflow SURF_RECON_WF {
     anat_skull_seg         // [sub, ses, seg_file]
     anat_skull_mask        // [sub, ses, mask_file]
     anat_arm6_atlas        // [sub, ses, arm6_atlas_file]
-    gpu_queue
+    anat_template_xfm      // [sub, ses, subject_to_template_xfm] (anatomical registration's forward transform)
 
     main:
     // ============================================
@@ -107,7 +107,9 @@ workflow SURF_RECON_WF {
         def surf_recon_input_with_mask = surf_recon_input_base
             .join(anat_skull_mask.map { sub, ses, mask_file -> [sub, ses, mask_file] }, by: [0, 1], remainder: true)
             .map { sub, ses, anat_file, bids_name, seg_file, mask_file ->
-                def final_mask = mask_file ?: file("${workDir}/dummy_brain_mask.dummy").tap { it.toFile().text = "" }
+                // Placeholders are written only when missing: rewriting one gives it a new mtime, which
+                // changes the task hash of every consumer, so -resume re-ran them on every run.
+                def final_mask = mask_file ?: file("${workDir}/dummy_brain_mask.dummy").tap { if (!it.exists()) it.toFile().text = "" }
                 [sub, ses, anat_file, bids_name, seg_file, final_mask]
             }
 
@@ -115,8 +117,19 @@ workflow SURF_RECON_WF {
         def surf_recon_input_with_arm6 = surf_recon_input_with_mask
             .join(anat_arm6_atlas.map { sub, ses, arm6_file -> [sub, ses, arm6_file] }, by: [0, 1], remainder: true)
             .map { sub, ses, anat_file, bids_name, seg_file, mask_file, arm6_file ->
-                def final_arm6 = arm6_file ?: file("${workDir}/dummy_arm6_atlas.dummy").tap { it.toFile().text = "" }
+                def final_arm6 = arm6_file ?: file("${workDir}/dummy_arm6_atlas.dummy").tap { if (!it.exists()) it.toFile().text = "" }
                 [sub, ses, anat_file, bids_name, seg_file, mask_file, final_arm6]
+            }
+
+        // Step 3b: Join with the subject-to-template transform for the template surface
+        // prior (optional: the step registers to NMT2Sym itself when it is absent or
+        // targets another space)
+        def surf_recon_input_with_xfm = surf_recon_input_with_arm6
+            .join(anat_template_xfm.map { sub, ses, xfm -> [sub, ses, xfm] }, by: [0, 1], remainder: true)
+            .filter { it.size() > 2 && it[2] != null }   // remainder rows from a transform with no anatomy
+            .map { sub, ses, anat_file, bids_name, seg_file, mask_file, arm6_file, xfm ->
+                def final_xfm = xfm ?: file("${workDir}/dummy_template_xfm.dummy").tap { if (!it.exists()) it.toFile().text = "" }
+                [sub, ses, anat_file, bids_name, seg_file, mask_file, arm6_file, final_xfm]
             }
 
         // Step 4: Join with session count
@@ -124,11 +137,11 @@ workflow SURF_RECON_WF {
             .unique { sub, session_count -> sub }
             .map { sub, session_count -> [sub, session_count] }
 
-        def surf_recon_input = surf_recon_input_with_arm6
+        def surf_recon_input = surf_recon_input_with_xfm
             .combine(anat_sessions_clean, by: 0)
-            .map { sub, ses, anat_file, bids_name, seg_file, mask_file, arm6_atlas_file, session_count ->
+            .map { sub, ses, anat_file, bids_name, seg_file, mask_file, arm6_atlas_file, template_xfm, session_count ->
                 def count = session_count instanceof List ? session_count[0] : session_count
-                [sub, ses, anat_file, bids_name, seg_file, mask_file, arm6_atlas_file, count]
+                [sub, ses, anat_file, bids_name, seg_file, mask_file, arm6_atlas_file, template_xfm, count]
             }
 
         ANAT_SURFACE_RECONSTRUCTION(surf_recon_input, config_file)
@@ -251,12 +264,11 @@ workflow SURF_RECON_WF {
             ANAT_SURFACE_BASE_TEMPLATE(base_build_input, config_file)
 
             // ---- BASE, STAGE 2/3: segment + backproject atlases (gpu) ----
-            // Split out so the GPU token is held only for a CNN segmentation and
+            // Split out so a GPU slot is held only for a CNN segmentation and
             // one template registration, not for the multi-hour reconstruction
-            // that follows. Same gate as ANAT_SKULLSTRIPPING: without it this
-            // would pull a token and run on GPU even in CPU mode.
-            def use_base_gpu = params.use_gpu
-            def base_gpu_input = use_base_gpu ? gpu_queue : Channel.value('none')
+            // that follows. Same gate as ANAT_SKULLSTRIPPING.
+            def use_base_gpu = paramResolver.resolveUseGpu(params)
+            def base_gpu_input = Channel.value(use_base_gpu)
 
             def base_atlas_input = ANAT_SURFACE_BASE_TEMPLATE.out.base_dir
                 .map { sub, base_id, base_dir -> [sub, base_id] }
@@ -265,9 +277,6 @@ workflow SURF_RECON_WF {
             ANAT_SURFACE_BASE_ATLAS(base_atlas_input, config_file, base_gpu_input)
 
             // Return the token so the next GPU task can take the slot.
-            if (use_base_gpu) {
-                ANAT_SURFACE_BASE_ATLAS.out.gpu_token.subscribe { gpu_queue << it }
-            }
 
             // ---- BASE, STAGE 3/3: reconstruct the surfaces (cpu) ---------
             def base_recon_input = ANAT_SURFACE_BASE_TEMPLATE.out.base_dir
@@ -496,7 +505,7 @@ workflow SURF_RECON_WF {
                     def tsv = file("${params.bids_dir}/sub-${sub}/sub-${sub}_sessions.tsv")
                     def sessions_tsv = tsv.exists()
                         ? tsv
-                        : file("${workDir}/no_sessions_tsv.dummy").tap { it.toFile().text = "" }
+                        : file("${workDir}/no_sessions_tsv.dummy").tap { if (!it.exists()) it.toFile().text = "" }
                     [sub, long_ids_csv, long_dirs, base_dir, base_id, atlas_name, sessions_tsv]
                 }
 

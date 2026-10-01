@@ -57,7 +57,6 @@ workflow FUNC_WF {
     surf_actual_subject_id  // [sub, ses, fastsurfer_dir_name] from surface recon; empty when surf recon skipped
     anat_skull_seg      // [sub, ses, T1w-space segmentation] (for confounds tissue regressors)
     anat_skull_seg_lut  // [sub, ses, atlas LUT tsv]
-    gpu_queue
 
     main:
     // ============================================
@@ -187,14 +186,8 @@ workflow FUNC_WF {
             }
             .set { func_coreg_multi }
         
-        // Use GPU token only when workflow-level GPU scheduling is enabled.
-        def use_coreg_gpu = params.use_gpu
-        def coreg_gpu_input = use_coreg_gpu ? gpu_queue : Channel.value('none')
-
-        FUNC_WITHIN_SES_COREG(func_coreg_multi.combined, func_coreg_multi.reference, func_coreg_multi.ref_run_identifier_val, config_file, coreg_gpu_input)
-        if (use_coreg_gpu) {
-            FUNC_WITHIN_SES_COREG.out.gpu_token.subscribe { gpu_queue << it }
-        }
+        // No GPU token: within-session coregistration is always rigid (CPU ANTs).
+        FUNC_WITHIN_SES_COREG(func_coreg_multi.combined, func_coreg_multi.reference, func_coreg_multi.ref_run_identifier_val, config_file)
         func_coreg_transforms_ch = FUNC_WITHIN_SES_COREG.out.transforms
         
         // Separate multi-run sessions (need averaging) from single-run sessions (skip averaging)
@@ -214,6 +207,10 @@ workflow FUNC_WF {
         def func_for_averaging_ch = func_multi_run_ses
             .groupTuple(by: [0, 1])
             .map { sub, ses, run_identifier_list, bold_list, tmean_list, bids_list ->
+                // Run-id order, not completion order, so the task script is stable across runs.
+                def order = (0..<run_identifier_list.size()).toList().sort { run_identifier_list[it].toString() }
+                tmean_list = order.collect { tmean_list[it] }
+                bids_list = order.collect { bids_list[it] }
                 def tmean_paths = tmean_list.collect { file -> file.toString() }
                 def tmean_paths_json = groovy.json.JsonOutput.toJson(tmean_paths)
                 def bids_name = bids_list[0]
@@ -267,8 +264,10 @@ workflow FUNC_WF {
     // Input: func_after_coreg: [sub, ses, run_id, bold_file, tmean_file, bids_name]
     //        anat_after_bias_brain: [sub, ses, brain_file, bids_name] (Phase 1 final output - brain version)
     // Output: [sub, ses, anat_file, anat_ses] (session-level only, no run_id)
+    // Placeholders are written only when missing: rewriting one gives it a new mtime, which
+    // changes the task hash of every consumer, so -resume re-ran them on every run.
     def dummy_anat = file("${workDir}/dummy_anat.dummy")
-    dummy_anat.toFile().text = ""
+    if (!dummy_anat.exists()) dummy_anat.toFile().text = ""
     def func_anat_selection = channelHelpers.performFuncAnatomicalSelection(
         func_after_coreg,
         anat_after_bias_brain,
@@ -349,7 +348,10 @@ workflow FUNC_WF {
             }
             .set { func_compute_conform_multi }
 
-        FUNC_COMPUTE_CONFORM(func_compute_conform_multi.combined, func_compute_conform_multi.reference, config_file)
+        // GPU token for the skull-strip network conform runs before its rigid registration.
+        def use_conform_gpu = paramResolver.resolveUseGpu(params)
+        def conform_gpu_input = Channel.value(use_conform_gpu)
+        FUNC_COMPUTE_CONFORM(func_compute_conform_multi.combined, func_compute_conform_multi.reference, config_file, conform_gpu_input)
         func_compute_conform_output = FUNC_COMPUTE_CONFORM.out.output
         func_compute_conform_transforms = FUNC_COMPUTE_CONFORM.out.transforms
     } else {
@@ -358,9 +360,9 @@ workflow FUNC_WF {
                 [sub, ses, run_id, tmean, bids_name]
             }
         def dummy_forward_transform = file("${workDir}/dummy_conform_forward_transform.dummy")
-        dummy_forward_transform.toFile().text = ""
+        if (!dummy_forward_transform.exists()) dummy_forward_transform.toFile().text = ""
         def dummy_inverse_transform = file("${workDir}/dummy_conform_inverse_transform.dummy")
-        dummy_inverse_transform.toFile().text = ""
+        if (!dummy_inverse_transform.exists()) dummy_inverse_transform.toFile().text = ""
         func_compute_conform_transforms = func_after_bias
             .map { sub, ses, run_id, tmean, bids_name ->
                 [sub, ses, run_id, dummy_forward_transform, dummy_inverse_transform]
@@ -376,20 +378,15 @@ workflow FUNC_WF {
                 [sub, ses, run_id, conformed_tmean, bids_name]
             }
         
-        // Use GPU token only when workflow-level GPU scheduling is enabled (use_gpu).
-        // Without this gate, brain-mask always pulls gpu_id=0 from gpu_queue and runs on
-        // GPU even in CPU mode (general.gpu_device=-1 / use_gpu=false).
-        def use_mask_gpu = params.use_gpu
-        def mask_gpu_input = use_mask_gpu ? gpu_queue : Channel.value('none')
+        // GPU slot only when workflow-level GPU scheduling is enabled (use_gpu).
+        def use_mask_gpu = paramResolver.resolveUseGpu(params)
+        def mask_gpu_input = Channel.value(use_mask_gpu)
         FUNC_COMPUTE_BRAIN_MASK(func_compute_mask_input, config_file, mask_gpu_input)
-        if (use_mask_gpu) {
-            FUNC_COMPUTE_BRAIN_MASK.out.gpu_token.subscribe { gpu_queue << it }
-        }
         func_compute_mask_output = FUNC_COMPUTE_BRAIN_MASK.out.output
     } else {
         func_compute_mask_output = func_compute_conform_output
             .map { sub, ses, run_id, conformed_tmean, bids_name ->
-                def dummy_mask = file("${workDir}/dummy_brain_mask.dummy").tap { it.toFile().text = "" }
+                def dummy_mask = file("${workDir}/dummy_brain_mask.dummy").tap { if (!it.exists()) it.toFile().text = "" }
                 [sub, ses, run_id, conformed_tmean, bids_name, dummy_mask]
             }
     }
@@ -417,20 +414,20 @@ workflow FUNC_WF {
             }
             .set { func_compute_reg_multi }
 
-        def use_registration_gpu = params.use_gpu
-        def gpu_input = use_registration_gpu ? gpu_queue : Channel.value('none')
+        // GPU token only when this registration runs FireANTs SyN on a GPU.
+        def use_registration_gpu = paramResolver.registrationUsesGpu(
+            params, ['registration.func2anat_xfm_type', 'registration.func2template_xfm_type']
+        )
+        def gpu_input = Channel.value(use_registration_gpu)
 
         FUNC_COMPUTE_REGISTRATION(func_compute_reg_multi.combined, func_compute_reg_multi.reference, config_file, gpu_input)
-        if (use_registration_gpu) {
-            FUNC_COMPUTE_REGISTRATION.out.gpu_token.subscribe { gpu_queue << it }
-        }
         func_compute_reg_output = FUNC_COMPUTE_REGISTRATION.out.output
         func_reg_transforms = FUNC_COMPUTE_REGISTRATION.out.transforms
         func_reg_reference = FUNC_COMPUTE_REGISTRATION.out.reference
     } else {
         func_compute_reg_output = func_compute_mask_output
             .map { sub, ses, run_id, masked_tmean, bids_name, mask ->
-                def dummy_transform = file("${workDir}/dummy_reg_transform.dummy").tap { it.toFile().text = "" }
+                def dummy_transform = file("${workDir}/dummy_reg_transform.dummy").tap { if (!it.exists()) it.toFile().text = "" }
                 [sub, ses, run_id, masked_tmean, bids_name, dummy_transform, ""]
             }
     }
@@ -550,9 +547,9 @@ workflow FUNC_WF {
         // Input: func_compute_reg_output: [sub, ses, run_id, registered_tmean, bids_name, anat_ses]
         // Output: [sub, ses, dummy_xfm, dummy_ref]
         def dummy_anat2template_xfm = file("${workDir}/dummy_anat2template_xfm.dummy")
-        dummy_anat2template_xfm.toFile().text = ""
+        if (!dummy_anat2template_xfm.exists()) dummy_anat2template_xfm.toFile().text = ""
         def dummy_anat_reg_ref = file("${workDir}/dummy_anat_reg_ref.dummy")
-        dummy_anat_reg_ref.toFile().text = ""
+        if (!dummy_anat_reg_ref.exists()) dummy_anat_reg_ref.toFile().text = ""
         
         def anat_reg_all_dummy = func_compute_reg_output
             .map { sub, ses, run_id, registered_tmean, bids_name, anat_ses -> [sub, ses] }
@@ -768,7 +765,7 @@ workflow FUNC_WF {
         } else {
             tsnr_run_input = tsnr_base
                 .map { sub, ses, run_id, bold_sel, bids_name, space_label, space_token ->
-                    def dm = file("${workDir}/dummy_brain_mask_tsnr.dummy").tap { it.toFile().text = "" }
+                    def dm = file("${workDir}/dummy_brain_mask_tsnr.dummy").tap { if (!it.exists()) it.toFile().text = "" }
                     [sub, ses, run_id, bold_sel, bids_name, dm, space_label]
                 }
         }
@@ -779,6 +776,13 @@ workflow FUNC_WF {
             .filter { sub, ses, run_id, tsnr_nii, bids_name, bold_space -> tsnr_nii && !"${tsnr_nii}".endsWith('.dummy') }
             .groupTuple(by: [0, 1])
             .map { sub, ses, run_ids, tsnr_files, bids_names, spaces ->
+                // Runs in run-id order: groupTuple collects them in completion order, which
+                // varies between runs and changes this task's script (its cache key) on -resume.
+                def order = (0..<run_ids.size()).toList().sort { run_ids[it].toString() }
+                run_ids = order.collect { run_ids[it] }
+                tsnr_files = order.collect { tsnr_files[it] }
+                bids_names = order.collect { bids_names[it] }
+                spaces = order.collect { spaces[it] }
                 def session_space = spaces.every { it == 'T1w' } ? 'T1w' : spaces[0]
                 [sub, ses, run_ids[0], groovy.json.JsonOutput.toJson(tsnr_files*.toString()), bids_names[0], session_space]
             }
@@ -791,8 +795,8 @@ workflow FUNC_WF {
 
         def tsnr_qc_input
         // Separate LH/RH dummy paths so Nextflow does not collide staging two path() inputs with the same basename.
-        def dummy_sf_lh = file("${workDir}/dummy_surf_tsnr_lh.dummy").tap { it.toFile().text = "" }
-        def dummy_sf_rh = file("${workDir}/dummy_surf_tsnr_rh.dummy").tap { it.toFile().text = "" }
+        def dummy_sf_lh = file("${workDir}/dummy_surf_tsnr_lh.dummy").tap { if (!it.exists()) it.toFile().text = "" }
+        def dummy_sf_rh = file("${workDir}/dummy_surf_tsnr_rh.dummy").tap { if (!it.exists()) it.toFile().text = "" }
 
         if (surf_recon_enabled) {
             def surf_actual_subject_id_logged = surf_actual_subject_id
@@ -882,9 +886,9 @@ workflow FUNC_WF {
                 .filter { sub, ses_func, anat_ses, anat_seg_ses, seg, lut -> normSes(anat_ses) == normSes(anat_seg_ses) }
                 .map { sub, ses_func, anat_ses, anat_seg_ses, seg, lut -> [sub, ses_func, seg, lut] }
                 .unique()
-            def dummy_seg = file("${workDir}/dummy_confounds_seg.dummy").tap { it.toFile().text = "" }
-            def dummy_lut = file("${workDir}/dummy_confounds_lut.dummy").tap { it.toFile().text = "" }
-            def dummy_motion = file("${workDir}/dummy_confounds_motion.dummy").tap { it.toFile().text = "" }
+            def dummy_seg = file("${workDir}/dummy_confounds_seg.dummy").tap { if (!it.exists()) it.toFile().text = "" }
+            def dummy_lut = file("${workDir}/dummy_confounds_lut.dummy").tap { if (!it.exists()) it.toFile().text = "" }
+            def dummy_motion = file("${workDir}/dummy_confounds_motion.dummy").tap { if (!it.exists()) it.toFile().text = "" }
             def func_seg_lut = func_anat_selection
                 .map { sub, ses_func, anat_file, anat_ses -> [sub, ses_func] }
                 .unique()
@@ -950,7 +954,7 @@ workflow FUNC_WF {
         // skipped by FUNC_COMPUTE_CONFOUNDS, or a run that errored out) get a .dummy sentinel that
         // QC_MOTION_CORRECTION's _real() maps back to None. Keeping it run-key-driven means the
         // join below never drops a run from motion QC. (Same idiom as motion_for_runs above.)
-        def dummy_motion_qc_confounds = file("${workDir}/dummy_motion_qc_confounds.dummy").tap { it.toFile().text = "" }
+        def dummy_motion_qc_confounds = file("${workDir}/dummy_motion_qc_confounds.dummy").tap { if (!it.exists()) it.toFile().text = "" }
         def confounds_for_motion_qc = motion_qc_base
             .map { sub, ses, run_id, motion_file, tmean_file, bids_name -> [sub, ses, run_id] }
             .unique()

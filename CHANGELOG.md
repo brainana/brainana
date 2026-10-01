@@ -8,15 +8,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [3.1.0] - 2026-09-30
+
+### Upgrading from 3.0.0
+
+A 3.0.0 config runs unchanged; no config key or output file was renamed or removed. Default anatomical and surface outputs change, so do not mix 3.0.0 and 3.1.0 results in one analysis.
+
+- Surfaces start from the NMT2Sym template (shared mesh and vertex numbering, V1 held at the template). `anat.surface_reconstruction.template_surface.enabled: false` restores the 3.0.0 tessellation.
+- `fix_V1_WM: "auto"` fills V1 white matter only for tessellated surfaces; set `true` to keep it.
+- GPU steps now run on the GPU. When GPUs are visible, a `general.gpu_device` index that does not exist stops the run at start-up.
+- A config without `anat.synthesis_level` gets `subject`, as documented (3.0.0 used `session`).
+- The work directory must support file locks (GPU slots under `<work_dir>/.gpu_slots`).
+
+### Added
+
+- **Template-initialised surfaces** (`anat.surface_reconstruction.template_surface.enabled`, default on): the NMT2Sym white surface is warped into the subject and fitted to the image, except V1, which stays at the template. Records: `label/?h.template.V1.label`, `scripts/?h.template_init.json`. Falls back to tessellation when the warped surface does not fit the brain mask. Longitudinal timepoints inherit the base's mesh and V1 label.
+- **Second segmentation pass when the first one misses brain** (`fastSurferCNN.pre_inference_n4`, `.template_prior`): the NMT2Sym template is registered to the subject; when it shows brain outside the mask, the image is N4-corrected and segmented again, and the second result is kept only if it agrees with the template at least as well. If any of this fails, the first pass is kept.
+- **Segmentation provenance in the mask and segmentation sidecars**: mask volume and ratio to the template brain (`MaskUndersized`), intensity cap, segmentation passes, template agreement (`TemplatePrior`).
+- **Optional relabelling of small label fragments** (`fastSurferCNN.label_island_min_volume_mm3`, default off).
+- **`all_subjects_report.html`**: every subject's QC on one page, by subject or by step.
+- **`scripts/surface_qc.json` records cortical thickness** (flagged `collapsed` when implausibly thin) and, for tessellated surfaces, the topology-fix path.
+
+### Changed
+
+- **`fix_V1_WM` defaults to `"auto"`** (on only for tessellated surfaces) and runs once, on the segmentation that is kept.
+- **Intensity rescaling before segmentation is capped relative to brain intensity.**
+- **Tessellated surfaces use FreeSurfer's quasi-homeomorphic sphere** (`mris_sphere -q`) for the topology fix.
+- **Anatomicals labelled `part-phase`, `part-real` or `part-imag` are skipped.**
+
+### Fixed
+
+- **Output spaces other than NMT2Sym** (MEBRAINS, D99, Yerkes19, custom templates, conform off): the template prior, the second pass, `fix_V1_WM` and the template surface misregistered. The image is now placed in NMT2Sym coordinates first (bundled rigid transforms in `template_zoo/template/xfm/`, or a rigid registration for custom templates and conform off), recorded as `Nmt2SymFrame`. `fix_V1_WM` was affected in 3.0.0 too.
+- **The undersized-mask rule always compares with the NMT2Sym brain.**
+- **`T1w` is no longer offered as an output space**; it could not run.
+- **GPU use**: GPU steps ran on the CPU; every task now starts with no visible GPU and only GPU steps take one; CPU tasks no longer initialise CUDA (CPU mode aborted on Windows/WSL2); `general.gpu_device: N` means physical GPU N; one device policy for every step; a CUDA out-of-memory error reruns the step on the CPU; `--use_gpu` is ignored with a warning.
+- **`-resume`** no longer re-runs steps whose GPU, placeholder files or input order changed.
+- **Resources and diagnostics**: the segmentation network uses the task's CPU allocation; `NXF_MAX_CPUS`/`NXF_MAX_MEMORY` are clamped to the container; an unlockable work directory fails with a message; per-task containers get the GPU and thread settings; native crashes leave a Python stack trace.
+- **A partial `--config` could switch anatomical synthesis to per-session** (2.1.0 and 3.0.0).
+- **`--anat_only` on the command line reaches BIDS discovery.**
+- **A single numeric value for `--subjects`, `--sessions`, `--tasks` or `--runs` no longer aborts the run.** Lists are comma-separated.
+- **Surface reconstruction normalised intensities on cortex instead of white matter.**
+- **Topology fix (tessellated surfaces)**: a failed `mris_fix_topology -ga` search is retried with the default search, also on `-resume`; an inside-out premesh is flipped; unknown `mris_place_surface` options are an error.
+- The report generator's fallback config is read over the package defaults.
+
 ## [3.0.0] - 2026-09-19
 
 ### Upgrading from 2.1.0
 
-Output filenames changed and input validation is stricter. Re-run rather than mixing 2.1.0 and 3.0.0 output in one derivatives tree.
+Output filenames changed and input validation is stricter; re-run rather than mixing 2.1.0 and 3.0.0 output in one derivatives tree.
 
-**Runs that used to succeed may now abort.** BIDS validation is always on and has no skip flag. It errors only when a directory and a filename disagree about subject or session (`BIDS101`–`BIDS104`), or a subject mixes session and datatype directories (`BIDS105`). Both meant the earlier run was already wrong — mislabelled derivatives in the first case, silently dropped input in the second — so 2.1.0 output for those datasets should not be trusted. Every error names the affected files and the rename or move that resolves it.
-
-**Renamed outputs.** Anything keying on an exact 2.1.0 filename — scripts, viewer configs, bookmarks — needs updating:
+- **Runs may abort on a malformed BIDS layout** (always on): a directory and a filename that disagree about subject or session (`BIDS101`–`BIDS104`), or a subject mixing session and datatype directories (`BIDS105`). Each error names the files and the fix.
+- **Renamed outputs**:
 
 | 2.1.0 | 3.0.0 |
 | --- | --- |
@@ -26,106 +68,67 @@ Output filenames changed and input validation is stricter. Re-run rather than mi
 | `…_space-scanner_space-T1w_desc-preproc_…` | `…_space-T1w_desc-preproc_…` |
 | custom entities emitted alphabetically | emitted in source order |
 
-The repeated-key names could not round-trip: `parse_bids_entities` keeps only the last value of a key. Custom-entity order differs only for datasets carrying two or more non-standard entities.
-
-**Removed:** two Brainana Lite config overrides that were already no-ops — `registration.fireants_allow_cpu` (already the default) and `general.anat_only` (read only by BIDS discovery).
+- **Removed** two Brainana Lite overrides that were already no-ops: `registration.fireants_allow_cpu` and `general.anat_only`.
 
 ### Added
 
-- **`anat.synthesis_level: "session_longitudinal"` — within-subject longitudinal surface reconstruction.** A strict superset of `"session"`: identical anatomical selection, plus an unbiased within-subject base template per subject and a base-seeded reconstruction per session, so vertex *i* is the same anatomical point at every timepoint and per-vertex differencing is valid with no surface registration. The base is built with `mri_robust_template` alone — no atlas priors, no species assumptions — where `recon-all -base`/`-long` would run a human GCA volume stream and clobber the CNN segmentation the surfaces are built on. Requires `anat.surface_reconstruction.enabled` and at least two sessions with anatomy; single-session subjects are skipped. Tunable under `anat.surface_reconstruction.longitudinal`: `iscale`, `subsample`, `max_cbv_dist`, `pial_blend_weight`, `time_column`
-  - Publishes `fastsurfer/sub-<id>_base/` and `fastsurfer/sub-<id>_ses-<id>_long/`, base-space derivatives and atlases under `sub-<id>/anat/` marked `space-base`, and within-subject rates of change: `surf/?h.long.<measure>-{rate,avg,spc}.mgh`, `stats/?h.long.roi-rates.csv`, `stats/long.change-stats.json`, and `scripts/long.qdec.table.dat` for FreeSurfer's own longitudinal tools
-  - Rates are fitted against real elapsed time when `<bids_dir>/sub-XX/sub-XX_sessions.tsv` carries an `age` or `acq_time` column, or one named by `longitudinal.time_column`; otherwise they fall back to digits in the session label, then to scan order. Resolution is all-or-nothing per subject rather than mixing ages and scan indices in one regression, and `long.change-stats.json` records `time_source`
-  - The functional and fsnative-atlas streams deliberately keep seeing the cross-sectional trees: a `_long` tree's `orig.mgz` is in base space, and `mri_vol2surf --regheader` would misregister by exactly the timepoint-to-base transform
-  - `scripts/base_segmentation_agreement.json` records per-label Dice between the base's own segmentation and each timepoint's, so whether the CNN's domain shift on a robust average matters is answerable from the run's own outputs
-
-- **A declared output-naming contract, and a validator for it.** `src/nhp_mri_prep/utils/bids.py` declares `ENTITY_ROLES` — every entity is *identity* (inherited from the raw data; brainana copies and never sets it), *frame*, *variant* or *product* — and `derive_output_name()` is the one constructor, raising rather than resolving the two ways a name loses information: overwriting an inherited identity entity, or emitting a key twice. `validate_output_name()` checks a published name; `scripts/check_output_naming.py` checks a whole output tree and exits non-zero on anything undeclared
-  - `BIDS_ENTITY_ORDER` gains the entities brainana emits but never listed — `atlas`, `from`/`to`/`mode`, `res`, `den`, `hemi`, `stat` — at the positions already published. They had fallen into the alphabetised `others` slot, which is emitted *before* `space` and `desc`
-  - Also found by the audit: nine QC figures carried two `desc-` entities; `FUNC_APPLY_TRANSFORMS` declared one glob for two output slots, so the consumer asking for the boldref was handed the 4-D BOLD; the publish-time `desc-preproc` rewrite injected one `space-T1w` per `desc-` token; `isT1wFile` matched any path with `T1w` in a directory name; `dataset_description.json` omitted `BIDSVersion`; and `QC_BIAS_CORRECTION_FUNC` was dead
-  - The `_brain` suffix tail and the subject-last atlas names are **declared deviations**, recorded against the consumer that depends on each (brainana-viewer's data contract) rather than left looking accidental
-  - **The longitudinal stream is marked `space-base`, not `acq-base`/`acq-long`.** `acq` belongs to the raw data, so a stream marker there destroyed a timepoint's own `acq-` label and could collapse two acquisitions onto one filename — which `publishDir overwrite:false` makes a missing file rather than an error. Affects `session_longitudinal` only, which is unreleased; no published tree changes
-
-- **Uncropped conformed anatomical (`desc-conformFullFOV`).** The conform field of view is sized from the template, so a recording chamber, head-post, coil markers or the neck fall outside it and are cropped from every derivative with no way to recover them. Conform now also writes the same conform on a grid enlarged just enough to contain every voxel of the scanner-space input — same transform, orientation and resolution, differing by a whole number of voxels, so cropping at that offset recovers the processed image. A leaf output: nothing downstream reads it. Anatomical only, both rigid backends (`flirt`, `sitk`). If the grid cannot be sized or would exceed a voxel cap, the run warns and falls back to the target field of view rather than failing
-  - Conform QC gains a paired figure on the uncropped grid, with the processing field of view drawn as a lavender box, so the crop is legible rather than invisible. The pair appears only when the grid was actually enlarged; otherwise the two would be pixel-for-pixel identical and only the existing figure is rendered
-
-- **BIDS input layout is validated before processing starts.** Discovery cross-checks every input file's `sub-`/`ses-` entities against the directories it sits in and aborts with a report naming each affected file. pybids resolves such a conflict in favour of the *directory* and drops the filename entity, but brainana names output directories from the directory and output filenames from the filename stem — so `sub-monkey1/anat/sub-monkey_ses-1_run-1_T1w.nii.gz` used to process without a warning and publish `sub-monkey1/` full of `sub-monkey_*` files. Scoped to the subjects and sessions the run will actually process, so one malformed subject cannot block the rest of a dataset
-  - Errors: `BIDS101` subject label mismatch · `BIDS102` no `sub-` entity · `BIDS103` session label mismatch · `BIDS104` no `ses-` entity where the subject has several sessions · `BIDS105` subject mixes `ses-*/` with subject-level datatype directories
-  - Warnings, which never stop a run: `BIDS201` `ses-` entity with no `ses-*/` level · `BIDS202` NIfTI that will not be processed · `BIDS203` no `dataset_description.json` · `BIDS204` no `ses-` entity, single session
-
-- **`func.confounds.fd_radius_mm` — the FD rotation radius is now configurable.** It was pinned at the macaque 27 mm with no way to reach it from configuration, so any other primate silently got FD computed for a macaque head. Validated as a positive number and recorded per column in the JSON sidecar, since FD values are only comparable across runs computed at the same radius
-
-- **Confounds and motion QC figures now show which frames were flagged.** Vertical bands behind the traces — gray for non-steady-state volumes, red for motion outliers — plus dashed threshold reference lines on the FD and DVARS panels. Contiguous frames merge into one band, and bands are clamped to the shared frame axis, so pixel alignment between the stacked figures is unchanged. Indicators only; no volumes are removed from the BOLD data. The motion figure reads the confounds TSV as an *optional* input, so it is produced exactly as before when confounds are disabled or failed
-
-- **Brainana Lite publishes the outputs it was already computing** — the uncropped `desc-conformFullFOV` conform, the paired conform QC figure, the hemisphere mask, and ingest-normalization provenance (`Input4DCollapsed`, `OrientationRecovered`, `QformSformReconciled`, `InputHeaderWarnings`) in the scanner-space sidecar. Lite was already paying for the enlarged-grid resample and discarding it; the normalization repairs likewise happened but went unrecorded, which mattered most for `OrientationRecovered` and its left/right mirror caveat. Lite now also writes a `dataset_description.json` and the effective merged config under `lite_reports/`, making its output a valid BIDS-derivatives dataset, and `tests/test_lite_notebook_api.py` brings the notebook under CI
+- **`anat.synthesis_level: "session_longitudinal"`**: within-subject longitudinal surfaces. Each subject gets a base template and a base-seeded reconstruction per session, with per-vertex and per-ROI rates of change. Needs surface reconstruction and two or more anatomical sessions; settings under `anat.surface_reconstruction.longitudinal`.
+- **Output-naming contract** and validator (`scripts/check_output_naming.py`).
+- **Uncropped conformed anatomical (`desc-conformFullFOV`)**, with a paired QC figure.
+- **BIDS layout validation** before processing (errors `BIDS101`–`BIDS105`, warnings `BIDS201`–`BIDS204`).
+- **`func.confounds.fd_radius_mm`**: configurable FD head radius.
+- **Confounds and motion QC figures mark flagged frames** and thresholds.
+- **Brainana Lite publishes** the uncropped conform, the hemisphere mask, ingest provenance, a `dataset_description.json` and its effective config.
 
 ### Changed
 
-- **`_desc-conform_` intermediates are matched by exact entity token, not substring**, so the new `_desc-conformFullFOV_` image publishes normally instead of being silently dropped and appended to the downstream channel
-- **Lite fetches atlases the way the runtime selects them** — the sparse checkout required an exact `_space-{template}_res-05` match while `discover_atlases` matches by space and then picks the nearest resolution, so any atlas stored at another resolution was silently dropped from backprojection. Worst for `TEMPLATE="D99"`, which discarded the D99 parcellation itself. Atlas-segmentation QC also now uses the pre-bias brain as its underlay
-- **Lite QC figures are published at `sub-XX/figures`**, never under a `ses-` level, matching the pipeline, and are named from the BIDS stem rather than a hand-assembled prefix, so `run-` and `acq-` entities survive
-- **Lite config overrides go through a checked setter** — `load_config()` deliberately does not validate, so a mistyped key created an entry nothing read and the run continued on the default the user believed they had overridden
-- **MacBNA lookup table gained an `ID_nohemi` column** — MacBNA splits 152 regions into 304 hemisphere-specific IDs (1–152 left, 153–304 right), so nothing paired a region with its contralateral homologue. `ID_nohemi` is the hemisphere-independent index: `ID` 1 and `ID` 153 are both `FP.d` and now share `ID_nohemi` 1. Inserted as the second column, so any consumer reading the table by column position must be updated. The file also moved from CRLF to LF, and `*.tsv` is now covered by `.gitattributes`
+- **MacBNA lookup table gains an `ID_nohemi` column** (second column); consumers reading by column position must update.
+- **Brainana Lite** fetches atlases at the resolution the runtime picks, publishes QC figures at `sub-XX/figures`, and validates config overrides.
 
 ### Fixed
 
-- **Confounds JSON sidecar reported the wrong rotation radius** — `RotationRadiusMM` was written from the module constant rather than the radius actually used, so an overridden radius disagreed with the FD values in the very TSV it describes. Unchanged for the default 27 mm
-- **`func.confounds` thresholds are validated** — only `enabled` was checked, so `fd_outlier_threshold_mm: loose` or a negative radius passed validation and failed much later inside a Nextflow process, far from the cause
-- **Motion QC step read the wrong result key** — `qc_motion_correction` read `snapshot_file`, but `create_motion_correction_qc` returns `motion_plot`, so the recorded `qc_files` entry was never the value the snapshot function returned
-- **ARM6 atlas: area 32 (ID 1004) carried the hemisphere label `kg`** — a typo, now `lh`, matching ARM4/ARM5 and the ID's left-hemisphere range
-- **ARM4 atlas lookup table normalized to the shape every other ARM atlas uses** — dropped the `key_L1`–`name_L3` hierarchy columns (referenced by nothing) and the repeated abbreviations in `name_full` (`claustrum (Cl)` → `claustrum`), and uncoloured its lone coloured subcortical row so viewers assign a procedural colour. IDs, labels, regions, names, hemispheres and cortical colours are unchanged
-- **Brainana Lite** — fixed a Colab hang at "Ensuring SuiteSparse headers" (an unbounded `apt-get install` for a build dependency Lite never installs; removed rather than hardened); re-cloning and reinstalling on every run (the reuse check compared `rev-parse --abbrev-ref HEAD` against the ref, which returns the literal `HEAD` for a tag, so it could never succeed for the pinned default); `RUN_DEMO=True` aborting on a second run over the file the first had downloaded; a `BRAINANA_URL` still naming the pre-migration `xingyu-liu/brainana` while the Colab badge had moved; unbounded network calls with no stdin in the environment cell, which hung the cell forever on a credential prompt; a single failed QC figure aborting an otherwise complete run, where the pipeline gives every QC process `errorStrategy 'ignore'`; and dead code from a patch whose guard has existed since before 2.1.0
-
+- The confounds sidecar reports the FD radius actually used; `func.confounds` thresholds are validated.
+- Motion QC recorded the wrong figure path.
+- ARM6 area 32 had the wrong hemisphere label; the ARM4 lookup table now matches the other ARM tables.
+- Brainana Lite: several hangs, unneeded re-clones and reruns failing, and one failed QC figure aborting a complete run.
 
 ## [2.1.0] - 2026-07-26
 
 ### Added
 
-- **"Data findings" section in the QC report** — the per-subject HTML report now shows what ingest repaired ("Repaired automatically") and what it could not ("Not repaired — no safe automatic fix"), with the left/right caveat spelled out on the orientation entry. It renders only when there is something to report, so a well-formed dataset produces an unchanged report. Deliberately separate from the run-status badge: that tier answers "did the pipeline execute", and demoting a green run because a header had odd units would train people to ignore it
-- **Surface topology QC record** — every run writes `scripts/surface_qc.json` with the measured state of each key surface (vertices, faces, closed, oriented, Euler, signed volume), so surface defects are checkable after the fact rather than only inferable from run status
-- **Surface reconstruction unit tests** — previously none of it was covered. The tests synthesise meshes in numpy, so they need neither FreeSurfer binaries nor subject data and run in under a second
+- **"Data findings" in the QC report**: what ingest repaired and what it could not.
+- **`scripts/surface_qc.json`**: the measured topology of each key surface.
 
 ### Fixed
 
-#### Anatomical ingest and input validation
+#### Anatomical ingest
 
-- **4D anatomical inputs no longer crash the pipeline** — some scanners and DICOM converters emit T1w/T2w with a trailing singleton frame axis (e.g. `(144, 144, 60, 1)`, `dim[0] = 4`). These are geometrically 3D but broke `ANAT_CONFORM`, which failed during skullstripping with `ValueError: This function can only deal with 3D images`. Anatomicals are now normalized to 3D once at ingest (`ANAT_SYNTHESIS`, before any other step): a trailing singleton is dropped losslessly, a genuine multi-volume anatomical is averaged over its last axis. Recorded as `Input4DCollapsed` in the JSON sidecar. Already-3D inputs pass through byte for byte; BOLD timeseries and ANTs displacement fields keep their non-spatial dimensions
-- **Anatomicals with no stored orientation are made explicit** — a NIfTI with `qform_code = 0` *and* `sform_code = 0` declares no spatial orientation, and readers do not agree on what to assume: nibabel and FSL fall back to the header's base affine (LAS, origin at the centre of the voxel grid), while ITK — and therefore ANTs — uses an identity direction in LPS with the origin at the *corner*. One grid silently meant two different geometries within a single run, so files genuinely on the same grid came out disagreeing by an axis flip and a half-FOV translation. Ingest now writes the nibabel/FSL fallback into both qform and sform with code 2. **Header only — voxel data is not resampled**, and existing numeric behaviour is unchanged; what changes is that ANTs reads the same geometry as everything else. Recorded as `OrientationRecovered`
-  - **Caveat:** this recovers a *convention*, not ground truth. The assumed affine puts +x at the subject's left; if the acquisition ran the other way the result is a left/right mirror that no rigid or affine registration can undo and that is invisible on inspection. If a sidecar carries `OrientationRecovered`, confirm handedness against an external record before trusting hemisphere-wise results
-  - **Scope:** anatomicals only. A BOLD run with `qform_code = 0` and `sform_code = 0` is still subject to the reader-dependent fallback
-- **Disagreeing qform and sform are reconciled** — a NIfTI can store its geometry twice and nothing enforces that the two agree; which one wins is the *reader's* policy. nibabel, FSL and every other brainana step read the sform, while FastSurfer's `check_affine_in_nifti` resolves toward the qform — so an unreconciled header meant brainana registered against one grid and segmented against another, with only a warning buried in the FastSurfer log. Ingest now writes the sform into both forms, preserving the sform's own code. Header only. Recorded as `QformSformReconciled`
-- **Uncompressed `.nii` anatomicals are converted to `.nii.gz` at ingest** — previously they flowed through uncompressed and were gzipped only at publish time. Converting once, up front, means no intermediate step handles a raw `.nii`. This also removes a latent crash class: nibabel mmaps an uncompressed `.nii`, so any path that rewrote such a file onto its own path died with SIGBUS — exit 135, no traceback, nothing Nextflow could report
-- **Header defects with no safe automatic repair are reported instead of guessed at** — rescaling or rewriting them could just as easily turn a recoverable dataset into confidently wrong output, so two cases are detected at ingest and surfaced: `xyzt_units` declaring something other than mm (nibabel returns raw `pixdim` regardless, so a metre-unit header is read 1000× too small while ITK/ANTs converts it correctly), and `pixdim` disagreeing with the affine's voxel scale (a self-inconsistent header; FastSurfer aborts on this deep inside segmentation). Written to the sidecar as `InputHeaderWarnings` and shown in the QC report
-- **`ANAT_SYNTHESIS` now publishes its JSON sidecar** — the sidecar for the scanner-space anatomical was written into the task directory and then silently dropped, so `Sources`, `SkullStripped` and `Synthesized` never reached the output directory for that file. `publishDir` only publishes *declared outputs*, and the process declared `path "metadata.json"` where every other process in the module declares `path "*.json"`. Pre-existing since sidecars were introduced in 1.3.0; it also suppressed the new ingest-normalization keys
-- **Skullstripping and segmentation hardened against 4D input** — `nhp_skullstrip_nn` collapses a frame axis before its anisotropic-voxel resampling step, so the standalone CLI works on such files too; `fastsurfer_nn` no longer passes a 4D `out_shape` when resampling a segmentation back to native space (`RuntimeError: affine matrix has wrong number of columns`), which was reachable with `anat.conform.enabled: false`
+- **4D anatomicals** no longer crash conform; they are made 3D at ingest (`Input4DCollapsed`).
+- **Anatomicals with no stored orientation** get the FSL convention written into the header (`OrientationRecovered`). **Caveat:** this is a convention, not ground truth; confirm left/right handedness before trusting hemisphere-wise results.
+- **Disagreeing qform and sform** are reconciled to the sform (`QformSformReconciled`).
+- Uncompressed `.nii` anatomicals are compressed at ingest.
+- Header defects with no safe repair are reported as `InputHeaderWarnings`.
+- The scanner-space anatomical's JSON sidecar was never published.
 
 #### Surface reconstruction
 
-- **Surface topology repair silently stopped working, and could produce quietly wrong surfaces** — `pyvista` was dropped from the dependency set on the strength of `grep "import pyvista" src/`, which cannot see that it is a *call-time* requirement of `pymeshfix` rather than an import of ours: `pymeshfix.MeshFix.__init__` probes `find_spec("pyvista.core")`, which *raises* when pyvista is absent. A broad `except Exception` logged the failure as a warning, so `mris_fix_topology` output that needed repair was passed through unrepaired. Repair now uses pymeshfix's `PyTMesh` API — the same call sequence `MeshFix.repair()` performs, with no pyvista involved — and the floor is raised to `pymeshfix>=0.18.1`
-  - **Who is affected.** Any environment created or refreshed after the dependency was removed. When the defective premesh was *open*, the run crashed later in spherical projection (`ValueError: Can only project closed meshes`) and nothing bad was published. When it was closed but not genus 0, projection succeeded and the run **completed normally with an unrepaired surface**. Affected subjects are therefore not identifiable from run status alone — re-run surface reconstruction for any subject processed by such an environment
-- **Inside-out surfaces are detected and corrected** — repairing a non-oriented mesh can return one that is *consistently* wound but entirely inverted, which passes every topology check there is (closed, oriented, Euler 2); only the sign of the enclosed volume distinguishes it, and nothing was checking that. Because `mris_autodet_gwstats` estimates the gray/white intensity thresholds by sampling *along surface normals*, an inverted surface made it read inside for outside: on an affected subject the white and gray means came out swapped (110/91 became 91/110), inverting every threshold used to place the white and pial surfaces, with no error logged anywhere. Repair now normalises the winding sign, `fix_surface_orientation` flips an inverted surface rather than declaring it fine, and `orig` is gated on outward-facing normals
-- **A broken mesh now fails at the stage that produced it** — topology is validated in-process as closed *and* consistently oriented *and* Euler 2, rather than by parsing `mris_euler_number` output. Euler alone is insufficient (one backwards-wound triangle is still closed with Euler 2), and the old check failed *open*: a missing binary, a timeout or unparsed output all returned `None`, which skipped the entire validate-and-repair block silently. A defective mesh can no longer be promoted to `orig`, and since `mris_place_surface` preserves connectivity, gating `orig` transitively protects `white` and `pial`
-  - **Behaviour change — runs that previously completed may now abort.** When pymeshfix cannot reach a closed, oriented, genus-0 mesh within its 5 iterations, stage 12 now raises instead of promoting the best-effort result and continuing. Such a subject used to finish and publish surfaces built on a defective `orig`; it now fails at the stage that produced the defect. This gate is deliberately *not* covered by `processing.strict_surface_checks` — that flag governs the warn-only checks at stages 8, 9, 11 and 15, whereas nothing downstream of a broken `orig` is meaningful. A subject that starts failing here was already producing unreliable surfaces; inspect `scripts/surface_qc.json` for what the meshes actually look like
-- **Stages can no longer report success without producing their outputs** — `Completed {stage}` previously fired whenever the stage body returned without raising, and FreeSurfer wrappers returned their output path without checking anything was written. Stages now declare their outputs, which are verified before the stage is recorded complete, and commands that exit 0 without writing raise instead
-- **Resuming into a half-finished stage no longer skips the rest of it** — stage 12 wrote `orig` at step 2 of 8 but used `orig` alone as its "already complete" signal, so a run that died at step 8 skipped the stage entirely on the next invocation. Skip checks now require the stage's full output set, including a file it writes last, and stage 12 regenerates `smoothwm`/`inflated` when `orig` changes rather than reusing artifacts built from a superseded mesh
-- **A failure in one hemisphere no longer discards the other's completed work** — the parallel hemisphere runner raised on the first failure, but `ThreadPoolExecutor` waits for the other worker regardless, so its result was computed and then thrown away and a second failure was never reported. Both outcomes are now collected and logged before raising
-- **`fix_surface_orientation` no longer claims success it did not verify** — it logged "Fixed and saved" after calling `orient_()` without re-checking, and `orient_()` cannot orient a mesh with boundary edges. It now refuses such meshes up front and re-reads from disk to confirm
+- **Topology repair had silently stopped working**, so some runs completed with unrepaired surfaces. Re-run surface reconstruction for subjects processed without `pyvista` installed; run status does not identify them.
+- **Inside-out surfaces** are detected and flipped.
+- **A defective mesh fails at the stage that made it** instead of producing surfaces built on it.
+- Stages verify their outputs before reporting success; resuming into a half-finished stage reruns it; a failure in one hemisphere keeps the other's work.
 
 #### Runtime
 
-- **Local runs pin the Nextflow version** — `run_brainana.sh` exports `NXF_VER=25.10.2` (matching the Dockerfile) unless already set. A freshly installed launcher otherwise self-downloads the newest release, and Nextflow 26.x defaults to the strict config parser, which rejects the Groovy in `nextflow.config` and aborts before any work starts. Docker runs are unaffected
+- Local runs pin Nextflow 25.10.2 (`NXF_VER`).
 
 ### Changed
 
-- **Dependency changes are now checked by CI** — the only existing workflow installs with `pip install --no-deps` and therefore cannot detect a missing dependency by construction. A new `Dependencies` workflow installs for real: it verifies the lockfile is in sync, imports every shipped module under a **core-only** install (where a module needing an extra actually shows up), and runs the test suite on the full set. Because the pyvista class of bug is invisible to any import check, the surface tests perform a real mesh repair — that is the layer that catches it. `CONTRIBUTING.md` documents why grep is not sufficient evidence for removing a dependency
-- **`psutil` is now declared in the `train` extra** as well as `full` — the training data-prep scripts import it unguarded, and `full` deliberately excludes `train`, so `train` was not self-sufficient
-- **Development scripts no longer live under `src/`** — 17 notebook-style scratch drivers sat inside the installable package tree across all four packages, every one of them referenced by nothing and every one carrying hardcoded absolute paths. Most ran real work at *import* time — a batch atlas backprojection over a whole dataset root, a GPU registration, a torch model load, NIfTI resampling and writing — so merely importing one ran it. Because `[tool.setuptools.packages.find]` defaults to `namespaces = true`, they shipped in the wheel and the Docker image despite having no `__init__.py`. They now live under `scripts/dev/`, grouped by the package they drive (`fastsurfer_seg/`, `fastsurfer_recon/`, `nhp_mriprep/`, `nhp_skullstrip/`), which is already excluded from the image. What remains under `src/` is library code, the `nhp_skullstrip_nn` prediction CLI, the `nextflow_scripts/` pipeline plumbing and the two training drivers. Separately, a genuine pytest suite that had been misfiled under `src/` moved to `tests/`, where it runs for the first time
-- **BIDS discovery summary distinguishes inputs from jobs** — the anatomical section previously printed one "Total jobs" count, which under multi-run synthesis reported N input files as a single job and read as if data had gone missing. It now prints `BIDS inputs → processing jobs` per modality, with the cross-session / within-session / no-synthesis breakdown underneath. Under `general.anat_only` the functional section prints an explicit "skipped" notice instead of a bare `0`
-- **QC report titles include the session** — the report heading is derived from the report filename rather than the subject ID alone, so per-session reports are distinguishable
+- CI checks dependencies with a real install; `psutil` is declared in the `train` extra; development scripts moved to `scripts/dev/`.
+- The BIDS discovery summary separates input files from processing jobs; QC report titles include the session.
 
 ### Removed
 
-- **`nextflow_scripts/read_yaml_config.py`** — dead since it was added; no `.nf` file, shell script or Python module ever called it, unlike its three siblings which `main.nf` and `run_brainana.sh` do invoke
-- **`ANAT_REORIENT` and `FUNC_REORIENT` processes** and the AFNI-backed helpers behind them (`operations.reorient`, `utils.reorient_image_to_target`, `utils.reorient_image_to_orientation`, `utils.get_image_orientation`). Both processes were already unreachable — `main.nf` had not referenced them since orientation handling moved into `ANAT_CONFORM` — but the helpers were exported from `nhp_mri_prep.utils` and `nhp_mri_prep.operations`, so anything importing them directly must be updated. Reorientation to the reference grid is performed by the conform step; the ingest normalization above covers the missing-orientation case
-
+- The unreachable `ANAT_REORIENT`/`FUNC_REORIENT` processes and their AFNI helpers (update direct imports), and the unused `read_yaml_config.py`.
 
 ## [2.0.0] - 2026-07-20
 

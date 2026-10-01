@@ -124,8 +124,9 @@ pipeline and discard the CNN segmentation these surfaces are built on.
 
 **2. Per-timepoint reconstruction.** Each session's volume is resampled into
 base space and its reconstruction is seeded from the base's surfaces.
-Tessellation through topology correction are inherited rather than recomputed,
-while surface *placement* onward still runs against that session's own
+The base's mesh (the NMT2Sym template mesh by default, or the tessellated one
+when ``anat.surface_reconstruction.template_surface.enabled`` is false) and its
+V1 label are inherited rather than recomputed, while surface *placement* onward still runs against that session's own
 intensities — so genuine change is still measured. Placement is anchored to the
 base and capped, as ``recon-all -long`` does.
 

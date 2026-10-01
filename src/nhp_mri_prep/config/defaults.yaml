@@ -5,7 +5,7 @@ _description: "Default configuration for brainana preprocessing pipeline"
 general:
   verbose: 2  # int or bool: verbosity level (0=quiet/ERROR, 1=normal/INFO, 2=verbose/DEBUG).
   anat_only: false  # bool: process only anatomical data
-  gpu_device: "auto"  # str | int: "auto", -1/"cpu" (CPU), or GPU index (0..N). Global GPU policy: main.nf reads this to decide whether GPU scheduling is enabled at all (set -1/"cpu" to force the whole pipeline onto CPU). Per-model knobs (e.g. anat.skullstripping_segmentation.fastSurferCNN.gpu_device) select a specific device within that policy; if this is set to CPU, those are effectively CPU regardless.
+  gpu_device: "auto"  # str | int: "auto", -1/"cpu" (CPU), or GPU index (0..N, nvidia-smi numbering). Global GPU policy, read by nextflow.config and main.nf: "auto" runs GPU steps on every detected GPU; -1/"cpu" forces the whole pipeline onto CPU (containers are not even given the GPU); N runs every GPU step on physical GPU N only. Tasks that are not GPU steps always run with CUDA_VISIBLE_DEVICES="".
 
 bids_filtering:
   subjects: null  # list of str (have to be quoted) or null: filter by subject IDs (e.g., ["01", "02"])
@@ -14,12 +14,13 @@ bids_filtering:
   runs: null  # list of str (have to be quoted) or null: filter by run numbers (e.g., ["01", "02"])
 
 template:
-  output_space: "NMT2Sym:res-05"  # str: template space in format "TEMPLATE_NAME:[:DESCRIPTION]" (e.g., "NMT2Sym:res-1", "T1w")
+  output_space: "NMT2Sym:res-05"  # str: template space in format "TEMPLATE_NAME:[:DESCRIPTION]" (e.g., "NMT2Sym:res-1", "MEBRAINS:res-05")
   # description: "Template space specification in format TEMPLATE_NAME:[:DESCRIPTION]"
   # examples:
-  #   - "T1w"
   #   - "NMT2Sym:res-1"
   #   - "NMT2Sym:res-025"
+  #   - "MEBRAINS:res-05", "D99:res-05", "Yerkes19:res-05", "NMT2Asym:res-05"
+  #   - "/path/to/custom_template.nii.gz"
 
 anat:
   synthesis_level: "subject"  # str: T1w/T2w synthesis level ("subject", "session", "session_longitudinal").
@@ -40,7 +41,15 @@ anat:
       plane_weight_coronal: 0.4  # float: weight for coronal plane (0.0-1.0)
       plane_weight_axial: 0.4  # float: weight for axial plane (0.0-1.0)
       plane_weight_sagittal: 0.2  # float: weight for sagittal plane (0.0-1.0)
-      fix_V1_WM: true  # bool: fix missing thin WM in V1 by registering template V1 WM to individual space.
+      fix_V1_WM: "auto"  # true | false | "auto": fill missing thin WM in V1 from the template's V1 WM registered to the subject. "auto" = on only when tessellated surfaces are built (surface reconstruction on and anat.surface_reconstruction.template_surface off), the one case where it helped; with template surfaces V1's white surface comes from the template, and without surfaces it only relabels a few hundred unstable voxels
+      label_island_min_volume_mm3: 0  # float (>= 0): relabel detached label fragments smaller than this volume (mm^3) to the label surrounding them; the largest piece of every label is always kept. 0 = off. 2.5 is a sensible value (20 voxels at 0.5 mm)
+      pre_inference_n4:  # second segmentation pass on an input bias-corrected inside the template search region
+        enabled: "auto"  # true | false | "auto": "auto" runs the second pass when template_prior finds more than min_missed_cm3 of brain the first pass missed (or, with template_prior off, when the first mask is under 80% of the template brain volume), and keeps it only if it agrees with the template at least as well as the first; true always runs it (kept by the same rule)
+        shrink_factor: 4  # int (>= 1): N4 shrink factor for this pass
+        bspline_fitting: 60  # number: N4 B-spline spline distance in mm (ANTs -b) for this pass; finer than the 150 used by bias_correction, which is one span across a macaque head
+      template_prior:  # register the template to the subject and measure how much brain the CNN mask misses (never edits the segmentation)
+        enabled: true  # bool: false skips the registration (about 30 s on a GPU)
+        min_missed_cm3: 0.5  # float (>= 0): a first-pass miss above this triggers the second pass in "auto"
   bias_correction:
     enabled: true  # bool: perform bias field correction
     algorithm: "N4BiasFieldCorrection"  # str: bias correction algorithm (currently only "N4BiasFieldCorrection")
@@ -50,6 +59,8 @@ anat:
   surface_reconstruction:
     enabled: true  # bool: perform surface reconstruction
     use_t1wt2wcombined: false  # bool: use t1wt2wcombined image for surface recon if possible
+    template_surface:  # start from the NMT2Sym template's white surface (carried into the subject by registration) instead of tessellating the white-matter segmentation, and keep V1's white surface at the template; the rest of the white surface and the whole pial surface are fitted to the image
+      enabled: true  # bool: false = v3.0.0 behaviour (tessellation + topology fix, everything fitted to the image)
     longitudinal:  # only used when anat.synthesis_level is "session_longitudinal"
       iscale: false  # bool: let mri_robust_template model intensity scaling between timepoints when building the base. Off matches FreeSurfer's rca-base-init, but each session's orig.mgz was rescaled by its own robust factor during conform, so the volumes being averaged are not on a common intensity scale
       subsample: null  # int or null: mri_robust_template --subsample threshold; escape hatch for large high-resolution volumes

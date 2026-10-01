@@ -40,8 +40,10 @@ from fastsurfer_nn.inference.predictor_utils import (
 from fastsurfer_nn.postprocessing.postseg_utils import (
     create_hemisphere_masks,
     create_mask,
+    relabel_small_islands,
 )
 from fastsurfer_nn.utils import logging
+from fastsurfer_nn.utils.gpu_utils import is_cuda_oom
 from fastsurfer_nn.utils.constants import (
     MASK_DILATION_SIZE_MM,
     ROUNDS_OF_MORPHOLOGICAL_OPERATIONS,
@@ -64,7 +66,7 @@ def _apply_two_pass_refinement(
     ckpt_cor: Path | None,
     device: str,
     viewagg_device: str,
-    threads: int,
+    threads: int | None,
     batch_size: int,
     plane_weight_coronal: float | None,
     plane_weight_axial: float | None,
@@ -101,8 +103,8 @@ def _apply_two_pass_refinement(
         Device to run inference on
     viewagg_device : str
         Device to run view aggregation on
-    threads : int
-        Number of threads for CPU operations
+    threads : int or None
+        Number of threads for CPU operations (None: get_num_threads())
     batch_size : int
         Batch size for inference
     plane_weight_coronal, plane_weight_axial, plane_weight_sagittal : float, optional
@@ -220,6 +222,10 @@ def _apply_two_pass_refinement(
         except Exception as restore_error:
             log.error(f"  Failed to restore first-pass outputs: {restore_error}")
 
+        # Out of GPU memory: let run_with_cpu_fallback rerun on the CPU instead of
+        # silently keeping the first pass.
+        if is_cuda_oom(e):
+            raise
         return False
 
 
@@ -233,12 +239,13 @@ def segmentation(
     ckpt_cor: Path | None = None,
     device: str = "auto",
     viewagg_device: str = "cpu",
-    threads: int = 8,
+    threads: int | None = None,
     batch_size: int = 1,
     plane_weight_coronal: float | None = None,
     plane_weight_axial: float | None = None,
     plane_weight_sagittal: float | None = None,
     fix_wm_islands: bool = True,
+    label_island_min_volume_mm3: float = 0.0,
     create_hemimask: bool = True,
     output_data_format: Literal["mgz", "nifti"] = "nifti",
     enable_crop_2round: bool = False,
@@ -282,14 +289,19 @@ def segmentation(
         Device to run inference on
     viewagg_device : str, default="cpu"
         Device to run view aggregation on
-    threads : int, default=8
-        Number of threads for CPU operations (defaults to 8, or uses get_num_threads() if None)
+    threads : int, optional
+        Number of threads for CPU operations. None uses get_num_threads(), which
+        follows OMP_NUM_THREADS (the task's CPU allocation under Nextflow)
     batch_size : int, default=1
         Batch size for inference
     plane_weight_coronal, plane_weight_axial, plane_weight_sagittal : float, optional
         Weights for multi-view prediction
     fix_wm_islands : bool, default=True
         Whether to apply WM island correction (multi-class only, ignored for binary models)
+    label_island_min_volume_mm3 : float, default=0.0
+        Relabel detached label fragments smaller than this (mm^3) to their
+        neighbours' label (multi-class only); 0 disables. See
+        :func:`~fastsurfer_nn.postprocessing.postseg_utils.relabel_small_islands`.
     create_hemimask : bool, default=True
         If True, create hemisphere mask from segmentation (multi-class only, requires LUT).
         If False, skip hemimask creation to save processing time. Binary models always skip this.
@@ -470,6 +482,15 @@ def segmentation(
         f"(removed {seg_nonzero_before_mask - seg_nonzero_after_mask} labeled voxels)"
     )
 
+    if not is_binary and label_island_min_volume_mm3 > 0:
+        pred_data, n_islands, n_island_voxels = relabel_small_islands(
+            pred_data, tuple(zoom), label_island_min_volume_mm3
+        )
+        log.info(
+            f"Relabelled {n_islands} label fragments < {label_island_min_volume_mm3:g} mm^3 "
+            f"({n_island_voxels} voxels) to their neighbours' label"
+        )
+
     # Hemisphere mask creation and saving (multi-class only, requires LUT)
     hemi_mask = None
     if create_hemi_mask:
@@ -612,7 +633,9 @@ def segmentation(
 
     # Explicit cleanup to free GPU memory
     del predictor
-    if torch.cuda.is_available():
+    # is_initialized(): only a run that actually used CUDA has a cache to clear,
+    # and it does not load the driver in CPU mode.
+    if torch.cuda.is_initialized():
         torch.cuda.empty_cache()
         log.info("GPU memory cache cleared after inference")
 

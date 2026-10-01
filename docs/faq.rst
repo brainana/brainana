@@ -57,7 +57,9 @@ in-container path:
    docker run --rm \
        -v <path/to/bids>:/input -v <path/to/out>:/output \
        -v <path/to/my_template.nii.gz>:/template.nii.gz \
-       liuxingyu987/brainana:<version> /input /output --output_space /template.nii.gz
+       -v <path/to/license.txt>:/fs_license.txt \
+       liuxingyu987/brainana:<version> /input /output --output_space /template.nii.gz \
+       --freesurfer_license /fs_license.txt
 
 Outputs then use the BIDS space label ``template`` (e.g. ``*_space-template_*``). The
 file must exist and end in ``.nii``/``.nii.gz`` or the run aborts at the start. A
@@ -68,7 +70,7 @@ custom template has no bundled atlases, so atlas outputs are skipped for that sp
 Can I run without a FreeSurfer license?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Anatomical and functional preprocessing will still run, but surface reconstruction will be skipped. The container will warn if the license is missing.
+Yes, if you turn surface reconstruction off: set ``anat.surface_reconstruction.enabled: false`` in a config file and pass it with ``--config``. Anatomical and functional preprocessing then run as usual. With surface reconstruction on (the default), the container stops at start-up when ``--freesurfer_license`` is missing or the license does not work.
 
 Get a free license at https://surfer.nmr.mgh.harvard.edu/registration.html, then mount it with ``-v <path/to/license.txt>:/fs_license.txt`` and pass ``--freesurfer_license /fs_license.txt``.
 
@@ -81,6 +83,21 @@ You can run the pipeline without a GPU; it will use the CPU. Omit ``--gpus`` fro
 
 If you do have an NVIDIA GPU and want to use it, add ``--gpus all`` and ensure the `NVIDIA Container Toolkit <https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html>`_ is installed on the host. See :doc:`installation` for setup steps.
 
+.. _cpu-mode-with-gpu-host:
+
+**To run on the CPU on a machine that has an NVIDIA GPU**, omit ``--gpus all`` rather than
+passing it and setting ``general.gpu_device: -1`` in the config file. Without ``--gpus all``
+the GPU driver is never exposed to the container, which is the most reliable way to run on
+the CPU.
+
+.. warning::
+
+   **Windows (Docker Desktop with WSL2):** do not combine ``--gpus all`` with CPU mode.
+   With the GPU exposed through WSL2 but not used, CPU-mode skull stripping has been seen to
+   abort with exit status 134 and ``free(): double free detected`` in the task's
+   ``.command.err``. The same run passes with ``--gpus all`` omitted. Either run on the GPU
+   (``--gpus all`` with the default ``general.gpu_device: auto``) or leave ``--gpus all`` out.
+
 ----
 
 Running on your system
@@ -91,7 +108,7 @@ Running on your system
 Can I use a network drive for input or output?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-**We recommend keeping the output directory and work directory on local storage.** Writing to a network drive (NFS, SMB, etc.) can cause permission errors, copy failures in early stages, or poor I/O performance and timeouts. If you see failures that look like permission or copy issues soon after the run starts, try pointing the output and work-directory mounts to local paths.
+**We recommend keeping the output directory and work directory on local storage.** Writing to a network drive (NFS, SMB, etc.) can cause permission errors, copy failures in early stages, or poor I/O performance and timeouts. The work directory must also support file locks (used for GPU steps); on Lustre or NFS without lock support the first GPU step fails. If you see permission, copy or lock failures soon after the run starts, point the output and work-directory mounts to local paths.
 
 **Input on a network drive is fine.** You can leave your BIDS dataset on a network share and set the output (and work directory) to a local path. For example: mount the network BIDS root with ``-v <path/on/network/bids_dir>:/input`` and use local paths for ``-v <path/on/local/output_dir>:/output`` and ``-v <path/on/local/work_dir>:/output_wd``. The pipeline reads from the network and writes only to local disk.
 
@@ -138,8 +155,9 @@ Full example:
        -v C:/Users/me/bids:/input `
        -v C:/Users/me/output:/output `
        -v C:/Users/me/work:/output_wd `
+       -v C:/Users/me/license.txt:/fs_license.txt `
        liuxingyu987/brainana:<version> /input /output `
-       --work_dir /output_wd
+       --work_dir /output_wd --freesurfer_license /fs_license.txt
 
 .. note::
 
@@ -155,8 +173,9 @@ Use the ``/mnt/c/`` prefix to reference Windows drives:
        -v /mnt/c/Users/me/bids:/input \
        -v /mnt/c/Users/me/output:/output \
        -v /mnt/c/Users/me/work:/output_wd \
+       -v /mnt/c/Users/me/license.txt:/fs_license.txt \
        liuxingyu987/brainana:<version> /input /output \
-       --work_dir /output_wd
+       --work_dir /output_wd --freesurfer_license /fs_license.txt
 
 ----
 
@@ -171,7 +190,13 @@ How do I align container resources with Nextflow?
 The container defaults to 8 CPUs and 20 GB for Nextflow (controlled by ``NXF_MAX_CPUS`` and ``NXF_MAX_MEMORY``). To change these:
 
 - Pass ``-e NXF_MAX_CPUS=<n>`` and ``-e NXF_MAX_MEMORY=<n>g`` to ``docker run``.
-- Use ``-profile minimal`` (4 CPUs, 16 GB) or ``-profile recommended`` (8+ CPUs, 32 GB) for preset profiles.
+- Use ``-profile minimal`` (4 CPUs, 16 GB) or ``-profile recommended`` (8 CPUs, 32 GB) for preset profiles.
+
+If either value is more than the container actually has (Docker Desktop's VM size on macOS and
+Windows, or ``docker run --cpus/--memory``), the container lowers it to what is available (about
+90% of the memory) and prints a ``WARNING`` at start-up. Steps that ask for more CPUs or memory
+than that limit are given the limit instead. Profiles are not lowered this way; use
+``NXF_MAX_MEMORY`` on a machine with less than 32 GB.
 
 See :ref:`command-line-arguments` for the full resource options.
 
@@ -199,6 +224,10 @@ By default, this limit is **50% of your host RAM** (see `Docker Desktop advanced
 If this default (for example, 4 GB on an 8 GB machine) is too low, the pipeline can run out of memory even though the host itself still has free RAM.
 
 To fix this, open Docker Desktop and go to ``Settings → Resources → Advanced``. Increase the **Memory** allocation (for example, to 6–7 GB on an 8 GB machine), apply the changes, and rerun the pipeline.
+
+**On a Mac with Apple silicon (M1 and later):** the Brainana image is built for x86-64, so Docker
+Desktop runs it under emulation. It runs on the CPU only and is noticeably slower than on an
+x86-64 machine with the same number of cores.
 
 **On native Docker on Linux (no Docker Desktop):**
 

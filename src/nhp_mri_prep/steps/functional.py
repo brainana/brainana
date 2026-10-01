@@ -397,6 +397,7 @@ def func_conform(
         logger=logger,
         modal="func",
         skip_skullstripping=skip_skullstripping,
+        config=input.config,
     )
 
     output_file = (

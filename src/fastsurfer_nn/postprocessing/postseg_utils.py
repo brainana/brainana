@@ -195,6 +195,90 @@ def flip_wm_islands_auto(
     )
 
 
+def relabel_small_islands(
+    seg: npt.NDArray[int],
+    voxel_size: tuple[float, float, float],
+    min_volume_mm3: float,
+) -> tuple[npt.NDArray[int], int, int]:
+    """Relabel small detached label fragments to their neighbours' label.
+
+    A component (26-connected) that is *not* the largest component of its label
+    and is smaller than ``min_volume_mm3`` takes the majority label of the
+    voxels bordering it (background included, so a fragment floating outside
+    the brain is removed). The largest component of every label is always kept,
+    so a structure that is small everywhere is never erased. Such fragments
+    carry no anatomy but become blobs and topological defects once the
+    segmentation is tessellated.
+
+    Decisions are made against the input labels, so the result does not depend
+    on the order labels are visited.
+
+    Parameters
+    ----------
+    seg : np.ndarray
+        Label volume.
+    voxel_size : tuple of float
+        Voxel size in mm, used to express the threshold as a volume.
+    min_volume_mm3 : float
+        Fragments strictly smaller than this are relabelled; <= 0 disables.
+
+    Returns
+    -------
+    np.ndarray
+        Relabelled copy of ``seg``.
+    int
+        Number of fragments relabelled.
+    int
+        Number of voxels changed.
+    """
+    out = seg.copy()
+    if min_volume_mm3 <= 0:
+        return out, 0, 0
+
+    max_voxels = min_volume_mm3 / float(np.prod(voxel_size))
+    structure = np.ones((3, 3, 3), dtype=bool)
+    n_islands = n_voxels = 0
+
+    for lab, bbox in enumerate(scipy.ndimage.find_objects(seg), start=1):
+        if bbox is None:
+            continue
+        # Pad the box by one voxel so every fragment's border is inside it.
+        box = tuple(
+            slice(max(s.start - 1, 0), min(s.stop + 1, n))
+            for s, n in zip(bbox, seg.shape)
+        )
+        local = seg[box]
+        comps, n = scipy.ndimage.label(local == lab, structure=structure)
+        if n < 2:
+            continue
+        sizes = np.bincount(comps.ravel())
+        sizes[0] = 0
+        largest = int(sizes.argmax())
+        # Work in each island's own (padded) box: dilating in the label's box
+        # costs its whole volume per island, which for cortex/WM with hundreds
+        # of specks is most of a hemisphere, hundreds of times.
+        comp_boxes = scipy.ndimage.find_objects(comps)
+        for comp in np.flatnonzero((sizes > 0) & (sizes < max_voxels)):
+            if comp == largest:
+                continue
+            ibox = tuple(
+                slice(max(s.start - 1, 0), min(s.stop + 1, n))
+                for s, n in zip(comp_boxes[comp - 1], local.shape)
+            )
+            island = comps[ibox] == comp
+            border = scipy.ndimage.binary_dilation(island, structure) & ~island
+            neighbours = local[ibox][border]
+            neighbours = neighbours[neighbours != lab]
+            if neighbours.size == 0:
+                continue
+            values, counts = np.unique(neighbours, return_counts=True)
+            out[box][ibox][island] = values[counts.argmax()]
+            n_islands += 1
+            n_voxels += int(sizes[comp])
+
+    return out, n_islands, n_voxels
+
+
 def extract_largest_component(mask: npt.NDArray[int]) -> npt.NDArray[int]:
     """
     Extract the largest connected component from a binary mask.

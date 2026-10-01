@@ -28,9 +28,12 @@ class BiasCorrection(PipelineStage):
             mask_path = None
             logger.warning("No mask available, running without mask")
 
-        # Get aseg for WM normalization
-        aseg_orig = self.sd.mri(f"aparc.{self.config.atlas.name}atlas+aseg.orig.mgz")
-        aseg_path = aseg_orig if aseg_orig.exists() else None
+        # WM normalization takes WM to be aseg labels 2/41, so it needs the
+        # aseg-mapped volume. The atlas volume (aparc.<atlas>atlas+aseg.orig)
+        # keeps raw atlas IDs, where 2 is right anterior cingulate cortex: norm
+        # then put cortex at 105 and true WM at ~125-175 instead of ~105.
+        aseg_nocc = self.sd.mri("aseg.auto_noCCseg.mgz")
+        aseg_path = aseg_nocc if aseg_nocc.exists() else None
 
         bias_correct_and_normalize(
             input_path=self.sd.orig,

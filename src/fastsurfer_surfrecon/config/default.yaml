@@ -24,13 +24,17 @@ processing:
   # and continue; true = raise. The s12 gate on orig always raises regardless.
   strict_surface_checks: false
 
+  # mris_fix_topology: true = genetic-algorithm search (-ga), retried without
+  # -ga if it fails; false = never use -ga.
+  topology_fix_ga: true
+
   # Non-human options (for macaque processing)
   skip_cc: true            # Skip corpus callosum segmentation
   skip_talairach: true     # Skip Talairach registration (no eTIV)
   
   # Method choices
   use_fs_tessellation: false  # Use mri_mc (marching cubes) instead of mri_tesselate
-  # use_fs_qsphere: false       # Use spectral projection instead of FS qsphere
+  use_fs_qsphere: true        # Spherical map for the topology fix: true = FreeSurfer mris_sphere -q (as recon-all -qsphere); false = spectral projection
   use_fs_aparc: false         # Use mapped parcellation instead of FS aparc
   do_surf_reg: false          # Surface registration to fsaverage
   
@@ -54,6 +58,14 @@ processing:
 
 # Registration template (optional). Path relative to brainana repo root.
 registration_template: template_zoo/fastsurfer/sub-NMT2Sym
+
+# Template-initialised surfaces (off here; the brainana pipeline turns it on via
+# anat.surface_reconstruction.template_surface). When on, s08-s12 are replaced by
+# s12b: the template white surface, carried into the subject by template_xfm, is
+# the starting mesh, and template_freeze_label keeps the template's white surface.
+template_init: false
+template_subject_dir: template_zoo/fastsurfer/sub-NMT2Sym
+template_freeze_label: V1
 
 # Output control
 verbose: 1  # Verbosity level (0=WARNING, 1=INFO, 2=DEBUG)

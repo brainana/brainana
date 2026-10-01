@@ -11,7 +11,10 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, NamedTuple, Optional, List
+
+import nibabel as nib
+import numpy as np
 
 from .types import StepInput, StepOutput
 from ..operations.preprocessing import (
@@ -31,6 +34,7 @@ from ..operations.sitk_rigid_registration import (
 )
 import SimpleITK as sitk
 from ..utils.bids import get_bids_prefix, parse_bids_entities
+from ..utils.nextflow import config_value
 from ..utils.templates import (
     discover_atlases_in_space,
     get_template_manager,
@@ -202,6 +206,7 @@ def anat_conform(input: StepInput, template_file: Path) -> StepOutput:
         logger=logger,
         modal="anat",
         skip_skullstripping=skip_skullstripping,
+        config=input.config,
         rigid_method=rigid_method,
         # Anatomical only: also emit the conform on a grid large enough to keep every
         # scanner-space voxel (recording chamber, head-post, neck). Leaf output.
@@ -356,6 +361,7 @@ def anat_skullstripping(input: StepInput) -> StepOutput:
             "modality": "anat",
             "method": "fastSurferCNN",
             "atlas_name": result.get("atlas_name"),
+            "segmentation_qc": result.get("segmentation_qc") or {},
         },
         additional_files=additional_files,
     )
@@ -1027,12 +1033,181 @@ def anat_t2w_to_t1w_registration(input: StepInput, t1w_reference: Path) -> StepO
     )
 
 
+# The surface prior is always this template, whatever template.output_space is:
+# surface reconstruction runs in the subject's own space, and only the mesh and its
+# frozen label come from the template (template_zoo/fastsurfer/sub-NMT2Sym).
+SURFACE_PRIOR_TEMPLATE = "NMT2Sym"
+SURFACE_PRIOR_TEMPLATE_SPEC = "NMT2Sym:res-05"
+# Below this share of warped template white-surface vertices inside the brain mask
+# the template surface is not used and the run tessellates instead. A correct
+# registration puts 99.95-99.98% inside (devtest); one that started 25 mm off put
+# the surface largely outside. s12b separately warns below 95%: a mask that missed
+# part of the brain also lowers the share, and the template surface is still the
+# better start there.
+TEMPLATE_SURFACE_MIN_IN_MASK = 0.80
+
+
+class SurfacePriorTransform(NamedTuple):
+    """How the NMT2Sym template surface is carried into the subject."""
+
+    xfm: Path  # ANTs image transform; as a point map, NMT2Sym -> (placed) subject
+    source: str  # "reused" | "registered"
+    post: Optional[Path] = None  # ITK point map, placed subject world -> T1w world
+    frame: Optional[Dict[str, Any]] = None  # Nmt2SymFrame provenance when not identity
+
+
+def surface_prior_transform(
+    input: StepInput,
+    t1w_file: Path,
+    brain_mask: Path,
+    template_xfm: Optional[Path],
+    work_dir: Path,
+) -> SurfacePriorTransform:
+    """The subject-to-NMT2Sym image transform the template surface prior is warped with.
+
+    Reuses the run's own anatomical registration when it targeted NMT2Sym and
+    the subject was conformed to NMT2Sym world (the default). Otherwise
+    registers the skull-stripped T1w to the NMT2Sym brain here, with the same
+    function and settings as the anatomical registration step, so the prior
+    does not depend on the chosen output space.
+
+    FireANTs needs that pair roughly aligned first. When the subject is not in
+    NMT2Sym world (another output template, a custom template, conform off),
+    the T1w is first placed there by its header (``nmt2sym_frame``), and
+    ``post`` takes the warped points from that placed copy back to the T1w.
+    """
+    from ..operations.nmt2sym_frame import nmt2sym_frame, ras_to_lps, reframe, write_itk_affine
+
+    reg_config = config_value(input.config, "registration", {}) or {}
+    xfm_type = reg_config.get("anat2template_xfm_type", "syn")
+    work_dir.mkdir(parents=True, exist_ok=True)
+    t1 = nib.load(str(t1w_file))
+    mask = np.asarray(nib.load(str(brain_mask)).dataobj) > 0
+    brain = np.asarray(t1.dataobj, dtype=np.float32) * mask
+    brain_file = work_dir / "surface_prior_moving_brain.nii.gz"
+    nib.save(nib.Nifti1Image(brain, t1.affine, t1.header), str(brain_file))
+    frame = nmt2sym_frame(input.config, work_dir / "nmt2sym_frame", brain_file, logger)
+
+    # With registration off, the passthrough still names its identity transform
+    # _to-<output space>_, so the name alone cannot tell a real registration.
+    registration_ran = config_value(input.config, "registration.enabled", True)
+    if (
+        frame.is_identity
+        and registration_ran
+        and template_xfm is not None
+        and template_xfm.exists()
+        and template_xfm.stat().st_size > 0
+    ):
+        if f"_to-{SURFACE_PRIOR_TEMPLATE}_" in template_xfm.name:
+            if xfm_type != "syn":
+                logger.warning(
+                    "Step: template surface prior reuses a %s-only registration "
+                    "(%s); V1 is placed less accurately than with anat2template_xfm_type: syn",
+                    xfm_type,
+                    template_xfm.name,
+                )
+            return SurfacePriorTransform(template_xfm, "reused")
+        logger.info(
+            "Step: anatomical registration targets another space (%s); registering "
+            "to %s for the template surface prior",
+            template_xfm.name,
+            SURFACE_PRIOR_TEMPLATE,
+        )
+
+    moving = reframe(brain_file, frame, work_dir / "surface_prior_moving_brain_in_nmt2sym_world.nii.gz")
+    result = ants_register(
+        movingf=str(moving),
+        fixedf=get_template_manager().resolve_template(SURFACE_PRIOR_TEMPLATE_SPEC),
+        working_dir=str(work_dir),
+        output_prefix="surface_prior_to_NMT2Sym",
+        config=input.config,
+        logger=logger,
+        xfm_type=xfm_type,
+        compute_inverse=False,
+        enable_fireants=reg_config.get("enable_fireants", True),
+        fireants_allow_cpu=reg_config.get("fireants_allow_cpu", True),
+    )
+    xfm = result.get("forward_transform")
+    if not xfm or not Path(xfm).exists():
+        raise RuntimeError("Registration for the template surface prior produced no transform")
+    if frame.is_identity:
+        return SurfacePriorTransform(Path(xfm), "registered")
+    # Points come out in the placed copy's world (NMT2Sym world); back to the T1w's.
+    post = write_itk_affine(
+        work_dir / "nmt2sym_world_to_t1w_world.txt",
+        ras_to_lps(np.linalg.inv(frame.to_nmt2sym)),
+    )
+    return SurfacePriorTransform(Path(xfm), "registered", post, frame.provenance())
+
+
+def _template_surface_prior(
+    input: StepInput,
+    t1w_file: Path,
+    brain_mask: Path,
+    template_xfm: Optional[Path],
+) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    """ReconSurfConfig fields and step metadata for the template surface prior.
+
+    Falls back to tessellation (empty fields) when the transform cannot be
+    computed or puts the template surface largely outside the brain: holding V1
+    at a misplaced template is worse than tessellating.
+    """
+    from fastsurfer_surfrecon.config import _BRAINANA_ROOT
+    from fastsurfer_surfrecon.processing.template_init import warped_fraction_in_mask
+
+    work_dir = Path(input.working_dir) / "surface_prior_registration"
+    try:
+        prior = surface_prior_transform(
+            input,
+            t1w_file=t1w_file,
+            brain_mask=brain_mask,
+            template_xfm=template_xfm,
+            work_dir=work_dir,
+        )
+        tpl_dir = _BRAINANA_ROOT / "template_zoo" / "fastsurfer" / "sub-NMT2Sym"
+        in_mask = min(
+            warped_fraction_in_mask(tpl_dir / "surf" / f"{h}.white", prior.xfm, brain_mask, prior.post)
+            for h in ("lh", "rh")
+        )
+    except Exception as e:  # noqa: BLE001 - tessellation is the fallback, not a failure
+        logger.warning(
+            f"Step: template surface prior unavailable ({e}); tessellating instead"
+        )
+        return {}, {"template_surface": False, "template_surface_fallback": str(e)}
+
+    metadata: Dict[str, Any] = {
+        "template_surface_transform": prior.source,
+        "template_surface_in_mask": round(in_mask, 4),
+    }
+    if prior.frame:
+        metadata["template_surface_nmt2sym_frame"] = prior.frame
+    if in_mask < TEMPLATE_SURFACE_MIN_IN_MASK:
+        logger.warning(
+            f"Step: only {100 * in_mask:.1f}% of the warped template white surface lies in "
+            f"the brain mask (need {100 * TEMPLATE_SURFACE_MIN_IN_MASK:.0f}%); the "
+            f"subject-to-NMT2Sym registration ({prior.xfm.name}) looks wrong, tessellating instead"
+        )
+        metadata.update(template_surface=False, template_surface_fallback="registration")
+        return {}, metadata
+
+    logger.info(
+        f"Step: template surface prior on ({prior.source} transform {prior.xfm.name}; "
+        f"{100 * in_mask:.2f}% inside the brain mask)"
+    )
+    fields: Dict[str, Any] = {"template_init": True, "template_xfm": str(prior.xfm)}
+    if prior.post:
+        fields["template_xfm_post"] = str(prior.post)
+    metadata["template_surface"] = True
+    return fields, metadata
+
+
 def anat_surface_reconstruction(
     input: StepInput,
     t1w_file: Path,
     segmentation_file: Path,
     brain_mask: Optional[Path] = None,
     arm6_atlas: Optional[Path] = None,
+    template_xfm: Optional[Path] = None,
 ) -> StepOutput:
     """
     Perform surface reconstruction using fastsurfer_surfrecon.
@@ -1043,6 +1218,10 @@ def anat_surface_reconstruction(
         segmentation_file: Segmentation file (from skullstripping step)
         brain_mask: Brain mask file (required for surface reconstruction)
         arm6_atlas: Optional ARM6 atlas for claustrum fix (stage s07b)
+        template_xfm: Optional subject-to-template image transform from the
+            anatomical registration (from-T1w_to-<space>). Reused for the
+            template surface prior when it targets NMT2Sym; otherwise, or when
+            absent, the prior registers to NMT2Sym itself.
 
     Returns:
         StepOutput with surface reconstruction directory path
@@ -1169,6 +1348,18 @@ def anat_surface_reconstruction(
         # Get thread count from config
         threads = input.config.get("processing", {}).get("threads", 1)
 
+        # Template surface prior: start from the NMT2Sym white surface and hold
+        # its V1 at the template (see template_zoo/fastsurfer/sub-NMT2Sym/README.md).
+        template_prior = {}
+        if config_value(
+            input.config, "anat.surface_reconstruction.template_surface.enabled", True
+        ):
+            template_prior, prior_metadata = _template_surface_prior(
+                input, t1w_file, brain_mask, template_xfm
+            )
+        else:
+            prior_metadata = {"template_surface": False}
+
         # Create configuration using defaults from YAML, only override non-default values
         recon_config = ReconSurfConfig.with_defaults(
             subject_id=subject_id,
@@ -1180,6 +1371,7 @@ def anat_surface_reconstruction(
                 "skip_talairach": True,
             },  # Default for macaque
             verbose=1,
+            **template_prior,
         )
 
         # Run pipeline
@@ -1200,6 +1392,7 @@ def anat_surface_reconstruction(
             "subject_id": subject_id,
             "atlas_name": atlas_name,
             "subjects_dir": str(subjects_dir),
+            **prior_metadata,
         },
     )
 

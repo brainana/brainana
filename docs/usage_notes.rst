@@ -13,7 +13,7 @@ Quick start
 -----------
 
 1. Prepare a valid BIDS dataset (see :ref:`the-bids-format`) and an output directory.
-2. For surface reconstruction, prepare a FreeSurfer license (see :ref:`the-freesurfer-license-optional`).
+2. Surface reconstruction is on by default and needs a FreeSurfer license (see :ref:`the-freesurfer-license-optional`).
 3. Ensure the Brainana image is pulled as described in :doc:`installation`, then run:
 
    .. code-block:: bash
@@ -28,11 +28,11 @@ Quick start
 
 .. note::
 
-   - **Replace ``<version>``** with a published Brainana tag from Docker Hub, for example ``3.0.0``. See the `Brainana image tags on Docker Hub <https://hub.docker.com/r/liuxingyu987/brainana/tags>`_ for the list of available versions.
+   - Replace ``<version>`` with a published Brainana tag from Docker Hub, for example ``3.1.0``. See the `Brainana image tags on Docker Hub <https://hub.docker.com/r/liuxingyu987/brainana/tags>`_ for the list of available versions.
    - **No compatible GPU?** Omit ``--gpus all``; the pipeline runs on CPU with no other changes. Details in :ref:`Check GPU access <installation-check-gpu-access>`.
-   - **``<path/to/work_dir>``** is a host path for Nextflow's intermediate files. Without this mount, resume is impossible.
+   - ``<path/to/work_dir>`` is a host path for Nextflow's intermediate files. Without this mount, resume is impossible.
    - **Run as your user, not root:** Pre-create the output and work directories on the host and own them before mounting; see :ref:`docker-run-as-user-not-root`.
-   - **Windows users:** See :ref:`windows-paths`.
+   - **Windows users:** See :ref:`windows-paths`. To run on the CPU, omit ``--gpus all`` rather than combining it with CPU mode; see :ref:`CPU mode on a machine with a GPU <cpu-mode-with-gpu-host>`.
 
 No configuration file is required; built-in defaults are used. To customise the pipeline, see the Configuration file section below. For all options after the image name, see :ref:`command-line-arguments`.
 
@@ -56,6 +56,8 @@ Minimal example layout (dataset root with one subject, one session, anat + func)
    │           └── sub-banana_ses-1_task-eat_run-1_bold.json   # optional
    └── <other_subjects>
 
+Anatomical images must be magnitude images. BIDS allows ``T1w``/``T2w`` files to carry a ``part-`` entity for complex-valued data; Brainana uses files labelled ``part-mag`` or with no ``part-`` entity. Files labelled ``part-phase``, ``part-real`` or ``part-imag`` are listed as "will not be processed" at start-up, and they never count as extra runs for multi-run averaging. MP2RAGE inversion images (``inv-<index>_MP2RAGE``) and ``UNIT1`` images are not read either, so name the image you want processed ``T1w``.
+
 If you start with DICOM, you can either:
 
 (1) Use `dcm2niix <https://www.nitrc.org/plugins/mwiki/index.php/dcm2nii:MainPage#General_Usage>`_ to convert DICOM to NIfTI and then manually reorganise and rename files to BIDS. Use ``-ba y`` so dcm2niix writes BIDS-compatible JSON sidecar files; you still need to create the BIDS folder structure and naming yourself.
@@ -70,12 +72,12 @@ If you only have a few images (e.g. one), option (1) is usually simpler; for a l
 
 .. _the-freesurfer-license-optional:
 
-The FreeSurfer license (optional)
-----------------------------------
+The FreeSurfer license (needed for surface reconstruction)
+-----------------------------------------------------------
 
 Brainana uses FreeSurfer for surface reconstruction, which requires a valid license.
 
-Without a valid license, surface reconstruction fails. However, anatomical and functional preprocessing still run. The container warns if the license is missing.
+Surface reconstruction is on by default, and the container stops at start-up if ``--freesurfer_license`` is not given or the license does not work. To run without a license, turn surface reconstruction off in a configuration file (``anat.surface_reconstruction.enabled: false``); anatomical and functional preprocessing then run as usual.
 
 **Get or locate the license**
 
@@ -94,6 +96,18 @@ Use a YAML configuration file when you need to customise the pipeline (e.g. temp
 **Creating a configuration file**
 
 - Use the interactive `configuration generator <_static/config_generator.html>`_ to choose options and download a ready-to-use YAML file.
+
+.. _gpu-use:
+
+**GPU use**
+
+GPU use is set by ``general.gpu_device`` in the configuration file (there is no command-line flag; ``--use_gpu`` is ignored with a warning):
+
+- ``auto`` (default): GPU steps use the NVIDIA GPUs the container can see; with none, everything runs on the CPU.
+- ``-1`` or ``cpu``: every step runs on the CPU, even when a GPU is visible.
+- ``0``, ``1``, … (or ``cuda:0``, ``cuda:1``, …): every GPU step runs on that one GPU, numbered as ``nvidia-smi`` lists them. If the container sees GPUs but not that one, the run stops at start-up; if it sees no GPU at all, the run uses the CPU.
+
+GPU steps are skull stripping and segmentation, the functional brain mask, and FireANTs SyN registration. Every other step runs on the CPU and never sees a GPU. Apple silicon GPUs (MPS) are not used.
 
 .. _usage-docker-guide:
 
@@ -118,8 +132,8 @@ Mounts
 
 **Optional mounts**
 
-- Work directory: ``-v <path/to/work_dir>:/output_wd`` — stores Nextflow's intermediate files and cache. **Required for resume to work.** 
-- FreeSurfer license: ``-v <path/to/license.txt>:/fs_license.txt`` — mount the file prepared in :ref:`the-freesurfer-license-optional`; omit to run without surface reconstruction.
+- Work directory: ``-v <path/to/work_dir>:/output_wd`` — stores Nextflow's intermediate files and cache. **Required for resume to work.** Use local disk; the work directory must support file locks.
+- FreeSurfer license: ``-v <path/to/license.txt>:/fs_license.txt`` — mount the file prepared in :ref:`the-freesurfer-license-optional`; required unless surface reconstruction is turned off in the configuration file (``anat.surface_reconstruction.enabled: false``).
 - Configuration file: ``-v <path/to/config.yaml>:/config.yaml`` — mount the file prepared in :ref:`generating-config-file`; omit to use built-in defaults.
 
 Example commands
@@ -137,7 +151,15 @@ Example commands
        liuxingyu987/brainana:<version> /input /output \
        --work_dir /output_wd --freesurfer_license /fs_license.txt
 
-**With default config (surface reconstruction disabled)**
+**Without surface reconstruction (no FreeSurfer license)**
+
+Turn surface reconstruction off in a configuration file:
+
+.. code-block:: yaml
+
+   anat:
+     surface_reconstruction:
+       enabled: false
 
 .. code-block:: bash
 
@@ -145,8 +167,9 @@ Example commands
        -v <path/to/bids_dir>:/input \
        -v <path/to/output_dir>:/output \
        -v <path/to/work_dir>:/output_wd \
+       -v <path/to/config.yaml>:/config.yaml \
        liuxingyu987/brainana:<version> /input /output \
-       --work_dir /output_wd
+       --work_dir /output_wd --config /config.yaml
 
 **With a custom config**
 
@@ -175,8 +198,8 @@ The following options can be passed after the image name (or after ``bids_dir`` 
    docker run ... liuxingyu987/brainana:<version> [bids_dir] [output_dir] \
        [--freesurfer_license PATH] [--config PATH | --config_file PATH] \
        [-w PATH | --work_dir PATH] [--no_resume] \
-       [--subjects SUBJECT [SUBJECT ...]] [--sessions SESSION [SESSION ...]] \
-       [--tasks TASK [TASK ...]] [--runs RUN [RUN ...]] \
+       [--subjects SUBJECT[,SUBJECT...]] [--sessions SESSION[,SESSION...]] \
+       [--tasks TASK[,TASK...]] [--runs RUN[,RUN...]] \
        [--anat_only] [--output_space SPACE] [-profile PROFILE] [-h | --help]
 
 **Positional arguments**
@@ -217,23 +240,24 @@ The following options can be passed after the image name (or after ``bids_dir`` 
 
 **Options for filtering BIDS queries**
 
-``--subjects SUBJECT [SUBJECT ...]``
-   Restrict processing to the listed subject IDs (omit the ``sub-`` prefix).
+``--subjects SUBJECT[,SUBJECT...]``
+   Restrict processing to the listed subject IDs, comma-separated with no spaces
+   (e.g. ``--subjects 01,02``); omit the ``sub-`` prefix.
 
    Default: (all subjects)
 
-``--sessions SESSION [SESSION ...]``
-   Restrict to specific session IDs (omit the ``ses-`` prefix).
+``--sessions SESSION[,SESSION...]``
+   Restrict to specific session IDs, comma-separated (omit the ``ses-`` prefix).
 
    Default: (all sessions)
 
-``--tasks TASK [TASK ...]``
-   Restrict to specific task names (functional data only).
+``--tasks TASK[,TASK...]``
+   Restrict to specific task names, comma-separated (functional data only).
 
    Default: (all tasks)
 
-``--runs RUN [RUN ...]``
-   Restrict to specific run indices.
+``--runs RUN[,RUN...]``
+   Restrict to specific run indices, comma-separated.
 
    Default: (all runs)
 
@@ -247,7 +271,7 @@ The following options can be passed after the image name (or after ``bids_dir`` 
 ``--output_space SPACE``
    Template space for registered outputs. Either a bundled template spec in
    ``TEMPLATE_NAME[:DESCRIPTION]`` format — examples: ``NMT2Sym:res-1`` (1 mm),
-   ``NMT2Sym:res-05`` (0.5 mm), ``T1w`` (native space) — **or** a path to a custom
+   ``NMT2Sym:res-05`` (0.5 mm), ``MEBRAINS:res-05`` — **or** a path to a custom
    template image (``.nii`` / ``.nii.gz``). See the FAQ :ref:`custom-template` for details.
 
    Default: ``NMT2Sym:res-05``
@@ -258,7 +282,7 @@ The following options can be passed after the image name (or after ``bids_dir`` 
    Nextflow resource profile. Choices:
 
    - ``minimal`` — 4 CPUs, 16 GB RAM
-   - ``recommended`` — 8+ CPUs, 32 GB RAM
+   - ``recommended`` — 8 CPUs, 32 GB RAM
 
    Default: (built-in: 8 CPUs, 20 GB)
 

@@ -7,6 +7,8 @@ Creates white.preaparc surface for parcellation mapping.
 import logging
 
 from .base import HemisphereStage
+from .s12b_template_init import frozen_label
+from ..processing.template_init import write_rip_label
 from ..wrappers.mris import mris_autodet_gwstats, mris_place_surface
 
 logger = logging.getLogger(__name__)
@@ -72,6 +74,17 @@ class WhitePreaparc(HemisphereStage):
         # Parameters:
         #   - max_cbv_dist=5: Maximum distance for cortical boundary value search
         #   - nsmooth=3: Number of smoothing iterations during placement
+        # On a template mesh the frozen label (V1) keeps the template's white
+        # surface: --rip-label holds every vertex outside the label it is given,
+        # so pass "all vertices except the frozen ones". Note mris_place_surface
+        # applies --nsmooth to the whole surface *before* ripping, so the frozen
+        # vertices still get that light smoothing (up to ~1 mm).
+        rip_label = None
+        frozen = frozen_label(self)
+        if frozen is not None:
+            rip_label = self.hemi_label("template.movable.label")
+            n = write_rip_label(rip_label, self.hemi_path("orig"), frozen)
+            logger.info("Holding %s at the template (%d vertices movable)", frozen.name, n)
         mris_place_surface(
             input_surf=self.hemi_path("orig"),
             output_surf=white_preaparc,
@@ -84,6 +97,7 @@ class WhitePreaparc(HemisphereStage):
             threads=self.threads,
             max_cbv_dist=5,
             nsmooth=3,
+            rip_label=rip_label,
             log_file=self.config.log_file,
             subject_dir=self.sd.subject_dir,
             subjects_dir=self.config.subjects_dir,

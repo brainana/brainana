@@ -27,8 +27,8 @@ System requirements
    - **Disk:** ≥ 20 GB (recommended 50 GB+ for multiple subjects)
    - **CPU:** ≥ 4 logical cores (recommended 8+)
    - **GPU (optional, NVIDIA only):** ≥ 6 GB VRAM (recommended ≥ 10 GB for production)
-   - **NVIDIA Driver (optional):** ≥ 520.61.05 if using GPU
-   - **CUDA (optional):** ≥ 11.8 if using GPU
+   - **NVIDIA Driver (optional):** ≥ 525.60.13 if using GPU
+   - **CUDA (optional):** ≥ 12.0 if using GPU
 
 Resource guidelines:
 
@@ -63,8 +63,8 @@ Set up Docker
 
    In the output (top-right corner), check:
 
-   - Driver version — must be ≥ 520.61.05
-   - CUDA version — must be ≥ 11.8
+   - Driver version — must be ≥ 525.60.13
+   - CUDA version — must be ≥ 12.0
 
    If you have no NVIDIA GPU, or either value is below the minimum, no compatible GPU is available. Skip the rest of this step.
 
@@ -86,7 +86,7 @@ Set up Docker
 
    .. note::
 
-      Replace ``<version>`` with a published Brainana tag from Docker Hub, for example ``3.0.0``. See the `Brainana image tags on Docker Hub <https://hub.docker.com/r/liuxingyu987/brainana/tags>`_ for the list of available versions.
+      Replace ``<version>`` with a published Brainana tag from Docker Hub, for example ``3.1.0``. See the `Brainana image tags on Docker Hub <https://hub.docker.com/r/liuxingyu987/brainana/tags>`_ for the list of available versions.
 
    This is a one-time ~9 GB download (~23 GB on disk), typically a few minutes on a fast connection and longer on slower networks.
 

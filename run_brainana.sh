@@ -137,6 +137,21 @@ run_bids_discovery() {
     local sessions=$(extract_param "sessions" "${args[@]}")
     local tasks=$(extract_param "tasks" "${args[@]}")
     local runs=$(extract_param "runs" "${args[@]}")
+
+    # --anat_only is a boolean: a bare flag means true, an explicit value is
+    # honoured (Nextflow reads `--anat_only false` as false). Forwarded with
+    # its value either way -- dropping an explicit false would let discovery
+    # fall back to a YAML `anat_only: true` that main.nf overrides, leaving
+    # main.nf with no functional jobs to run.
+    local anat_only=""
+    local a
+    for a in "${args[@]}"; do
+        [[ "$a" == "--anat_only" || "$a" == --anat_only=* ]] && anat_only="true"
+    done
+    if [ -n "$anat_only" ]; then
+        local anat_only_value
+        anat_only_value=$(extract_param "anat_only" "${args[@]}") && anat_only="$anat_only_value"
+    fi
     
     # Build discovery command
     local discovery_script="$SCRIPT_DIR/src/nhp_mri_prep/nextflow_scripts/discover_bids_for_nextflow.py"
@@ -160,6 +175,7 @@ run_bids_discovery() {
     [ -n "$sessions" ] && cmd+=("--sessions" "$sessions")
     [ -n "$tasks" ] && cmd+=("--tasks" "$tasks")
     [ -n "$runs" ] && cmd+=("--runs" "$runs")
+    [ -n "$anat_only" ] && cmd+=("--anat_only" "$anat_only")
     
     # Run discovery
     "${cmd[@]}"

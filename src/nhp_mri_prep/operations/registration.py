@@ -314,8 +314,12 @@ def ants_cpu_register(
     return outputs
 
 
-def _use_fireants(logger: logging.Logger, allow_cpu: bool = True) -> bool:
-    """Return True when FireANTs can run — on GPU, or on CPU when ``allow_cpu``.
+def _use_fireants(logger: logging.Logger, allow_cpu: bool = True, device=None) -> bool:
+    """Return True when FireANTs can run on ``device`` — GPU, or CPU when ``allow_cpu``.
+
+    ``device`` is the torch.device the registration will use (resolved once by the
+    caller from general.gpu_device). The probe runs on that device only, so a task
+    that resolved to CPU never touches the CUDA driver here. None resolves "auto".
 
     FireANTs 1.5.0 selects its optimizer per device: the compiled CUDA fused Adam
     on a CUDA tensor, and a device-agnostic PyTorch baseline
@@ -340,16 +344,19 @@ def _use_fireants(logger: logging.Logger, allow_cpu: bool = True) -> bool:
         )
         return False
 
-    from ..utils.gpu_device import _cuda_is_usable
+    from ..utils.gpu_device import resolve_device
     import torch
 
-    if _cuda_is_usable():
+    if device is None:
+        device = resolve_device("auto")
+
+    if device.type == "cuda":
         try:
             from fireants.registration.optimizers.adam import adam_update_fused
 
-            t = torch.zeros(4, device="cuda", dtype=torch.float32)
+            t = torch.zeros(4, device=device, dtype=torch.float32)
             adam_update_fused(t, t.clone(), t.clone(), 1.0, 1.0, 1e-8)
-            torch.cuda.synchronize()
+            torch.cuda.synchronize(device)
         except Exception as e:
             logger.debug(
                 f"REGISTRATION: FireANTs skipped — GPU fused ops probe failed: {e}"
@@ -357,7 +364,13 @@ def _use_fireants(logger: logging.Logger, allow_cpu: bool = True) -> bool:
             return False
         return True
 
-    # No usable GPU.
+    if device.type != "cpu":
+        logger.info(
+            f"REGISTRATION: FireANTs skipped — device {device} is not supported (CUDA or CPU only)"
+        )
+        return False
+
+    # CPU device (no usable GPU, or CPU mode).
     if not allow_cpu:
         logger.debug(
             "REGISTRATION: FireANTs skipped — no usable GPU (fireants_allow_cpu=False)"
@@ -371,7 +384,7 @@ def _use_fireants(logger: logging.Logger, allow_cpu: bool = True) -> bool:
     except Exception as e:
         logger.debug(f"REGISTRATION: FireANTs CPU baseline probe failed: {e}")
         return False
-    logger.info("REGISTRATION: no GPU — FireANTs will run on CPU (baseline optimizer)")
+    logger.info("REGISTRATION: CPU device — FireANTs will run on CPU (baseline optimizer)")
     return True
 
 
@@ -710,18 +723,29 @@ def ants_register(
     if logger is None:
         logger = logging.getLogger(__name__)
     # FireANTs is only used for syn (affine+greedy); rigid/affine-only transforms use ANTs.
-    fireants_available = (
-        _use_fireants(logger, allow_cpu=fireants_allow_cpu)
-        if (enable_fireants and xfm_type == "syn")
-        else False
-    )
+    fireants_device = None
+    fireants_available = False
+    if enable_fireants and xfm_type == "syn":
+        from ..utils.gpu_device import resolve_device
+
+        gpu_spec = ((config or {}).get("general") or {}).get("gpu_device", "auto")
+        try:
+            fireants_device = resolve_device(gpu_spec)
+        except (RuntimeError, ValueError) as e:
+            logger.warning(f"REGISTRATION: FireANTs skipped — {e}")
+        else:
+            fireants_available = _use_fireants(
+                logger, allow_cpu=fireants_allow_cpu, device=fireants_device
+            )
     use_fireants = enable_fireants and xfm_type == "syn" and fireants_available
     if use_fireants:
         logger.info("REGISTRATION: using FireANTs for syn")
         from .fireants_registration import fireants_registration
 
-        try:
-            result = fireants_registration(
+        from ..utils.gpu_device import run_with_cpu_fallback
+
+        def _fireants_on(dev):
+            return fireants_registration(
                 fixedf=fixedf,
                 movingf=movingf,
                 working_dir=working_dir,
@@ -730,7 +754,18 @@ def ants_register(
                 logger=logger,
                 xfm_type=xfm_type,
                 compute_inverse=compute_inverse,
+                device=dev,
             )
+
+        try:
+            # A CUDA out-of-memory error reruns FireANTs once on the CPU (same
+            # algorithm) when fireants_allow_cpu; any other error falls back to ANTs.
+            if fireants_allow_cpu:
+                result = run_with_cpu_fallback(
+                    _fireants_on, fireants_device, "FireANTs registration", logger
+                )
+            else:
+                result = _fireants_on(fireants_device)
             logger.info("REGISTRATION: completed with FireANTs")
             if isinstance(result, dict):
                 result["engine"] = "fireants"

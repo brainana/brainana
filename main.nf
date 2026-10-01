@@ -12,7 +12,6 @@
 
 nextflow.enable.dsl=2
 
-import groovyx.gpars.dataflow.DataflowQueue
 
 // Include sub-workflows
 include { ANAT_WF } from './workflows/anatomical_workflow.nf'
@@ -134,30 +133,28 @@ workflow {
     
     // Resolve GPU usage policy from config + runtime hardware detection.
     // general.gpu_device controls whether GPU scheduling should be enabled.
-    // -1 / "cpu" => force CPU-only scheduling (no GPU tokens consumed by workflows).
-    def general_gpu_device = paramResolver.getYamlParam('general.gpu_device', 'auto')
-    def general_gpu_device_str = general_gpu_device == null ? 'auto' : general_gpu_device.toString().trim().toLowerCase()
-    def gpu_forced_cpu = (general_gpu_device_str == 'cpu' || general_gpu_device_str == '-1')
-    params.use_gpu = !gpu_forced_cpu && ((params.gpu_count ?: 0) > 0)
+    // -1 / "cpu" => every task on the CPU. Workflows call paramResolver.resolveUseGpu(params)
+    // themselves; do not assign params.use_gpu here (a runtime assignment would not
+    // override nextflow.config).
+    def use_gpu = paramResolver.resolveUseGpu(params)
+    log.info "GPU scheduling: ${use_gpu ? 'enabled' : 'disabled'} (${params.gpu_count ?: 0} GPU(s) detected)"
+    if (params.containsKey('use_gpu')) {
+        log.warn "--use_gpu is deprecated and ignored: GPU use follows general.gpu_device " +
+            "in the config file (auto, -1/cpu, or a GPU index)"
+    }
 
-    // ============================================
-    // GLOBAL GPU TOKEN POOL
-    // ============================================
-    // Create a shared GPU token queue so ALL GPU processes draw from the same pool
-    // This enforces max_jobs_per_gpu across anatomical + functional GPU steps.
-    def gpu_queue = new DataflowQueue()
-    def gpu_count = params.use_gpu ? (params.gpu_count ?: 0) : 0
-    def max_jobs_per_gpu = params.max_jobs_per_gpu ?: 1
-    def token_gpu_count = gpu_count > 0 ? gpu_count : 1
-    def token_jobs_per_gpu = max_jobs_per_gpu > 0 ? max_jobs_per_gpu : 1
-    (0..<token_gpu_count).each { gpu_id ->
-        (0..<token_jobs_per_gpu).each { gpu_queue << gpu_id }
+    // GPU steps take a slot at run time (bin/brainana_gpu_slot.sh) from the slot table
+    // nextflow.config exports to every task: max_jobs_per_gpu slots per GPU, or only
+    // GPU N when general.gpu_device is N. resolveGpuIds() validates N here, at start-up.
+    def gpu_ids = paramResolver.resolveGpuIds(params)
+    if (use_gpu) {
+        log.info "GPU slots: GPU(s) ${gpu_ids.join(', ')} x ${params.max_jobs_per_gpu ?: 1} job(s) each"
     }
     
     // ============================================
     // RUN ANATOMICAL WORKFLOW
     // ============================================
-    ANAT_WF(gpu_queue)
+    ANAT_WF()
 
     // ============================================
     // RUN FUNCTIONAL WORKFLOW (conditionally)
@@ -169,8 +166,7 @@ workflow {
             ANAT_WF.out.anat_reg_reference,
             ANAT_WF.out.surf_actual_subject_id,
             ANAT_WF.out.anat_skull_seg,       // T1w-space segmentation (for confounds tissue regressors)
-            ANAT_WF.out.anat_skull_seg_lut,   // atlas LUT (tissue classification)
-            gpu_queue
+            ANAT_WF.out.anat_skull_seg_lut    // atlas LUT (tissue classification)
         )
     }
     

@@ -261,6 +261,51 @@ def mris_inflate(
     return output_surf
 
 
+def mris_sphere_quick(
+    input_surf: Path,
+    output_surf: Path,
+    seed: int = 1234,
+    log_file: Optional[Path] = None,
+    subject_dir: Optional[Path] = None,
+) -> Path:
+    """
+    Quasi-homeomorphic spherical map, as ``recon-all -qsphere`` makes it.
+
+    Runs ``mris_sphere -q -p 6 -a 128 -seed <seed> <inflated.nofix> <qsphere.nofix>``,
+    the exact command recon-all uses; ``mris_fix_topology`` finds defects as faces
+    that overlap on this map.
+
+    Parameters
+    ----------
+    input_surf : Path
+        Inflated surface (``?h.inflated.nofix``)
+    output_surf : Path
+        Output spherical map (``?h.qsphere.nofix``)
+    seed : int, default=1234
+        Random seed (recon-all passes one under -norandomness)
+    log_file : Path, optional
+        Log file path
+    subject_dir : Path, optional
+        Subject directory. If provided, converts paths to relative from subject_dir.
+
+    Returns
+    -------
+    Path
+        Output surface path
+    """
+    if subject_dir:
+        subject_dir = Path(subject_dir).resolve()
+        input_surf = to_relative_path(input_surf, subject_dir)
+        output_surf = to_relative_path(output_surf, subject_dir)
+
+    cmd = ["mris_sphere", "-q", "-p", "6", "-a", "128", "-seed", str(seed)]
+    cmd.extend([str(input_surf), str(output_surf)])
+    run_fs_command(
+        cmd, log_file=log_file, subject_dir=subject_dir, expect_outputs=[output_surf]
+    )
+    return output_surf
+
+
 def mris_place_surface(
     input_surf: Path,
     output_surf: Path,
@@ -379,6 +424,16 @@ def mris_place_surface(
         "i": "--i",
     }
 
+    # An option missing from kwarg_map used to be dropped without a word, so a
+    # caller could believe it had set e.g. a placement limit that FreeSurfer
+    # never saw. Refuse instead.
+    unknown = sorted(set(kwargs) - set(kwarg_map))
+    if unknown:
+        raise TypeError(
+            f"mris_place_surface: unsupported option(s) {unknown}; "
+            f"supported: {sorted(kwarg_map)}"
+        )
+
     def _render(value):
         """Path values become subject-dir-relative, everything else is str()."""
         if isinstance(value, Path) and subject_dir:
@@ -386,20 +441,19 @@ def mris_place_surface(
         return str(value)
 
     for key, value in kwargs.items():
-        if key in kwarg_map:
-            flag = kwarg_map[key]
-            if value is True:
-                cmd.append(flag)
-            elif isinstance(value, (tuple, list)):
-                # Multi-argument options, e.g. --blend-surf <weight> <surf>.
-                # These must stay separate argv items; joining them into one
-                # string would hand FreeSurfer a single token containing a
-                # space, which it does not parse back apart.
-                cmd.append(flag)
-                cmd.extend(_render(v) for v in value)
-            elif value is not False and value is not None:
-                cmd.append(flag)
-                cmd.append(_render(value))
+        flag = kwarg_map[key]
+        if value is True:
+            cmd.append(flag)
+        elif isinstance(value, (tuple, list)):
+            # Multi-argument options, e.g. --blend-surf <weight> <surf>.
+            # These must stay separate argv items; joining them into one
+            # string would hand FreeSurfer a single token containing a
+            # space, which it does not parse back apart.
+            cmd.append(flag)
+            cmd.extend(_render(v) for v in value)
+        elif value is not False and value is not None:
+            cmd.append(flag)
+            cmd.append(_render(value))
 
     # Input surface (if not in kwargs)
     if "--i" not in cmd:

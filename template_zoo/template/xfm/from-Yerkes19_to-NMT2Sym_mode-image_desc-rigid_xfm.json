@@ -1,0 +1,43 @@
+{
+  "Description": "Rigid Yerkes19 -> NMT2Sym (ITK text, LPS). mode-image: resamples Yerkes19 into NMT2Sym; as a point map it takes NMT2Sym points to Yerkes19 points.",
+  "Method": "ANTs translation->rigid->affine (MI, centre-of-mass start) of tpl-Yerkes19_res-05_T1w_brain.nii.gz to tpl-NMT2Sym_res-05_T1w_brain.nii.gz; rigid = polar decomposition of the affine, agreeing with it at the NMT2Sym brain centroid",
+  "Software": "ANTs Version: 2.5.1.post13-g4a0fb48",
+  "Date": "2026-09-30",
+  "AffineLPS": [
+    [
+      1.040988,
+      -0.004252,
+      -0.00165,
+      -0.168645
+    ],
+    [
+      0.002258,
+      1.018365,
+      -0.051248,
+      20.694746
+    ],
+    [
+      0.009477,
+      0.034787,
+      1.073007,
+      -15.541354
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "AffineScales": [
+    1.0756,
+    1.0406,
+    1.018
+  ],
+  "TranslationMm": 24.86,
+  "BrainMaskDiceWithNMT2Sym": {
+    "identity": 0.545,
+    "rigid": 0.892,
+    "affine": 0.947
+  }
+}

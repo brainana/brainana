@@ -47,6 +47,7 @@ def validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
     func_config = validated_config.get("func", {})
     anat_config = validated_config.get("anat", {})
 
+    validate_gpu_device(validated_config.get("general", {}).get("gpu_device", "auto"))
     validate_func_config(func_config)
     validate_anat_config(anat_config)
     validate_slice_timing_config(func_config.get("slice_timing_correction", {}))
@@ -67,6 +68,25 @@ def validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
     )
 
     return validated_config
+
+
+def validate_gpu_device(gpu_device: Any, key: str = "general.gpu_device") -> None:
+    """Validate a device spec: auto, cpu, -1, a GPU index (int or quoted) or cuda:N.
+
+    Mirrors what resolve_device() and the Nextflow resolver (parseGpuDevice) accept,
+    so a bad value fails at config load instead of deep inside a GPU step.
+    """
+    s = "auto" if gpu_device is None else str(gpu_device).strip().lower()
+    if isinstance(gpu_device, bool):
+        s = "invalid"
+    digits = s[len("cuda:"):] if s.startswith("cuda:") else s
+    if s in ("auto", "cuda", "gpu", "cpu", "-1") or digits.isdigit():
+        return
+    raise ValueError(
+        f"Configuration error in {key}: must be 'auto', 'cpu', -1 (CPU), a GPU index "
+        f"(0, 1, ...) or 'cuda:N', got: {gpu_device!r}. "
+        f"Please fix this in your configuration file."
+    )
 
 
 def validate_func_config(config: Dict[str, Any]) -> None:
@@ -345,17 +365,11 @@ def validate_skullstripping_config(config: Dict[str, Any]) -> None:
     elif method == "fastSurferCNN":
         fscnn_cfg = config.get("fastSurferCNN", {})
 
-        # Validate gpu_device
-        gpu_device = fscnn_cfg.get("gpu_device", "auto")
-        if (
-            not (isinstance(gpu_device, int) and gpu_device >= -1)
-            and gpu_device != "auto"
-        ):
-            raise ValueError(
-                f"Configuration error in skullstripping.fastSurferCNN: "
-                f"gpu_device must be integer >= -1 (where -1 means CPU) or 'auto' for automatic selection, got: {gpu_device}. "
-                f"Please fix this in your configuration file."
-            )
+        # Legacy key; general.gpu_device takes precedence when set.
+        validate_gpu_device(
+            fscnn_cfg.get("gpu_device", "auto"),
+            key="skullstripping.fastSurferCNN.gpu_device",
+        )
 
         # Validate batch_size
         batch_size = fscnn_cfg.get("batch_size", 1)
@@ -366,8 +380,18 @@ def validate_skullstripping_config(config: Dict[str, Any]) -> None:
                 f"Please fix this in your configuration file."
             )
 
+        # fix_V1_WM: bool or "auto" (on only when the template surface prior is off)
+        if "fix_V1_WM" in fscnn_cfg:
+            value = fscnn_cfg.get("fix_V1_WM")
+            if not (isinstance(value, bool) or value == "auto"):
+                raise ValueError(
+                    f"Configuration error in skullstripping.fastSurferCNN: "
+                    f'fix_V1_WM must be true, false or "auto", got: {value}. '
+                    f"Please fix this in your configuration file."
+                )
+
         # Validate boolean options
-        for bool_param in ["use_mixed_model", "enable_crop_2round", "fix_V1_WM"]:
+        for bool_param in ["use_mixed_model", "enable_crop_2round"]:
             if bool_param in fscnn_cfg:
                 value = fscnn_cfg.get(bool_param)
                 if not isinstance(value, bool):
@@ -391,6 +415,79 @@ def validate_skullstripping_config(config: Dict[str, Any]) -> None:
                         f"{weight_name} must be a float between 0 and 1, or None, got: {weight}. "
                         f"Please fix this in your configuration file."
                     )
+
+        island = fscnn_cfg.get("label_island_min_volume_mm3", 0)
+        if (
+            isinstance(island, bool)
+            or not isinstance(island, (int, float))
+            or island < 0
+        ):
+            raise ValueError(
+                f"Configuration error in skullstripping.fastSurferCNN: "
+                f"label_island_min_volume_mm3 must be a number >= 0 (0 disables), got: {island}. "
+                f"Please fix this in your configuration file."
+            )
+
+        n4_cfg = fscnn_cfg.get("pre_inference_n4")
+        if n4_cfg is not None:
+            if not isinstance(n4_cfg, dict):
+                raise ValueError(
+                    f"Configuration error in skullstripping.fastSurferCNN: "
+                    f"pre_inference_n4 must be a mapping, got: {n4_cfg}. "
+                    f"Please fix this in your configuration file."
+                )
+            enabled = n4_cfg.get("enabled", "auto")
+            if enabled not in (True, False, "auto"):
+                raise ValueError(
+                    f"Configuration error in skullstripping.fastSurferCNN.pre_inference_n4: "
+                    f'enabled must be true, false or "auto", got: {enabled}. '
+                    f"Please fix this in your configuration file."
+                )
+            for key, positive_int in (
+                ("shrink_factor", True),
+                ("bspline_fitting", False),
+            ):
+                value = n4_cfg.get(key)
+                if value is None:
+                    continue
+                bad = (
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or value <= 0
+                    or (positive_int and not isinstance(value, int))
+                )
+                if bad:
+                    kind = "a positive integer" if positive_int else "a positive number"
+                    raise ValueError(
+                        f"Configuration error in skullstripping.fastSurferCNN.pre_inference_n4: "
+                        f"{key} must be {kind}, got: {value}. "
+                        f"Please fix this in your configuration file."
+                    )
+
+        prior_cfg = fscnn_cfg.get("template_prior")
+        if prior_cfg is not None:
+            if not isinstance(prior_cfg, dict):
+                raise ValueError(
+                    f"Configuration error in skullstripping.fastSurferCNN: "
+                    f"template_prior must be a mapping, got: {prior_cfg}. "
+                    f"Please fix this in your configuration file."
+                )
+            enabled = prior_cfg.get("enabled", True)
+            if not isinstance(enabled, bool):
+                raise ValueError(
+                    f"Configuration error in skullstripping.fastSurferCNN.template_prior: "
+                    f"enabled must be true or false, got: {enabled}. "
+                    f"Please fix this in your configuration file."
+                )
+            value = prior_cfg.get("min_missed_cm3")
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0
+            ):
+                raise ValueError(
+                    f"Configuration error in skullstripping.fastSurferCNN.template_prior: "
+                    f"min_missed_cm3 must be a number >= 0, got: {value}. "
+                    f"Please fix this in your configuration file."
+                )
 
     elif method == "macacaMRINN":
         mrin_cfg = config.get("macacaMRINN", {})
@@ -633,6 +730,21 @@ def validate_surface_reconstruction_config(config: Dict[str, Any]) -> None:
                 f"Configuration error in anat.surface_reconstruction: "
                 f"use_t1wt2wcombined must be boolean, got: {type(config['use_t1wt2wcombined']).__name__}. "
                 f"Please fix this in your configuration file."
+            )
+
+    if "template_surface" in config and config["template_surface"] is not None:
+        prior = config["template_surface"]
+        if not isinstance(prior, dict):
+            raise ValueError(
+                "Configuration error in anat.surface_reconstruction.template_surface: "
+                f"must be a mapping, got: {type(prior).__name__}. "
+                "Please fix this in your configuration file."
+            )
+        if "enabled" in prior and not isinstance(prior["enabled"], bool):
+            raise ValueError(
+                "Configuration error in anat.surface_reconstruction.template_surface: "
+                f"enabled must be boolean, got: {type(prior['enabled']).__name__}. "
+                "Please fix this in your configuration file."
             )
 
     if "longitudinal" in config:

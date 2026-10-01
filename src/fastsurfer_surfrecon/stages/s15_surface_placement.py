@@ -8,7 +8,9 @@ import logging
 import shutil
 
 from ..processing.surface_fix import assert_surface_invariants
+from ..processing.template_init import write_rip_label
 from .base import HemisphereStage
+from .s12b_template_init import frozen_label
 from ..io.surface import convert_fs_surface_to_gifti
 from ..wrappers.mris import mris_place_surface
 
@@ -86,6 +88,14 @@ class SurfacePlacement(HemisphereStage):
                         "base and across-timepoint variance will be higher.",
                         orig_white,
                     )
+            # On a template mesh the frozen label (V1) keeps its white surface
+            # here too: fit cortex minus the frozen vertices (see s13).
+            white_rip = cortex_label
+            frozen = frozen_label(self)
+            if frozen is not None:
+                white_rip = self.hemi_label("template.cortex_movable.label")
+                n = write_rip_label(white_rip, white_input, frozen, within=cortex_label)
+                logger.info("Holding %s at the template (%d cortex vertices movable)", frozen.name, n)
             mris_place_surface(
                 input_surf=white_input,
                 output_surf=white,
@@ -96,7 +106,7 @@ class SurfacePlacement(HemisphereStage):
                 adgws_in=self.sdir / f"autodet.gw.stats.{self.hemi}.dat",
                 white=True,
                 threads=self.threads,
-                rip_label=cortex_label,
+                rip_label=white_rip,
                 rip_bg=True,
                 rip_surf=white_input,
                 aparc=aparc if aparc.exists() else None,

@@ -43,6 +43,7 @@ import shutil
 from .base import PipelineStage, StageOutputError
 from ..utils.geometry import describe_geometry_mismatch, volume_geometry
 from ..wrappers.longitudinal import mri_convert_apply_lta
+from .s12b_template_init import freeze_label_name
 
 logger = logging.getLogger(__name__)
 
@@ -282,6 +283,18 @@ class LongTimepointInit(PipelineStage):
                 dst = self.sd.hemi_surf(hemi, dst_name)
                 shutil.copy2(src, dst, follow_symlinks=True)
                 provenance["seeded"][f"surf/{hemi}.{dst_name}"] = str(src)
+            # A template-initialised base (s12b) carries the label its white-
+            # surface placement held at the template. The timepoint shares that
+            # mesh, so it holds the same vertices (s13/s15). Optional: a
+            # tessellated base has none.
+            label_name = freeze_label_name(self.config)
+            if label_name:
+                src = base_dir / "label" / f"{hemi}.{label_name}"
+                if src.exists():
+                    self.sd.label_dir.mkdir(parents=True, exist_ok=True)
+                    dst = self.sd.label_dir / f"{hemi}.{label_name}"
+                    shutil.copy2(src, dst, follow_symlinks=True)
+                    provenance["seeded"][f"label/{hemi}.{label_name}"] = str(src)
 
         # 5. Record what was seeded from where. An inherited surface is
         #    otherwise indistinguishable from a computed one.

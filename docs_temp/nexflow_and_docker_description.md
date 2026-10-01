@@ -24,7 +24,7 @@ They are **not duplicates** of each other: Docker answers “*what machine are w
 ### What Nextflow does (in brainana)
 
 - **`run_brainana.sh`**: CLI normalization, optional **BIDS discovery** before `main.nf`, then invokes Nextflow with project `nextflow.config`.
-- **`main.nf` + `workflows/*.nf` + `modules/*.nf`**: declare processes (Python + external tools), connect outputs to downstream inputs, branch anat vs func, nested surf recon, QC, and a **shared GPU token queue** across workflows.
+- **`main.nf` + `workflows/*.nf` + `modules/*.nf`**: declare processes (Python + external tools), connect outputs to downstream inputs, branch anat vs func, nested surf recon, QC, and **GPU slots** (`bin/brainana_gpu_slot.sh`, an `flock` per slot under `<work_dir>/.gpu_slots`) shared by every GPU step. See `device_management.md`.
 - **`workflows/param_resolver.groovy`**: merge **CLI → YAML → defaults**, emit **effective config** for every task.
 - **`nextflow.config`**: `workDir`, retries, per-process CPU/RAM, thread env from `task.cpus`, optional **`process.container`** when *not* inside the all-in-one image (see modes below).
 
@@ -90,7 +90,7 @@ Mode A avoids **double containerization** (container-in-container) and matches t
   - **`FUNC_WF`** – functional path, fed outputs from anatomical registration when not `anat_only`.
   - **QC report** generation after the main branches.
 - **`workflows/param_resolver.groovy`** merges configuration with priority **CLI → user YAML → `defaults.yaml`**, and generates an **effective config** file so every process reads the same resolved settings.
-- A **global GPU token queue** (`DataflowQueue` in `main.nf`) is shared across anatomical and functional workflows so concurrent GPU jobs respect `max_jobs_per_gpu` across the whole run, not per sub-workflow in isolation.
+- **GPU slots** replace the former token queue: a GPU step sources `bin/brainana_gpu_slot.sh` at run time and holds an `flock` on one of `gpuCount × maxJobsPerGpu` slot files under `<work_dir>/.gpu_slots`, so concurrent GPU jobs respect `max_jobs_per_gpu` across the whole run. The GPU is not a task input, so `-resume` does not depend on which GPU a task drew. Details in `device_management.md`.
 
 ### 3. Pre-flight BIDS discovery (Python)
 
@@ -115,7 +115,7 @@ This separates **validation and planning** from execution so failures are obviou
 - **Docker toggle** – `nextflow.config` treats **`NXF_NO_DOCKER`** as “disable Nextflow’s Docker integration”; when Docker is enabled, `process.container` can point at `brainana:latest` and add `--gpus all` when GPUs exist (host-side Nextflow-container mode).
 - **GPU hints** – `nvidia-smi` at config parse time for GPU count and a heuristic for concurrent jobs per GPU from free VRAM.
 - **`stageInMode = 'copy'`** – avoids symlink issues on some bind mounts / filesystems.
-- **`beforeScript`** – sets `OMP_NUM_THREADS`, `MKL_NUM_THREADS`, `ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS`, etc., from **`task.cpus`**.
+- **`beforeScript`** – sets `OMP_NUM_THREADS`, `MKL_NUM_THREADS`, `ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS`, etc., from **`task.cpus`**, hides every GPU (`CUDA_VISIBLE_DEVICES=""`) and exports the GPU slot table. It runs on the host before `docker run`, so with per-task Docker these variables reach the container only through `docker.envWhitelist`.
 - **Retries** – default `errorStrategy = 'retry'` with overrides per process where needed.
 - **Per-process labels** – CPU and memory tuned from calibration (see comments referencing `docs/` resource docs).
 
@@ -172,7 +172,7 @@ Together, **`Dockerfile`** answers “what software is in the box,” and **`ent
 |------|--------|
 | **Parallelism** | Many independent jobs (subjects, sessions, runs) run concurrently subject to executor and resource limits. |
 | **Caching and resume** | Nextflow skips completed tasks when inputs and parameters are unchanged; persistent `work_dir` and metadata enable long runs to recover after interruption. |
-| **Resource control** | Declared CPU/RAM per process type; shared **GPU token pool** caps GPU concurrency across anatomical and functional GPU steps. |
+| **Resource control** | Declared CPU/RAM per process type; shared **GPU slots** (`flock`) cap GPU concurrency across anatomical and functional GPU steps. |
 | **Reproducibility** | Pinned image + merged **effective config** + versioned scripts reduce environment drift versus ad hoc shell loops. |
 | **Fail-fast planning** | BIDS discovery and optional validation run before the expensive DAG, surfacing bad layouts or filters early. |
 | **Cross-tool consistency** | Single parameter resolution path and process `env` (threads, `PYTHONPATH`, Python executable) align behavior across heterogeneous tools. |

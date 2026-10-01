@@ -62,9 +62,6 @@ def paramResolver = evaluate(new File("${projectDir}/workflows/param_resolver.gr
 def configHelpers = evaluate(new File("${projectDir}/workflows/config_helpers.groovy").text)
 
 workflow ANAT_WF {
-    take:
-    gpu_queue
-    
     main:
     // ============================================
     // INPUT VALIDATION
@@ -269,7 +266,10 @@ workflow ANAT_WF {
     // Leaf product - QC underlay only, no processing step reads it.
     anat_conform_full_fov = Channel.empty()
     if (anat_conform_enabled) {
-        ANAT_CONFORM(anat_preconform, config_file)
+        // GPU token for the skull-strip network conform runs before its rigid registration.
+        def use_conform_gpu = paramResolver.resolveUseGpu(params)
+        def conform_gpu_input = Channel.value(use_conform_gpu)
+        ANAT_CONFORM(anat_preconform, config_file, conform_gpu_input)
         anat_after_conform = ANAT_CONFORM.out.output
         anat_conform_transforms = ANAT_CONFORM.out.transforms
         anat_conform_reference = ANAT_CONFORM.out.reference
@@ -293,12 +293,14 @@ workflow ANAT_WF {
     // Principle: anat_after_xxxstep = full head (_T1w), anat_after_xxxstep_brain = brain (_T1w_brain)
     // ============================================
     // Initialize with dummy mask and segmentation from anat_after_conform (never null)
+    // Placeholders are written only when missing: rewriting one gives it a new mtime, which
+    // changes the task hash of every consumer, so -resume re-ran them on every run.
     def dummy_mask = file("${workDir}/dummy_brain_mask.dummy")
-    dummy_mask.toFile().text = ""
+    if (!dummy_mask.exists()) dummy_mask.toFile().text = ""
     def dummy_seg = file("${workDir}/dummy_brain_segmentation.dummy")
-    dummy_seg.toFile().text = ""
+    if (!dummy_seg.exists()) dummy_seg.toFile().text = ""
     def dummy_brain = file("${workDir}/dummy_brain.dummy")
-    dummy_brain.toFile().text = ""
+    if (!dummy_brain.exists()) dummy_brain.toFile().text = ""
     def anat_skull_mask_dummy = anat_after_conform.map { sub, ses, anat_file, bids_name ->
         [sub, ses, dummy_mask]
     }
@@ -325,15 +327,10 @@ workflow ANAT_WF {
     anat_skull_seg_lut = Channel.empty()
     
     if (anat_skullstripping_enabled) {
-        // Use GPU token only when workflow-level GPU scheduling is enabled (use_gpu).
-        // Without this gate, skullstripping always pulls gpu_id=0 from gpu_queue and runs on
-        // GPU even in CPU mode (general.gpu_device=-1 / use_gpu=false).
-        def use_skull_gpu = params.use_gpu
-        def skull_gpu_input = use_skull_gpu ? gpu_queue : Channel.value('none')
+        // GPU slot only when workflow-level GPU scheduling is enabled (use_gpu).
+        def use_skull_gpu = paramResolver.resolveUseGpu(params)
+        def skull_gpu_input = Channel.value(use_skull_gpu)
         ANAT_SKULLSTRIPPING(anat_after_conform, config_file, skull_gpu_input)
-        if (use_skull_gpu) {
-            ANAT_SKULLSTRIPPING.out.gpu_token.subscribe { gpu_queue << it }
-        }
         // Principle: anat_after_skull = full head (not skullstripped), anat_after_skull_brain = brain (skullstripped)
         anat_after_skull = ANAT_SKULLSTRIPPING.out.output  // Full head version (_T1w)
         anat_after_skull_brain = ANAT_SKULLSTRIPPING.out.brain  // Brain-only version (_T1w_brain)
@@ -499,14 +496,11 @@ workflow ANAT_WF {
                 [sub, ses, brain_file, brain_bids_name, anat_file]
             }
         
-        // Use GPU token only when workflow-level GPU scheduling is enabled.
-        def use_registration_gpu = params.use_gpu
-        def gpu_input = use_registration_gpu ? gpu_queue : Channel.value('none')
+        // GPU token only when this registration runs FireANTs SyN on a GPU.
+        def use_registration_gpu = paramResolver.registrationUsesGpu(params, ['registration.anat2template_xfm_type'])
+        def gpu_input = Channel.value(use_registration_gpu)
         
         ANAT_REGISTRATION(registration_input, config_file, gpu_input)
-        if (use_registration_gpu) {
-            ANAT_REGISTRATION.out.gpu_token.subscribe { gpu_queue << it }
-        }
         anat_after_reg = ANAT_REGISTRATION.out.output
         anat_reg_transforms = ANAT_REGISTRATION.out.transforms
         anat_reg_reference = ANAT_REGISTRATION.out.reference
@@ -618,7 +612,7 @@ workflow ANAT_WF {
         // untouched when a session carries more than one conformed anatomical. No
         // right-only rows are possible: full_fov is emitted by the same process as
         // `output`, so its keys are always a subset.
-        def dummy_full_fov = file("${workDir}/dummy_conform_full_fov.dummy").tap { it.toFile().text = "" }
+        def dummy_full_fov = file("${workDir}/dummy_conform_full_fov.dummy").tap { if (!it.exists()) it.toFile().text = "" }
         anat_after_conform
             .join(anat_conform_reference, by: [0, 1])
             .join(anat_conform_full_fov, by: [0, 1], remainder: true)
@@ -1197,7 +1191,10 @@ workflow ANAT_WF {
     // SURFACE RECONSTRUCTION
     // ============================================
     def anat_for_surf_recon = use_t1wt2wcombined ? anat_after_t1wt2wcombined : anat_after_bias
-    SURF_RECON_WF(anat_for_surf_recon, anat_skull_seg, anat_skull_mask, anat_arm6_atlas, gpu_queue)
+    // Subject-to-template transform, reused by the template surface prior when the
+    // registration targeted NMT2Sym. [sub, ses, bids_name, fwd, inv] -> [sub, ses, fwd]
+    def anat_template_xfm = anat_reg_transforms.map { sub, ses, bids_name, fwd, inv -> [sub, ses, fwd] }
+    SURF_RECON_WF(anat_for_surf_recon, anat_skull_seg, anat_skull_mask, anat_arm6_atlas, anat_template_xfm)
 
     // Note on the longitudinal stream (anat.synthesis_level: session_longitudinal):
     // SURF_RECON_WF also emits surf_base_dir_ch / surf_long_subject_dir_ch, and

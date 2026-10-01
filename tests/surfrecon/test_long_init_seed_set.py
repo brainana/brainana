@@ -411,3 +411,43 @@ def test_stage_is_disabled_for_cross_sectional_runs(long_setup):
         }
     )
     assert LongTimepointInit(cross_sectional, sd).is_disabled()
+
+
+def test_template_freeze_label_is_seeded_when_the_base_has_one(long_setup, monkeypatch):
+    """A template-initialised base carries the V1 label its placement held fixed.
+
+    The timepoint shares the base's mesh, so it must hold the same vertices, and
+    the label has to travel with the mesh for s13/s15 to find it.
+    """
+    from fastsurfer_surfrecon.stages.s12b_template_init import freeze_label_name, frozen_label
+    from fastsurfer_surfrecon.stages.s13_white_preaparc import WhitePreaparc
+
+    config, sd = long_setup
+    base_label_dir = sd.subjects_dir / config.base_subject_id / "label"
+    base_label_dir.mkdir(parents=True, exist_ok=True)
+    name = freeze_label_name(config)
+    for hemi in ("lh", "rh"):
+        (base_label_dir / f"{hemi}.{name}").write_text(
+            "#!ascii label\n1\n0 0.0 0.0 0.0 0.0\n"
+        )
+    monkeypatch.setattr(
+        "fastsurfer_surfrecon.stages.s00_long_init.mri_convert_apply_lta",
+        _stub_apply_lta(),
+    )
+    LongTimepointInit(config, sd)._run()
+
+    for hemi in ("lh", "rh"):
+        seeded_label = sd.label_dir / f"{hemi}.{name}"
+        assert seeded_label.exists()
+        assert frozen_label(WhitePreaparc(config, sd, hemi)) == seeded_label
+
+
+def test_tessellated_base_seeds_no_freeze_label(seeded):
+    """A base without the label (tessellated) leaves the timepoint unfrozen."""
+    from fastsurfer_surfrecon.stages.s12b_template_init import freeze_label_name, frozen_label
+    from fastsurfer_surfrecon.stages.s13_white_preaparc import WhitePreaparc
+
+    config, sd, _ = seeded
+    for hemi in ("lh", "rh"):
+        assert not (sd.label_dir / f"{hemi}.{freeze_label_name(config)}").exists()
+        assert frozen_label(WhitePreaparc(config, sd, hemi)) is None

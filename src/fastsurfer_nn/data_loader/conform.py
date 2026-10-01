@@ -479,12 +479,78 @@ def map_image(
     )
 
 
+# Upper bound on the rescale range, as a multiple of typical brain intensity.
+#
+# getscale() maps the 99.9th percentile of *all* non-zero voxels to 255. When
+# non-brain tissue is much brighter than brain -- fat and muscle next to a
+# surface receive coil are the extreme case -- that percentile lands in the
+# non-brain tissue and the brain is squeezed into a few grey levels, which the
+# segmentation CNN cannot read. The cap limits src_max to CENTER_CAP x the 99th
+# percentile of the central box of the volume, which after brainana's conform
+# (head placed in the template box) is ~90 % brain.
+#
+# 2.5 comes from the uncorrected conformed T1w of 98 PRIME-DE images (17
+# sites): whole-image cutoff / centre p99 had median 1.36, 95th percentile 2.02
+# and maximum 3.31, so the cap binds on 1 of 98 and leaves the rest
+# byte-identical, while it floors brain p99 at ~255/2.5 = 100 grey levels --
+# inside the range the CNN already handles on normal data (p99 levels 87-244).
+# Mapping centre p99 straight to 255 instead would shift every image.
+CENTER_CAP: float = 2.5
+CENTER_FRACTION: float = 0.5
+CENTER_PERCENTILE: float = 99.0
+
+
+def center_reference(
+    data: np.ndarray,
+    fraction: float = CENTER_FRACTION,
+    percentile: float = CENTER_PERCENTILE,
+) -> float | None:
+    """Robust brain-intensity estimate: a high percentile of the central box.
+
+    The box spans the central ``fraction`` of each of the first three axes.
+    Returns None when the box holds too few non-zero voxels to be meaningful.
+    """
+    box = data[
+        tuple(
+            slice(int(n * (1 - fraction) / 2), int(n * (1 + fraction) / 2))
+            for n in data.shape[:3]
+        )
+    ]
+    box = box[np.abs(box) >= 1e-15]
+    if box.size < 100:
+        return None
+    return float(np.percentile(box, percentile))
+
+
+def rescale_cap_report(
+    data: np.ndarray, center_cap: float = CENTER_CAP
+) -> dict[str, float | bool | None]:
+    """Describe what :data:`CENTER_CAP` does to ``data``, for provenance.
+
+    Returns the classic upper limit, the central-box reference, their ratio
+    and whether the cap binds (i.e. whether conform() rescales this image
+    differently from mri_convert).
+    """
+    src_min, scale = getscale(data, 0, 255)
+    src_max = src_min + 255 / scale
+    ref = center_reference(data)
+    ratio = None if not ref else src_max / ref
+    return {
+        "upper_limit": float(src_max),
+        "center_reference": ref,
+        "ratio": None if ratio is None else round(float(ratio), 3),
+        "cap": center_cap,
+        "applied": bool(ratio is not None and ratio > center_cap),
+    }
+
+
 def getscale(
     data: np.ndarray,
     dst_min: float | int,
     dst_max: float | int,
     f_low: float = 0.0,
     f_high: float = 0.999,
+    center_cap: float | None = None,
 ) -> tuple[float, float]:
     """
     Get offset and scale of image intensities to robustly rescale to dst_min..dst_max.
@@ -503,6 +569,10 @@ def getscale(
         Robust cropping at low end (0.0=no cropping).
     f_high : float, default=0.999
         Robust cropping at higher end (0.999=crop one thousandth of highest intensity).
+    center_cap : float, optional
+        If given, the upper limit is capped at ``center_cap`` times
+        :func:`center_reference` (see :data:`CENTER_CAP`). None keeps the
+        classic mri_convert behaviour.
 
     Returns
     -------
@@ -568,6 +638,16 @@ def getscale(
         raise RuntimeError(f"rescale upper bound not found: f_high={f_high}")
 
     src_max: float = bin_edges[upper_binedge_index].item()
+
+    if center_cap is not None:
+        ref = center_reference(data)
+        if ref is not None and src_max > center_cap * ref > src_min:
+            LOGGER.info(
+                f"rescale:  capping max {src_max:.2f} -> {center_cap * ref:.2f} "
+                f"({src_max / ref:.2f}x the central-box p{CENTER_PERCENTILE:g}, "
+                f"cap {center_cap:g}x): non-brain tissue is much brighter than brain"
+            )
+            src_max = center_cap * ref
 
     # scale
     if src_min == src_max:
@@ -665,6 +745,7 @@ def conform(
     verbose: bool = True,
     vox_eps: float = 1e-4,
     rot_eps: float = 1e-6,
+    rescale_center_cap: float | None = CENTER_CAP,
     **kwargs,
 ) -> nib.analyze.SpatialImage:
     """Python version of mri_convert -c.
@@ -702,6 +783,9 @@ def conform(
         The epsilon for the voxelsize check.
     rot_eps : float, default=1e-6
         The epsilon for the affine rotation check.
+    rescale_center_cap : float, None, default=CENTER_CAP
+        Cap on the rescale range relative to central-box intensity (see
+        :data:`CENTER_CAP`); None disables the cap.
 
     Returns
     -------
@@ -763,7 +847,9 @@ def conform(
 
     # get scale for conversion on original input before mapping to be more similar to mri_convert
     if rescale is not None:
-        src_min, scale = getscale(np.asanyarray(img.dataobj), 0, rescale)
+        src_min, scale = getscale(
+            np.asanyarray(img.dataobj), 0, rescale, center_cap=rescale_center_cap
+        )
 
         where_data_zero = np.isclose(mapped_data, 0)
         # apply rescale

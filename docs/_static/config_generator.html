@@ -393,7 +393,7 @@ button#generate:hover{filter:brightness(.95);}
                         <input type="text" id="general_gpu_device" name="general_gpu_device" value="auto">
                     </span>
                 </div>
-                <span class="help-text">(GPU device for skull stripping, segmentation, registration: "auto", -1 for CPU, or index 0..N)</span>
+                <span class="help-text">(GPU use for the whole run: "auto" = every GPU the container sees, else CPU; -1 or "cpu" = CPU only; 0, 1, … or cuda:N = only that GPU, numbered as nvidia-smi lists them. GPU steps: skull stripping and segmentation, the functional brain mask, FireANTs SyN registration)</span>
             </div>
         </div>
 
@@ -459,11 +459,11 @@ button#generate:hover{filter:brightness(.95);}
                             <option value="MEBRAINS:res-04">MEBRAINS:res-04</option>
                             <option value="D99:res-05">D99:res-05</option>
                             <option value="D99:res-025">D99:res-025</option>
-                            <option value="T1w">T1w</option>
+                            <option value="Yerkes19:res-05">Yerkes19:res-05</option>
                         </select>
                     </span>
                 </div>
-                <span class="help-text">(output space: T1w or TEMPLATE_NAME[:DESCRIPTION])</span>
+                <span class="help-text">(output space: TEMPLATE_NAME[:DESCRIPTION])</span>
             </div>
         </div>
 
@@ -561,9 +561,85 @@ button#generate:hover{filter:brightness(.95);}
                             <div class="param-row">
                                 <span class="param-check"></span>
                                 <label for="anat_skullstripping_segmentation_fastSurferCNN_fix_V1_WM">fix_V1_WM</label>
-                                <span class="param-control"><input type="checkbox" id="anat_skullstripping_segmentation_fastSurferCNN_fix_V1_WM" name="anat_skullstripping_segmentation_fastSurferCNN_fix_V1_WM" checked></span>
+                                <span class="param-control">
+                                    <select id="anat_skullstripping_segmentation_fastSurferCNN_fix_V1_WM" name="anat_skullstripping_segmentation_fastSurferCNN_fix_V1_WM">
+                                        <option value="auto" selected>auto</option>
+                                        <option value="true">true</option>
+                                        <option value="false">false</option>
+                                    </select>
+                                </span>
                             </div>
-                            <span class="help-text">(fix thin V1 white matter by registering template V1 WM to subject space)</span>
+                            <span class="help-text">(fill missing thin V1 white matter from the template's V1 white matter registered to the subject; "auto" = only when tessellated surfaces are built: surface_reconstruction on and template_surface off)</span>
+                        </div>
+                        <div class="param-block">
+                            <div class="param-row">
+                                <span class="param-check"></span>
+                                <label for="anat_skullstripping_segmentation_fastSurferCNN_label_island_min_volume_mm3">label_island_min_volume_mm3</label>
+                                <span class="param-control">
+                                    <input type="number" id="anat_skullstripping_segmentation_fastSurferCNN_label_island_min_volume_mm3" name="anat_skullstripping_segmentation_fastSurferCNN_label_island_min_volume_mm3" value="0" step="0.5" min="0">
+                                </span>
+                            </div>
+                            <span class="help-text">(relabel detached label fragments smaller than this volume, in mm³, to the surrounding label; the largest piece of each label is kept; 0 = off, 2.5 is a sensible value)</span>
+                        </div>
+                        <div id="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_options" class="advanced-subgroup">
+                            <h4 class="advanced-subgroup-title">pre_inference_n4</h4>
+                            <span class="help-text">(second segmentation pass on an N4-corrected input, used only as network input; kept only if it agrees with the registered template at least as well as the first)</span>
+                            <div class="param-block">
+                                <div class="param-row">
+                                    <span class="param-check"></span>
+                                    <label for="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_enabled">enabled</label>
+                                    <span class="param-control">
+                                        <select id="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_enabled" name="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_enabled">
+                                            <option value="auto" selected>auto</option>
+                                            <option value="true">true</option>
+                                            <option value="false">false</option>
+                                        </select>
+                                    </span>
+                                </div>
+                                <span class="help-text">("auto" = when template_prior finds more than min_missed_cm3 of brain the first pass missed (a smaller miss also counts when the first mask is under 80% of the template brain), or, with template_prior off, when the first mask is under 80% of the template brain; true = always run it. Either way the second pass is kept only if it agrees with the template at least as well as the first)</span>
+                            </div>
+                            <div class="param-block">
+                                <div class="param-row">
+                                    <span class="param-check"></span>
+                                    <label for="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_shrink_factor">shrink_factor</label>
+                                    <span class="param-control">
+                                        <input type="number" id="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_shrink_factor" name="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_shrink_factor" value="4" step="1" min="1">
+                                    </span>
+                                </div>
+                                <span class="help-text">(N4 shrink factor for this pass)</span>
+                            </div>
+                            <div class="param-block">
+                                <div class="param-row">
+                                    <span class="param-check"></span>
+                                    <label for="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_bspline_fitting">bspline_fitting</label>
+                                    <span class="param-control">
+                                        <input type="number" id="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_bspline_fitting" name="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_bspline_fitting" value="60" step="10" min="1">
+                                    </span>
+                                </div>
+                                <span class="help-text">(N4 B-spline spline distance for this pass, mm; finer than bias_correction's 150, which is one span across a macaque head)</span>
+                            </div>
+                        </div>
+                        <div id="anat_skullstripping_segmentation_fastSurferCNN_template_prior_options" class="advanced-subgroup">
+                            <h4 class="advanced-subgroup-title">template_prior</h4>
+                            <span class="help-text">(register the template to the subject and measure how much brain the first-pass mask missed; decides the second pass, never edits the segmentation)</span>
+                            <div class="param-block">
+                                <div class="param-row">
+                                    <span class="param-check"></span>
+                                    <label for="anat_skullstripping_segmentation_fastSurferCNN_template_prior_enabled">enabled</label>
+                                    <span class="param-control"><input type="checkbox" id="anat_skullstripping_segmentation_fastSurferCNN_template_prior_enabled" name="anat_skullstripping_segmentation_fastSurferCNN_template_prior_enabled" checked></span>
+                                </div>
+                                <span class="help-text">(off skips the registration, about 30 s on a GPU; the mask volume alone then decides the second pass)</span>
+                            </div>
+                            <div class="param-block">
+                                <div class="param-row">
+                                    <span class="param-check"></span>
+                                    <label for="anat_skullstripping_segmentation_fastSurferCNN_template_prior_min_missed_cm3">min_missed_cm3</label>
+                                    <span class="param-control">
+                                        <input type="number" id="anat_skullstripping_segmentation_fastSurferCNN_template_prior_min_missed_cm3" name="anat_skullstripping_segmentation_fastSurferCNN_template_prior_min_missed_cm3" value="0.5" step="0.1" min="0">
+                                    </span>
+                                </div>
+                                <span class="help-text">(missed brain volume, cm³, above which "auto" runs the second pass)</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -635,6 +711,14 @@ button#generate:hover{filter:brightness(.95);}
                             <span class="param-control"><input type="checkbox" id="anat_surface_reconstruction_use_t1wt2wcombined" name="anat_surface_reconstruction_use_t1wt2wcombined"></span>
                         </div>
                         <span class="help-text">(use T1w and T2w combined (enhanced T1w) image if available)</span>
+                    </div>
+                    <div class="param-block">
+                        <div class="param-row">
+                            <span class="param-check"></span>
+                            <label for="anat_surface_reconstruction_template_surface_enabled">template_surface</label>
+                            <span class="param-control"><input type="checkbox" id="anat_surface_reconstruction_template_surface_enabled" name="anat_surface_reconstruction_template_surface_enabled" checked></span>
+                        </div>
+                        <span class="help-text">(start from the NMT2Sym template's white surface carried into the subject, and keep V1's white surface at the template; off = tessellate the white-matter segmentation as in v3.0.0)</span>
                     </div>
                     <div id="anat_surface_reconstruction_longitudinal_options" class="advanced-subgroup">
                         <h4 class="advanced-subgroup-title">longitudinal</h4>
@@ -1170,7 +1254,17 @@ button#generate:hover{filter:brightness(.95);}
                         plane_weight_coronal: 0.4,
                         plane_weight_axial: 0.4,
                         plane_weight_sagittal: 0.2,
-                        fix_V1_WM: true
+                        fix_V1_WM: "auto",
+                        label_island_min_volume_mm3: 0,
+                        pre_inference_n4: {
+                            enabled: "auto",
+                            shrink_factor: 4,
+                            bspline_fitting: 60
+                        },
+                        template_prior: {
+                            enabled: true,
+                            min_missed_cm3: 0.5
+                        }
                     }
                 },
                 bias_correction: {
@@ -1183,6 +1277,9 @@ button#generate:hover{filter:brightness(.95);}
                 surface_reconstruction: {
                     enabled: true,
                     use_t1wt2wcombined: false,
+                    template_surface: {
+                        enabled: true
+                    },
                     longitudinal: {
                         iscale: false,
                         subsample: null,
@@ -1289,7 +1386,7 @@ button#generate:hover{filter:brightness(.95);}
                     if (gpuDevice < -1) errors.push("general.gpu_device must be >= -1 (where -1 = CPU) or 'auto'");
                 } else if (typeof gpuDevice === 'string' && !gpuDevice.startsWith('cuda:')) {
                     if (gpuDevice !== 'cpu' && isNaN(parseInt(gpuDevice))) {
-                        errors.push("general.gpu_device must be 'auto', -1, CPU index (0..N), or 'cuda:N'");
+                        errors.push("general.gpu_device must be 'auto', -1, 'cpu', a GPU index (0..N), or 'cuda:N'");
                     }
                 }
             }
@@ -1362,8 +1459,10 @@ button#generate:hover{filter:brightness(.95);}
                 if (config.fastSurferCNN) {
                     const fscnn = config.fastSurferCNN;
                     const gpuDevice = fscnn.gpu_device;
-                    if (gpuDevice !== 'auto' && (typeof gpuDevice !== 'number' || gpuDevice < -1)) {
-                        errors.push(`${prefix}.${keyName}.fastSurferCNN.gpu_device must be integer >= -1 or 'auto'`);
+                    const okNumber = typeof gpuDevice === 'number' && gpuDevice >= -1;
+                    const okString = typeof gpuDevice === 'string' && /^cuda:\d+$/.test(gpuDevice);
+                    if (gpuDevice !== 'auto' && !okNumber && !okString) {
+                        errors.push(`${prefix}.${keyName}.fastSurferCNN.gpu_device must be integer >= -1, 'cuda:N' or 'auto'`);
                     }
                     if (!Number.isInteger(fscnn.batch_size) || fscnn.batch_size < 1) {
                         errors.push(`${prefix}.${keyName}.fastSurferCNN.batch_size must be a positive integer`);
@@ -1601,7 +1700,7 @@ button#generate:hover{filter:brightness(.95);}
             config.general.verbose = parseInt(document.getElementById('general_verbose').value);
             config.general.anat_only = document.getElementById('general_anat_only').checked;
             const gpuDeviceVal = document.getElementById('general_gpu_device').value.trim();
-            if (gpuDeviceVal === '' || gpuDeviceVal === 'auto') {
+            if (gpuDeviceVal === '' || ['auto', 'cuda', 'gpu'].includes(gpuDeviceVal.toLowerCase())) {
                 config.general.gpu_device = 'auto';
             } else if (gpuDeviceVal === '-1' || gpuDeviceVal.toLowerCase() === 'cpu') {
                 config.general.gpu_device = -1;
@@ -1633,7 +1732,19 @@ button#generate:hover{filter:brightness(.95);}
                 config.anat.skullstripping_segmentation.fastSurferCNN.plane_weight_coronal = parseFloat(document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_plane_weight_coronal').value);
                 config.anat.skullstripping_segmentation.fastSurferCNN.plane_weight_axial = parseFloat(document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_plane_weight_axial').value);
                 config.anat.skullstripping_segmentation.fastSurferCNN.plane_weight_sagittal = parseFloat(document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_plane_weight_sagittal').value);
-                config.anat.skullstripping_segmentation.fastSurferCNN.fix_V1_WM = document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_fix_V1_WM').checked;
+                const _fixV1 = document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_fix_V1_WM').value;
+                config.anat.skullstripping_segmentation.fastSurferCNN.fix_V1_WM = _fixV1 === 'auto' ? 'auto' : _fixV1 === 'true';
+                config.anat.skullstripping_segmentation.fastSurferCNN.label_island_min_volume_mm3 = parseFloat(document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_label_island_min_volume_mm3').value) || 0;
+                const _n4Enabled = document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_enabled').value;
+                config.anat.skullstripping_segmentation.fastSurferCNN.pre_inference_n4 = {
+                    enabled: _n4Enabled === 'auto' ? 'auto' : _n4Enabled === 'true',
+                    shrink_factor: parseInt(document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_shrink_factor').value),
+                    bspline_fitting: parseInt(document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_bspline_fitting').value)
+                };
+                config.anat.skullstripping_segmentation.fastSurferCNN.template_prior = {
+                    enabled: document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_template_prior_enabled').checked,
+                    min_missed_cm3: parseFloat(document.getElementById('anat_skullstripping_segmentation_fastSurferCNN_template_prior_min_missed_cm3').value)
+                };
             }
             
             config.anat.bias_correction.enabled = document.getElementById('anat_bias_correction_enabled').checked;
@@ -1644,6 +1755,9 @@ button#generate:hover{filter:brightness(.95);}
             
             config.anat.surface_reconstruction.enabled = document.getElementById('anat_surface_reconstruction_enabled').checked;
             config.anat.surface_reconstruction.use_t1wt2wcombined = document.getElementById('anat_surface_reconstruction_use_t1wt2wcombined').checked;
+            config.anat.surface_reconstruction.template_surface = {
+                enabled: document.getElementById('anat_surface_reconstruction_template_surface_enabled').checked
+            };
             config.anat.surface_reconstruction.longitudinal.iscale = document.getElementById('anat_surface_reconstruction_longitudinal_iscale').checked;
             const _longSubsample = document.getElementById('anat_surface_reconstruction_longitudinal_subsample').value;
             config.anat.surface_reconstruction.longitudinal.subsample = _longSubsample === '' ? null : parseInt(_longSubsample);

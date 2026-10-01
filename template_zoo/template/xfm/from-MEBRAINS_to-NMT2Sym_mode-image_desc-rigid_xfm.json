@@ -1,0 +1,43 @@
+{
+  "Description": "Rigid MEBRAINS -> NMT2Sym (ITK text, LPS). mode-image: resamples MEBRAINS into NMT2Sym; as a point map it takes NMT2Sym points to MEBRAINS points.",
+  "Method": "ANTs translation->rigid->affine (MI, centre-of-mass start) of tpl-MEBRAINS_res-05_T1w_brain.nii.gz to tpl-NMT2Sym_res-05_T1w_brain.nii.gz; rigid = polar decomposition of the affine, agreeing with it at the NMT2Sym brain centroid",
+  "Software": "ANTs Version: 2.5.1.post13-g4a0fb48",
+  "Date": "2026-09-30",
+  "AffineLPS": [
+    [
+      1.021037,
+      0.00025,
+      -0.000443,
+      0.015123
+    ],
+    [
+      -0.000956,
+      1.017465,
+      -0.023359,
+      20.171521
+    ],
+    [
+      -0.000259,
+      0.020164,
+      1.016763,
+      -15.263458
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "AffineScales": [
+    1.0211,
+    1.019,
+    1.0157
+  ],
+  "TranslationMm": 25.0,
+  "BrainMaskDiceWithNMT2Sym": {
+    "identity": 0.505,
+    "rigid": 0.941,
+    "affine": 0.962
+  }
+}

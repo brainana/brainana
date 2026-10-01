@@ -16,3 +16,6 @@ Dockerfile  text eol=lf
 # Atlas lookup tables: a trailing \r would end up inside the last column.
 *.tsv       text eol=lf
 *.md        text eol=lf
+# FreeSurfer surfaces, labels and annotations (template_zoo/fastsurfer) are binary or must stay byte-exact.
+template_zoo/fastsurfer/**/surf/*  binary
+template_zoo/fastsurfer/**/label/* binary

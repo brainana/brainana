@@ -49,13 +49,15 @@ class Inflation(HemisphereStage):
         )
 
     def is_disabled(self) -> bool:
-        """Longitudinal timepoints inherit this geometry from the base template.
+        """Off when the geometry comes from elsewhere.
 
-        See stages/s00_long_init.py: the base's surfaces are seeded into this
-        timepoint, so recomputing them here would discard the shared topology
-        that makes cross-timepoint vertex correspondence exact.
+        Longitudinal timepoints inherit it from the base template (see
+        stages/s00_long_init.py): recomputing it here would discard the shared
+        topology that makes cross-timepoint vertex correspondence exact.
+        Template-initialised runs build it in s12b from the template's white
+        surface instead of tessellating the white-matter volume.
         """
-        return self.config.longitudinal
+        return self.config.longitudinal or self.config.template_init
 
     def should_skip(self) -> bool:
         """Skip if inflated exists, or if a later stage's output proves it ran.
@@ -64,9 +66,19 @@ class Inflation(HemisphereStage):
         s11/s12 side effects, because s12 deletes inflated.nofix after
         consuming it -- so this stage's own output legitimately disappears.
         """
-        # Check for both inflated and inflated.nofix
-        # Also check if s11 (spherical projection) has run, which indicates s10 has completed
-        # This handles the case where s12 deletes inflated.nofix after using it
+        if self.hemi_path("inflated.nofix").exists():
+            return True
+        # With the FreeSurfer qsphere, s11 reads inflated.nofix. If s11 is
+        # about to run again (qsphere.nofix gone) after s12 deleted
+        # inflated.nofix, the later outputs below are no reason to skip:
+        # s11 would fail on the missing input.
+        if (
+            self.config.processing.use_fs_qsphere
+            and not self.hemi_path("qsphere.nofix").exists()
+        ):
+            return False
+        # Otherwise a later stage's output proves this stage ran; s12 deletes
+        # inflated.nofix after using it.
         return (
             self.hemi_path("inflated").exists()
             or self.hemi_path("inflated.nofix").exists()

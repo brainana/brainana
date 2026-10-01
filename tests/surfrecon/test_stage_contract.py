@@ -82,3 +82,27 @@ def test_s12_skip_set_excludes_sphere():
     assert "lh.sphere" not in names, "s11 also writes sphere; it cannot gate s12"
     assert "lh.qsphere" in names, "s12's last write must be part of its skip check"
     assert {"lh.orig", "lh.smoothwm", "lh.inflated"} <= set(names)
+
+
+def test_s02_normalises_on_the_aseg_mapped_volume(tmp_path, monkeypatch, freesurfer_home):
+    """WM normalisation reads labels 2/41 as WM, which only holds in the aseg
+    mapping; the raw atlas volume has cortex at ID 2 (ARM2: right ACgG)."""
+    from fastsurfer_surfrecon.config import ReconSurfConfig
+    from fastsurfer_surfrecon.io.subjects_dir import SubjectsDir
+    from fastsurfer_surfrecon.stages import s02_bias_correction as s02
+
+    config = ReconSurfConfig.with_defaults(
+        subject_id="sub-01",
+        subjects_dir=tmp_path,
+        atlas={"name": "ARM2"},
+        processing={"parallel_hemis": False, "threads": 1},
+        verbose=0,
+    )
+    sd = SubjectsDir(tmp_path, "sub-01")
+    sd.setup()
+    for name in ("aseg.auto_noCCseg.mgz", "aparc.ARM2atlas+aseg.orig.mgz"):
+        sd.mri(name).write_bytes(b"")
+    seen = {}
+    monkeypatch.setattr(s02, "bias_correct_and_normalize", lambda **kw: seen.update(kw))
+    s02.BiasCorrection(config, sd)._run()
+    assert seen["aseg_path"] == sd.mri("aseg.auto_noCCseg.mgz")
