@@ -20,7 +20,7 @@ version=3.1.0
 
 bids_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/dataset_devtest
 preproc=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc
-out_prefix=${preproc}/dataset_devtest_docker_v${version}
+out_prefix=${preproc}/dataset_devtest_local_v${version}
 
 # Config per level (generated from src/nhp_mri_prep/config/defaults.yaml)
 declare -A config_f=(
