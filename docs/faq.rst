@@ -62,6 +62,9 @@ in-container path:
 Outputs then use the BIDS space label ``template`` (e.g. ``*_space-template_*``). The
 file must exist and end in ``.nii``/``.nii.gz`` or the run aborts at the start. A
 custom template has no bundled atlases, so atlas outputs are skipped for that space.
+Steps that always use the NMT2Sym template (the segmentation check, the V1 white-matter
+fix and the template surface) first register the brain rigidly to NMT2Sym, because a
+custom template can sit anywhere in world coordinates; this adds a few seconds.
 
 .. rst-class:: faq-question
 

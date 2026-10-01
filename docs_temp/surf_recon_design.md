@@ -74,7 +74,8 @@ path (s08–s12 on the left) exactly as before.
         ▼
  ★ s12b TemplateInit
      template surf/?h.white (surface RAS) ─► scanner RAS (template world)
-       ─► antsApplyTransformsToPoints (forward transform; LPS)
+       ─► antsApplyTransformsToPoints (forward transform; LPS; moves points
+          template → subject, see note below)
        ─► subject scanner RAS ─► orig.mgz surface RAS           = orig.nofix
      mris_remove_intersection ─► orig ; orientation check
      mris_smooth ─► smoothwm (= smoothwm.nofix) ; mris_inflate ─► inflated, sulc
@@ -89,6 +90,23 @@ path (s08–s12 on the left) exactly as before.
        pial             (unchanged: fitted everywhere, V1 included)
    s16 morphometry, s17 registration, s18–s22 (unchanged)
 ```
+
+**Why the forward transform warps the template surface into T1w space.** The template
+surface does go template → T1w. ANTs transforms images and points in opposite
+directions. An image transform maps *fixed-space* coordinates to *moving-space*
+coordinates. That is how resampling works: for each output voxel (fixed space), it looks
+up where to sample in the moving image. The registration has moving = T1w and fixed =
+template, so `from-T1w_to-<template>` resamples the T1w *image* into the template. Read as
+a map of points, the same transform takes template points to T1w points. So
+`antsApplyTransformsToPoints` with the forward (T1w → template) transform moves template
+vertices onto the subject. The inverse would move subject points into the template. This is
+the documented ANTs convention, and the reviewed code agrees with it
+(`template_init.transform_points_ants`). On devtest, 99.95–99.98% of the warped vertices land
+inside the subject's brain mask.
+
+The segmentation template prior is a different case. It warps *images* (the NMT2Sym brain
+mask and atlas) into the subject, so it runs its own registration with fixed = subject and
+moving = template, and applies that forward transform to the images.
 
 The subject ends up with the template's mesh (ico6, 40962 vertices per hemisphere) and
 vertex numbering. V1's white surface is the warped template plus light smoothing; everything
@@ -114,8 +132,24 @@ in the subject's space, and only the mesh and its held label come from the templ
   (`segmentation_prior.register_template_prior`), which is computed for every subject anyway.
   It registers the head, on the unstripped image, earlier in the pipeline; its accuracy at the
   occipital pole was never measured, and the whole approach depends on it.
-- An affine-only transform (`.mat`) is reused but logged as a warning: V1 is placed less
-  accurately without SyN.
+- An affine-only transform (`anat2template_xfm_type` other than `syn`) is reused but logged
+  as a warning: V1 is placed less accurately without SyN.
+- **Placement first.** Reuse also requires the subject to be in NMT2Sym world already
+  (identity frame, see `cnn_segmentation_design.md` 3.7). Otherwise the T1w brain is placed
+  there by its header (bundled rigid for MEBRAINS/D99/Yerkes19, runtime FLIRT/SimpleITK rigid
+  for custom templates and conform off) and registered from there. The points then come out
+  in the placed copy's world, and `template_xfm_post` (ITK text,
+  `nmt2sym_world_to_t1w_world.txt`) takes them back to the T1w's world.
+  `antsApplyTransformsToPoints` applies its `-t` list to points **in the order given**
+  (measured: `-t A -t B` gives B(A(p))), so the call is `-t xfm -t post`. This is the opposite of
+  the image convention, and `tests/test_nmt2sym_frame.py` pins it.
+- **Fallback to tessellation.** Before the pipeline runs, the template white surfaces are
+  warped and checked against the brain mask (`warped_fraction_in_mask`). Below 80% inside, or
+  if the transform cannot be computed, `template_init` is off for this subject and the
+  step metadata records `template_surface_fallback`. A correct transform puts 99.9% inside;
+  one that started 25 mm off put the surface largely outside. s12b still warns below 95%,
+  since a mask that missed brain also lowers the share and the template surface is still
+  the better start there.
 
 Nextflow passes the transform as an optional input (`anat_reg_transforms` → `[sub, ses, fwd]`,
 joined with `remainder: true`, empty placeholder `dummy_template_xfm.dummy` when absent;

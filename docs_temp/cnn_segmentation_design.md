@@ -127,8 +127,8 @@ on `CENTER_CAP` in `fastsurfer_nn/data_loader/conform.py`.
 
 ### 3.2 N4 region
 
-N4 is fitted inside **the template brain placed by conform alone, widened 15 mm,
-intersected with the head mask** (`segmentation_prior.search_region`).
+N4 is fitted inside **the template brain placed by world coordinates (after 3.7), widened
+15 mm, intersected with the head mask** (`segmentation_prior.search_region`).
 
 - *Not the first-pass mask (the original design, +6 mm):* a lobe the first pass dropped
   is exactly what needs correcting, and outside the mask N4 only extrapolates.
@@ -212,7 +212,59 @@ The ROI white-matter fix (a cropped template registration that adds the thin V1 
 matter the CNN misses) used to run inside every CNN pass, so with two passes the first
 one's registration was thrown away. For anatomy `apply_segmentation` now runs the passes
 with `fix_roi_wm=False` and calls `apply_roi_wm_fix` once on the kept pass, with that
-pass's input image. Functional segmentation is unchanged.
+pass's input image. Functional segmentation is unchanged. The fix's registration is between
+V1 crops, so it needs the subject in NMT2Sym world too: `fix_roi_wm(world_to_nmt2sym=...)`
+writes the subject crop with the placed header (3.7).
+
+### 3.7 Placing the image in NMT2Sym world (`nmt2sym_frame.py`)
+
+The N4 region, the template prior and the V1 fix all place or register **NMT2Sym**
+material on the subject, whatever `template.output_space` is. FireANTs (the default SyN
+engine) refines a near alignment but does not recover a large shift or rotation; the main
+registration gets its coarse alignment from conform. Conform aligns to the *output*
+template, so these steps only start close when that template shares NMT2Sym's world.
+
+| Output frame | Offset from NMT2Sym (brain centroid) | How the image is placed |
+|---|---|---|
+| NMT2Sym (any res), NMT2Asym | 0 (NMT2Asym brain-mask Dice 0.991 untransformed) | identity: nothing changes |
+| MEBRAINS / D99 / Yerkes19 | 24.8 / 23.3 / 24.6 mm; D99 pitched ~10° | bundled rigid, `template_zoo/template/xfm/from-X_to-NMT2Sym_mode-image_desc-rigid_xfm.txt` |
+| custom template, conform off | arbitrary (devtest scanner frame: 20 mm) | runtime rigid of the brain (pass-1 mask × image) to `tpl-NMT2Sym_res-05_T1w_brain`, `anat.conform.rigid_method` (FLIRT 5 s; SimpleITK 10 s, input padded 20 voxels) |
+
+The placement is header-only (`reframe`: affine' = W · affine, same voxels), so the CNN
+keeps the image's own header and every array warped onto the copy is on the original grid.
+The region and prior are computed on the copy; the N4 itself runs on the original. If the
+rigid fails, the checks and the V1 fix are skipped, pass 1 is kept, and
+`Nmt2SymFrame: {Source: failed}` is recorded. A non-identity frame is
+recorded as `Nmt2SymFrame` {`Source`, `Detail`, `TranslationMm`}.
+
+**Measured** (devtest sub-032309, 2026-09-30; FireANTs on GPU):
+
+| Frame | Prior Dice / MissedCm3 | Region coverage | Template surface in mask | V1 fix relabelled |
+|---|---|---|---|---|
+| NMT2Sym conform (baseline) | 0.962 / 0.0 | 0.998 | 99.95% | 184 |
+| MEBRAINS/D99/Yerkes19 as before | 0.45–0.57 / 2–7 | 0.87–0.94 | — (surface Dice 0.41–0.63) | 0 / 15 / 0 (none correct) |
+| MEBRAINS/D99/Yerkes19, bundled rigid | 0.963 / 0.0 | 0.998 | 99.95% | 143–153 (Dice 0.46–0.65 with the baseline's changes) |
+| real FLIRT conform to MEBRAINS/D99/Yerkes19, bundled rigid | 0.960–0.964 / ≤0.11 | 1.0 | 99.89–99.94% | — |
+| scanner frame, FLIRT / SimpleITK rigid | 0.958–0.959 / ≤0.05 | 1.0 | 99.94% | — |
+| NMT2Sym baseline nudged 0.05° / 0.02 mm (identity frame) | 0.963 / 0.0 | 0.998 | 99.95% | 147 (Dice 0.47) |
+
+The V1 fix is deterministic (a repeat of the baseline gives the same 184 voxels) but very
+sensitive: moving the image by 0.05° / 0.02 mm, with no frame involved, changes it as much as
+the bundled-rigid frames do. Its exact voxels are therefore not a measure of placement; the
+prior and surface numbers are.
+
+The bundled rigids: brain-mask Dice with NMT2Sym 0.94 (MEBRAINS), 0.91 (D99), 0.89 (Yerkes19)
+from the rigid alone, against 0.51–0.55 untransformed and 0.95–0.96 for the full affine.
+Only the rigid is stored: the templates differ in size by 2–8%, which FireANTs absorbs, and a
+template-to-template warp would bias the prior toward that correspondence.
+
+The undersized rule compares with NMT2Sym's brain (92.5 cm³) in every frame: the output
+template's brain moved the cut to 82–93 cm³.
+
+**Not used, and why.** FireANTs' own initialisation (`init_rigid`, moments) was ruled out:
+the coarse step is exactly what it is unreliable at. A full ANTs CLI SyN converges from 25 mm
+but took 25 min on 2 threads. ANTs translation→rigid→affine before FireANTs works (Dice 0.963)
+but needs affine+warp composition at every site.
 
 ## 4. Provenance (mask and segmentation sidecars)
 

@@ -14,7 +14,7 @@ bids_filtering:
   runs: null  # list of str (have to be quoted) or null: filter by run numbers (e.g., ["01", "02"])
 
 template:
-  output_space: "NMT2Sym:res-05"  # str: template space in format "TEMPLATE_NAME:[:DESCRIPTION]" (e.g., "NMT2Sym:res-1", "T1w")
+  output_space: "NMT2Sym:res-05"  # str: template space in format "TEMPLATE_NAME:[:DESCRIPTION]" (e.g., "NMT2Sym:res-1", "MEBRAINS:res-05")
   # description: "Template space specification in format TEMPLATE_NAME:[:DESCRIPTION]"
   # examples:
   #   - "T1w"

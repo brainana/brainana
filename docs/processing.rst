@@ -168,6 +168,21 @@ findings**; section omitted if empty):
   input; the bias correction in 2.4 still starts from the uncorrected
   image. Cost on a subject that needs no second pass: about half a minute
   on a GPU.
+- **Alignment to NMT2Sym for the template checks:** the template used for
+  the second-pass check, for ``fix_V1_WM`` and for the template surface is
+  always NMT2Sym, whatever ``template.output_space`` is. Its registration
+  refines an image that is already roughly aligned and is not reliable from
+  far off. Conform aligns the image to the output template. NMT2Sym and
+  NMT2Asym share NMT2Sym's coordinates, but MEBRAINS, D99 and Yerkes19 sit
+  about 25 mm away (D99 is also tilted about 10°). For these the image is
+  first placed in NMT2Sym coordinates by a rigid transform bundled in
+  ``template_zoo/template/xfm/``. Only the image header changes, never its
+  voxels. With a custom template, or with ``anat.conform.enabled: false``,
+  the brain is first rigidly registered to the NMT2Sym brain with the
+  conform method (FLIRT; SimpleITK in Brainana Lite), which takes a few
+  seconds. If that fails, the template checks and ``fix_V1_WM`` are
+  skipped and the first segmentation pass is kept. The undersized-mask rule
+  always compares with the NMT2Sym brain (92.5 cm³).
 - **Provenance:** The brain-mask and segmentation sidecars record the mask
   volume and its ratio to the template brain (``MaskVolumeCm3``,
   ``MaskToTemplateBrainRatio``, ``MaskUndersized``), whether the intensity
@@ -277,9 +292,16 @@ maps.
     ``template.output_space`` is NMT2Sym (the default). For any other output
     space, surface reconstruction registers the skull-stripped T1w to the
     NMT2Sym brain itself, with the same ``registration`` settings, so the
-    surface prior does not depend on the chosen output space. An affine-only
-    registration (``anat2template_xfm_type`` other than ``syn``) places V1
-    less accurately and is logged as a warning.
+    surface prior does not depend on the chosen output space. The T1w is
+    first placed in NMT2Sym coordinates as described for segmentation
+    above. An affine-only registration (``anat2template_xfm_type`` other
+    than ``syn``) places V1 less accurately and is logged as a warning.
+  - **Fallback:** if that transform cannot be computed, or puts less than
+    80% of the template white surface inside the brain mask (a correct one
+    puts over 99.9% there), the subject is tessellated instead and the step
+    metadata records why (``template_surface_fallback``). V1's white matter
+    is then not filled under ``fix_V1_WM: "auto"``, because that was decided
+    during segmentation.
   - **fix_V1_WM:** ``anat.skullstripping_segmentation.fastSurferCNN.fix_V1_WM``
     (fills missing thin V1 white matter from the template's) defaults to
     ``"auto"``: on only when template surfaces are off, where it improved
