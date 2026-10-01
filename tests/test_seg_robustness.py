@@ -197,6 +197,36 @@ def test_forced_second_pass(seg_env):
     assert qc["PreInferenceN4"]["Trigger"] == "forced"
 
 
+def test_failed_checks_keep_the_first_pass(seg_env, monkeypatch):
+    """An N4 or prior error is recorded, never a failed segmentation step."""
+    from nhp_mri_prep.operations import preprocessing as pp
+
+    state, run, _ = seg_env
+    state["mask_side"] = [20]
+
+    def broken_bias_correction(**_):
+        raise RuntimeError("N4 broke")
+
+    monkeypatch.setattr(pp, "bias_correction", broken_bias_correction)
+    result, qc = run({"enabled": True})
+    assert state["inputs"] == ["t1w.nii.gz"]
+    assert qc["SegmentationPasses"] == 1
+    assert "N4 broke" in qc["SegmentationCheckFailed"]
+    assert Path(result["brain_mask"]).exists()
+
+
+def test_failed_second_pass_restores_the_first(seg_env):
+    state, run, out_dir = seg_env
+    state["mask_side"] = [20]  # the fake CNN has no second mask: pass 2 raises
+    result, qc = run({"enabled": True})
+    assert qc["PreInferenceN4"]["Pass2Kept"] is False
+    assert qc["PreInferenceN4"]["Error"]
+    assert qc["MaskVolumeCm3"] == round(20**3 / 1000, 2)
+    assert Path(result["brain_mask"]) == out_dir / "mask.nii.gz"
+    assert np.asanyarray(nib.load(result["brain_mask"]).dataobj).sum() == 20**3
+    assert not (out_dir / "pass1").exists()
+
+
 def test_second_pass_reports_the_cap_on_the_image_it_segmented(
     seg_env, tmp_path, monkeypatch
 ):

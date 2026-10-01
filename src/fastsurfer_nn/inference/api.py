@@ -43,6 +43,7 @@ from fastsurfer_nn.postprocessing.postseg_utils import (
     relabel_small_islands,
 )
 from fastsurfer_nn.utils import logging
+from fastsurfer_nn.utils.gpu_utils import is_cuda_oom
 from fastsurfer_nn.utils.constants import (
     MASK_DILATION_SIZE_MM,
     ROUNDS_OF_MORPHOLOGICAL_OPERATIONS,
@@ -221,6 +222,10 @@ def _apply_two_pass_refinement(
         except Exception as restore_error:
             log.error(f"  Failed to restore first-pass outputs: {restore_error}")
 
+        # Out of GPU memory: let run_with_cpu_fallback rerun on the CPU instead of
+        # silently keeping the first pass.
+        if is_cuda_oom(e):
+            raise
         return False
 
 

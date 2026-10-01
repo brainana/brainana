@@ -1877,28 +1877,33 @@ def _anat_segmentation_checks(
     ):
         return finish(result)
 
-    n4_path = _pre_inference_n4(image_path, work_dir, n4_cfg, config, logger)
-    n4_img = nib.load(str(n4_path))
-    n4_data = np.asanyarray(n4_img.dataobj).astype(np.float32)
-    zooms = tuple(float(z) for z in n4_img.header.get_zooms()[:3])
-
     prior = None
     prior_qc: Dict[str, Any] = {}
-    if use_prior:
-        try:
-            prior = register_template_prior(
-                n4_path, work_dir / "template_prior", result["atlas_name"], config, logger
+    try:
+        n4_path = _pre_inference_n4(image_path, work_dir, n4_cfg, config, logger)
+        n4_img = nib.load(str(n4_path))
+        n4_data = np.asanyarray(n4_img.dataobj).astype(np.float32)
+        zooms = tuple(float(z) for z in n4_img.header.get_zooms()[:3])
+
+        if use_prior:
+            try:
+                prior = register_template_prior(
+                    n4_path, work_dir / "template_prior", result["atlas_name"], config, logger
+                )
+                prior_qc["Engine"] = prior.engine
+            except Exception as e:  # noqa: BLE001 - the prior is a check, never a failure
+                logger.warning(f"QC: template prior registration failed: {e}")
+                prior_qc["RegistrationFailed"] = str(e)
+        if prior is not None:
+            prior_qc["Pass1"] = missed_brain(load(result["brain_mask"]), n4_data, prior, zooms)
+            logger.info(
+                f"QC: template prior on pass 1 -- Dice {prior_qc['Pass1']['TemplateDice']}, "
+                f"missed {prior_qc['Pass1']['MissedCm3']} cm^3"
             )
-            prior_qc["Engine"] = prior.engine
-        except Exception as e:  # noqa: BLE001 - the prior is a check, never a failure
-            logger.warning(f"QC: template prior registration failed: {e}")
-            prior_qc["RegistrationFailed"] = str(e)
-    if prior is not None:
-        prior_qc["Pass1"] = missed_brain(load(result["brain_mask"]), n4_data, prior, zooms)
-        logger.info(
-            f"QC: template prior on pass 1 -- Dice {prior_qc['Pass1']['TemplateDice']}, "
-            f"missed {prior_qc['Pass1']['MissedCm3']} cm^3"
-        )
+    except Exception as e:  # noqa: BLE001 - the checks never fail a good first pass
+        logger.warning(f"QC: segmentation checks failed ({e}); keeping the first pass")
+        qc["SegmentationCheckFailed"] = str(e)
+        return finish(result)
 
     trigger = None
     if n4_mode is True:
@@ -1941,16 +1946,22 @@ def _anat_segmentation_checks(
             if k in qc
         }
         kwargs = dict(segmentation_kwargs, input_image=n4_path)
-        with quiet_external_output(logger):
-            result = run_segmentation(**kwargs)
-
-        keep = True
-        if prior is not None:
-            prior_qc["Pass2"] = missed_brain(load(result["brain_mask"]), n4_data, prior, zooms)
-            keep = (
-                prior_qc["Pass2"]["TemplateDice"]
-                >= prior_qc["Pass1"]["TemplateDice"] - PASS2_DICE_TOLERANCE
-            )
+        pass2_error = None
+        try:
+            with quiet_external_output(logger):
+                result = run_segmentation(**kwargs)
+            keep = True
+            if prior is not None:
+                prior_qc["Pass2"] = missed_brain(load(result["brain_mask"]), n4_data, prior, zooms)
+                keep = (
+                    prior_qc["Pass2"]["TemplateDice"]
+                    >= prior_qc["Pass1"]["TemplateDice"] - PASS2_DICE_TOLERANCE
+                )
+        except Exception as e:  # noqa: BLE001 - pass 1 is intact in pass1/
+            logger.warning(f"QC: second segmentation pass failed ({e}); keeping the first pass")
+            pass2_error = str(e)
+            prior_qc.pop("Pass2", None)
+            keep = False
         qc["SegmentationPasses"] = 2
         qc["PreInferenceN4"] = {
             "Trigger": trigger,
@@ -1959,17 +1970,20 @@ def _anat_segmentation_checks(
             "BSplineFitting": n4_cfg.get("bspline_fitting", PRE_INFERENCE_N4_BSPLINE),
             "Pass2Kept": keep,
         }
+        if pass2_error is not None:
+            qc["PreInferenceN4"]["Error"] = pass2_error
         if keep:
             # Top-level fields describe the pass that produced the final segmentation.
             qc.update(_intensity_cap_check(n4_path, logger))
             qc.update(_mask_volume_check(result["brain_mask"], config, logger))
             qc["Pass1"] = pass1
         else:
-            logger.warning(
-                "QC: second pass agrees less with the template than the first "
-                f"(Dice {prior_qc['Pass2']['TemplateDice']} vs "
-                f"{prior_qc['Pass1']['TemplateDice']}); keeping the first pass"
-            )
+            if pass2_error is None:
+                logger.warning(
+                    "QC: second pass agrees less with the template than the first "
+                    f"(Dice {prior_qc['Pass2']['TemplateDice']} vs "
+                    f"{prior_qc['Pass1']['TemplateDice']}); keeping the first pass"
+                )
             rejected = temp_output_dir / "pass2_rejected"
             rejected.mkdir(exist_ok=True)
             for entry in list(temp_output_dir.iterdir()):
