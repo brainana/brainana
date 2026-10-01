@@ -1,5 +1,5 @@
 fs_license=/mnt/DataDrive3/xliu/prep_test/freesurfer_license.txt
-version=3.0.0
+version=3.1.0
 
 # # # ------------------------------------------------------------
 # # # # 1. devtest

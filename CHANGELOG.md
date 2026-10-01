@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [3.1.0] - 2026-09-30
+
 ### Upgrading from 3.0.0
 
 No config key or output file was renamed or removed, and a 3.0.0 config runs unchanged. Default outputs do change, so re-run rather than mixing 3.0.0 and newer anatomical or surface outputs in one analysis:

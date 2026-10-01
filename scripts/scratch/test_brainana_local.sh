@@ -17,7 +17,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # ========================
 # Test parameters (edit paths/config here)
-version=3.0.0
+version=3.1.0
 custom_template_f=""
 
 # ------------------------------------------------------------
