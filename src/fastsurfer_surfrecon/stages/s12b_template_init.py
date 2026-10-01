@@ -75,6 +75,7 @@ class TemplateInit(HemisphereStage):
             subject_orig_mgz=self.sd.mri("orig.mgz"),
             out_surf=orig_nofix,
             log_file=self.config.log_file,
+            post=self.config.template_xfm_post,
         )
 
         # A misregistered template is still a valid mesh, and V1 is then held in
@@ -140,6 +141,9 @@ class TemplateInit(HemisphereStage):
                 {
                     "template_subject_dir": str(tpl),
                     "template_xfm": str(self.config.template_xfm),
+                    "template_xfm_post": (
+                        str(self.config.template_xfm_post) if self.config.template_xfm_post else None
+                    ),
                     "freeze_label": self.config.template_freeze_label,
                     "warped_fraction_in_mask": round(in_mask, 4),
                     "registration_suspect": in_mask < MIN_FRACTION_IN_MASK,

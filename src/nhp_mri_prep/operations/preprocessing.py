@@ -1700,22 +1700,17 @@ UNDERSIZED_MIN_MISSED_CM3 = 0.25
 PASS2_DICE_TOLERANCE = 0.005
 
 
-def _template_brain_volume_mm3(config: Dict[str, Any]) -> Optional[float]:
-    """Brain volume of the configured output template (bundled templates only).
+def _template_brain_volume_mm3() -> Optional[float]:
+    """Brain volume of the NMT2Sym res-05 template, whatever the output space.
 
-    A custom template path may or may not be brain-extracted, and "T1w" output
-    space names no template, so both return None and the mask check is skipped
-    rather than compared against a meaningless reference.
+    MASK_UNDERSIZED_RATIO was calibrated on it (92.5 cm^3). The output template
+    would move the cut with the template: MEBRAINS, D99 and Yerkes19 brains are
+    102-116 cm^3, which flagged correct ~90 cm^3 masks as failures.
     """
-    from ..utils.templates import is_custom_template_path, resolve_template
+    from ..utils.templates import resolve_template
 
-    spec = (config.get("template") or {}).get("output_space") or "NMT2Sym:res-05"
-    if is_custom_template_path(spec) or spec.split(":")[0] in ("T1w", "native"):
-        return None
     try:
-        parts = [p for p in spec.split(":") if not p.startswith("desc-")]
-        path = resolve_template(":".join(parts + ["brain"]))
-        img = nib.load(path)
+        img = nib.load(resolve_template("NMT2Sym:res-05"))
     except Exception:  # noqa: BLE001 - a missing reference only disables the check
         return None
     data = np.asanyarray(img.dataobj)
@@ -1731,7 +1726,7 @@ def _mask_volume_check(
         np.count_nonzero(np.asanyarray(img.dataobj)) * np.prod(img.header.get_zooms()[:3])
     )
     report: Dict[str, Any] = {"MaskVolumeCm3": round(mask_mm3 / 1000.0, 2)}
-    template_mm3 = _template_brain_volume_mm3(config)
+    template_mm3 = _template_brain_volume_mm3()
     if template_mm3:
         ratio = mask_mm3 / template_mm3
         report.update(
@@ -1758,6 +1753,7 @@ def _pre_inference_n4(
     n4_cfg: Dict[str, Any],
     config: Dict[str, Any],
     logger: logging.Logger,
+    frame=None,
 ) -> Path:
     """N4 inside the search region; the result is only CNN and registration input.
 
@@ -1765,13 +1761,20 @@ def _pre_inference_n4(
     the head, not the first-pass mask: a lobe the first pass dropped is
     exactly the part that needs correcting. It excludes the air behind the
     occipital scalp and the MP2RAGE UNI background (see ``search_region``).
+    ``frame`` (an ``Nmt2SymFrame``) places the image in NMT2Sym world first;
+    the region is computed there and saved on the image's own grid.
     """
+    from .nmt2sym_frame import reframe
     from .segmentation_prior import search_region
 
     n4_dir = work_dir / "pre_inference_n4"
     n4_dir.mkdir(parents=True, exist_ok=True)
 
-    region, img = search_region(image_path)
+    placed = image_path
+    if frame is not None:
+        placed = reframe(image_path, frame, n4_dir / "image_in_nmt2sym_world.nii.gz")
+    region, _ = search_region(placed)
+    img = nib.load(str(image_path))
     region_path = n4_dir / "search_region.nii.gz"
     nib.save(nib.Nifti1Image(region.astype(np.uint8), img.affine, img.header), str(region_path))
     logger.info("Workflow: pre-inference N4 inside the template search region")
@@ -1840,6 +1843,7 @@ def _anat_segmentation_checks(
     Returns the final segmentation result and the provenance fields for the
     mask/segmentation sidecars.
     """
+    from .nmt2sym_frame import frame_source, nmt2sym_frame, reframe
     from .segmentation_prior import missed_brain, register_template_prior
 
     qc: Dict[str, Any] = _intensity_cap_check(image_path, logger)
@@ -1856,6 +1860,38 @@ def _anat_segmentation_checks(
     def load(path):
         return np.asanyarray(nib.load(str(path)).dataobj)
 
+    # Everything below registers NMT2Sym material to this image with FireANTs,
+    # which needs the pair roughly aligned first (see nmt2sym_frame). Computed
+    # once, from pass 1, and only when something needs it.
+    frames: Dict[str, Any] = {}
+    first_pass = result
+
+    def get_frame():
+        if "frame" not in frames:
+            frame_dir = work_dir / "nmt2sym_frame"
+            try:
+                brain = None
+                if frame_source(config)[0] == "rigid":
+                    frame_dir.mkdir(parents=True, exist_ok=True)
+                    img = nib.load(str(image_path))
+                    mask = load(first_pass["brain_mask"]) > 0
+                    brain = frame_dir / "pass1_brain.nii.gz"
+                    nib.save(
+                        nib.Nifti1Image(np.asarray(img.dataobj, np.float32) * mask, img.affine),
+                        str(brain),
+                    )
+                frames["frame"] = nmt2sym_frame(config, frame_dir, brain, logger)
+                if not frames["frame"].is_identity:
+                    qc["Nmt2SymFrame"] = frames["frame"].provenance()
+            except Exception as e:  # noqa: BLE001 - without it, skip what depends on it
+                logger.warning(
+                    f"QC: could not place the image in NMT2Sym world ({e}); the template "
+                    "checks and the V1 white-matter fix are skipped"
+                )
+                qc["Nmt2SymFrame"] = {"Source": "failed", "Error": str(e)}
+                frames["frame"] = None
+        return frames["frame"]
+
     def finish(result):
         if roi_fix:
             from fastsurfer_nn.inference.segmentation import apply_roi_wm_fix
@@ -1865,10 +1901,13 @@ def _anat_segmentation_checks(
                 "mask": result.get("brain_mask"),
                 "hemimask": result.get("hemimask"),
             }
-            if all(seg_results.values()):
+            frame = get_frame()
+            if all(seg_results.values()) and frame is not None:
                 apply_roi_wm_fix(
                     seg_results, result["input_image"], result.get("atlas_name"),
-                    logger=logger, **roi_fix,
+                    logger=logger,
+                    world_to_nmt2sym=None if frame.is_identity else frame.to_nmt2sym,
+                    **roi_fix,
                 )
         return result, qc
 
@@ -1877,18 +1916,25 @@ def _anat_segmentation_checks(
     ):
         return finish(result)
 
+    frame = get_frame()
+    if frame is None:
+        return finish(result)
+
     prior = None
     prior_qc: Dict[str, Any] = {}
     try:
-        n4_path = _pre_inference_n4(image_path, work_dir, n4_cfg, config, logger)
+        n4_path = _pre_inference_n4(image_path, work_dir, n4_cfg, config, logger, frame)
         n4_img = nib.load(str(n4_path))
         n4_data = np.asanyarray(n4_img.dataobj).astype(np.float32)
         zooms = tuple(float(z) for z in n4_img.header.get_zooms()[:3])
 
         if use_prior:
             try:
+                # The CNN keeps the image's own header; only the registration
+                # sees the copy placed in NMT2Sym world (same voxels).
                 prior = register_template_prior(
-                    n4_path, work_dir / "template_prior", result["atlas_name"], config, logger
+                    reframe(n4_path, frame, work_dir / "template_prior" / "n4_in_nmt2sym_world.nii.gz"),
+                    work_dir / "template_prior", result["atlas_name"], config, logger,
                 )
                 prior_qc["Engine"] = prior.engine
             except Exception as e:  # noqa: BLE001 - the prior is a check, never a failure

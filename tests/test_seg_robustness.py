@@ -143,7 +143,7 @@ def seg_env(tmp_path, monkeypatch):
     monkeypatch.setattr(pp, "run_segmentation", fake_run_segmentation)
     monkeypatch.setattr(pp, "bias_correction", fake_bias_correction)
     # Template brain: 40^3 voxels of 1 mm = 64 cm^3
-    monkeypatch.setattr(pp, "_template_brain_volume_mm3", lambda cfg: 40.0**3)
+    monkeypatch.setattr(pp, "_template_brain_volume_mm3", lambda: 40.0**3)
 
     def run(n4_cfg):
         first = fake_run_segmentation(image, out_dir)
@@ -330,19 +330,24 @@ def prior_env(seg_env, monkeypatch):
     template = np.zeros((64, 64, 64), bool)
     template[:44, :44, :44] = True
     calls, roi_calls = [], []
+    state["region_inputs"], state["roi_kwargs"] = [], []
 
     def fake_register(image_path, work_dir, atlas_name, config, logger):
         calls.append(Path(image_path).name)
         return _prior(template, np.where(template, 7, 0))
 
     def fake_region(image_path):
+        state["region_inputs"].append(Path(image_path).name)
         img = nib.load(str(image_path))
         return np.ones(img.shape[:3], bool), img
 
+    def fake_roi_fix(seg_results, input_image, atlas_name, **kw):
+        roi_calls.append(Path(input_image).name)
+        state["roi_kwargs"].append(kw)
+
     monkeypatch.setattr(sp, "register_template_prior", fake_register)
     monkeypatch.setattr(sp, "search_region", fake_region)
-    monkeypatch.setattr(fseg, "apply_roi_wm_fix",
-                        lambda seg_results, input_image, atlas_name, **kw: roi_calls.append(Path(input_image).name))
+    monkeypatch.setattr(fseg, "apply_roi_wm_fix", fake_roi_fix)
     real_seg = pp.run_segmentation
 
     def seg_with_labels(input_image, output_dir, **kw):
@@ -357,7 +362,7 @@ def prior_env(seg_env, monkeypatch):
     monkeypatch.setattr(pp, "run_segmentation", seg_with_labels)
     image = out_dir.parent / "t1w.nii.gz"
 
-    def run_prior(n4_cfg, prior_cfg):
+    def run_prior(n4_cfg, prior_cfg, config=None):
         first = seg_with_labels(input_image=image, output_dir=out_dir)
         return pp._anat_segmentation_checks(
             image_path=image,
@@ -366,7 +371,7 @@ def prior_env(seg_env, monkeypatch):
             temp_output_dir=out_dir,
             work_dir=out_dir.parent,
             fscnn_cfg={"pre_inference_n4": n4_cfg, "template_prior": prior_cfg},
-            config={},
+            config=config or {},
             logger=__import__("logging").getLogger("test"),
             roi_fix={"roi_name": "V1"},
         )
@@ -389,7 +394,7 @@ def test_small_brain_is_not_a_failure_when_the_prior_agrees(prior_env, monkeypat
     from nhp_mri_prep.operations import preprocessing as pp
 
     state, run_prior, _, _ = prior_env
-    monkeypatch.setattr(pp, "_template_brain_volume_mm3", lambda cfg: 120.0**3)
+    monkeypatch.setattr(pp, "_template_brain_volume_mm3", lambda: 120.0**3)
     state["mask_side"] = [44]
     _, qc = run_prior({"enabled": "auto"}, {"enabled": True})
     assert qc["MaskUndersized"] is True and qc["SegmentationPasses"] == 1
@@ -431,13 +436,63 @@ def test_undersized_mask_with_a_small_miss_triggers(prior_env, monkeypatch):
     state, run_prior, _, _ = prior_env
     monkeypatch.setattr(sp, "missed_brain", lambda mask, image, prior, zooms: {
         "TemplateDice": 0.95, "MissedCm3": 0.4, "Reliable": True})
-    monkeypatch.setattr(pp, "_template_brain_volume_mm3", lambda cfg: 120.0**3)
+    monkeypatch.setattr(pp, "_template_brain_volume_mm3", lambda: 120.0**3)
     state["mask_side"] = [44, 44]
     _, qc = run_prior({"enabled": "auto"}, {"enabled": True})
     assert qc["PreInferenceN4"]["Trigger"] == "undersized mask + template prior"
 
     state["inputs"].clear()
     state["mask_side"] = [44]
-    monkeypatch.setattr(pp, "_template_brain_volume_mm3", lambda cfg: 40.0**3)
+    monkeypatch.setattr(pp, "_template_brain_volume_mm3", lambda: 40.0**3)
     _, qc = run_prior({"enabled": "auto"}, {"enabled": True})
     assert qc["SegmentationPasses"] == 1  # same miss, normal-sized mask
+
+
+# ------------------------------------------- output spaces other than NMT2Sym
+
+
+def test_nmt2sym_output_space_registers_the_image_as_is(prior_env):
+    state, run_prior, calls, _ = prior_env
+    state["mask_side"] = [44]
+    _, qc = run_prior({"enabled": "auto"}, {"enabled": True})
+    assert state["region_inputs"] == ["t1w.nii.gz"]
+    assert calls == ["pre_inference_n4.nii.gz"]
+    assert state["roi_kwargs"][0]["world_to_nmt2sym"] is None
+    assert "Nmt2SymFrame" not in qc
+
+
+def test_other_template_places_the_image_in_nmt2sym_world_first(prior_env):
+    """MEBRAINS sits ~25 mm from NMT2Sym: the prior, the N4 region and the V1 fix
+    see a copy placed in NMT2Sym world; the CNN keeps the image's own header."""
+    state, run_prior, calls, _ = prior_env
+    state["mask_side"] = [44]
+    _, qc = run_prior({"enabled": "auto"}, {"enabled": True},
+                      {"template": {"output_space": "MEBRAINS"}})
+    assert state["region_inputs"] == ["image_in_nmt2sym_world.nii.gz"]
+    assert calls == ["n4_in_nmt2sym_world.nii.gz"]
+    assert qc["Nmt2SymFrame"]["Source"] == "table"
+    w = state["roi_kwargs"][0]["world_to_nmt2sym"]
+    assert w is not None and np.linalg.norm(w[:3, 3]) > 20
+    assert state["inputs"] == ["t1w.nii.gz"]  # single pass, on the original image
+
+
+def test_unplaceable_image_skips_the_template_checks(prior_env, monkeypatch):
+    """Conform off needs a runtime rigid; if it fails, keep pass 1 and skip the V1 fix."""
+    from nhp_mri_prep.operations import nmt2sym_frame as nf
+
+    def broken(*a, **k):
+        raise RuntimeError("flirt broke")
+
+    monkeypatch.setattr(nf, "rigid_to_nmt2sym", broken)
+    state, run_prior, calls, roi_calls = prior_env
+    state["mask_side"] = [20, 40]
+    _, qc = run_prior({"enabled": "auto"}, {"enabled": True},
+                      {"anat": {"conform": {"enabled": False}}})
+    assert qc["Nmt2SymFrame"]["Source"] == "failed"
+    assert qc["SegmentationPasses"] == 1 and calls == [] and roi_calls == []
+
+
+def test_undersized_rule_compares_with_nmt2sym_whatever_the_output_space():
+    from nhp_mri_prep.operations import preprocessing as pp
+
+    assert round(pp._template_brain_volume_mm3() / 1000, 1) == 92.5

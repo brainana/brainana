@@ -94,12 +94,15 @@ def apply_roi_wm_fix(
     enable_fireants: bool = True,
     enable_crop_2round: bool = False,
     logger: Optional[logging.Logger] = None,
+    world_to_nmt2sym=None,
 ) -> None:
     """Add the template's thin ROI white matter to a finished segmentation, in place.
 
     ``seg_results`` holds the ``segmentation``, ``mask`` and ``hemimask`` paths
     of one CNN pass. Split out of :func:`run_segmentation` so a caller running
     several passes can apply it once, to the pass it keeps.
+    ``world_to_nmt2sym`` (4x4, RAS) places the subject in NMT2Sym world for the
+    template registration when it is not there already (see ``fix_roi_wm``).
     """
     if logger is None:
         logger = logging.getLogger(__name__)
@@ -220,6 +223,7 @@ def apply_roi_wm_fix(
                 registration_threads=registration_threads,
                 gpu_device=device_str,
                 enable_fireants=enable_fireants,
+                world_to_nmt2sym=world_to_nmt2sym,
             )
             logger.info(
                 f"{roi_name} white matter fixing completed successfully"

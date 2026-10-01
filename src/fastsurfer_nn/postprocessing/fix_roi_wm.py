@@ -300,6 +300,7 @@ def fix_roi_wm(
     registration_threads: Optional[int] = None,
     gpu_device: str = "auto",
     enable_fireants: bool = True,
+    world_to_nmt2sym: Optional[np.ndarray] = None,
 ) -> None:
     """
     Fix missing thin WM in V1 by registering template V1 WM to individual space.
@@ -339,6 +340,12 @@ def fix_roi_wm(
         SyN) uses the same device policy as the segmentation (default: "auto").
     enable_fireants : bool, optional
         registration.enable_fireants of the calling step (default: True).
+    world_to_nmt2sym : np.ndarray, optional
+        4x4 RAS map from the subject's world to NMT2Sym world. The template
+        registration (FireANTs SyN) needs the V1 crops roughly aligned, which
+        they are only when the subject was conformed to NMT2Sym; otherwise the
+        caller passes this and the subject crop is placed in NMT2Sym world by
+        its header alone (same voxels, so the result maps back unchanged).
     """
     if logger is None:
         logger = logging.getLogger(__name__)
@@ -419,7 +426,11 @@ def fix_roi_wm(
     seg_roi_f = working_dir / f"input_segmentation_{roi_name}.nii.gz"
     t1w_roi_f = working_dir / f"input_T1w_{roi_name}.nii.gz"
 
-    save_cropped_image(t1w_roi, new_affine, t1w_img.header, t1w_roi_f, logger=logger)
+    # The registration's fixed image: in NMT2Sym world when the caller says the
+    # subject is elsewhere. Only the header changes, so the template WM warped
+    # onto it is still on this crop's voxel grid.
+    reg_affine = new_affine if world_to_nmt2sym is None else np.asarray(world_to_nmt2sym) @ new_affine
+    save_cropped_image(t1w_roi, reg_affine, t1w_img.header, t1w_roi_f, logger=logger)
     save_cropped_image(seg_roi, new_affine, seg_img.header, seg_roi_f, logger=logger)
 
     # Load and crop template data

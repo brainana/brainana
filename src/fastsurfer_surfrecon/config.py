@@ -307,6 +307,15 @@ class ReconSurfConfig(BaseModel):
             "The subject's orig.mgz must share the T1w's world space."
         ),
     )
+    template_xfm_post: Optional[Path] = Field(
+        default=None,
+        description=(
+            "ITK affine (LPS point map) applied to the points after template_xfm. "
+            "Used when template_xfm was estimated on a copy of the T1w placed in "
+            "template world by its header: this map takes that copy's world back "
+            "to the T1w's."
+        ),
+    )
     template_freeze_label: Optional[str] = Field(
         default="V1",
         description=(
@@ -403,7 +412,8 @@ class ReconSurfConfig(BaseModel):
         return Path(v).expanduser().resolve()
 
     @field_validator(
-        "mask", "log_file", "freesurfer_home", "tp_to_base_lta", "template_xfm", mode="before"
+        "mask", "log_file", "freesurfer_home", "tp_to_base_lta", "template_xfm",
+        "template_xfm_post", mode="before"
     )
     @classmethod
     def resolve_optional_path(cls, v: Path | str | None) -> Path | None:
@@ -539,6 +549,8 @@ class ReconSurfConfig(BaseModel):
             )
         if not self.template_xfm.exists():
             raise ValueError(f"template_xfm not found: {self.template_xfm}")
+        if self.template_xfm_post is not None and not self.template_xfm_post.exists():
+            raise ValueError(f"template_xfm_post not found: {self.template_xfm_post}")
         needed = [
             self.template_subject_dir / "surf" / f"{h}.{name}"
             for h in ("lh", "rh")

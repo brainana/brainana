@@ -7,6 +7,8 @@ otherwise, so that the prior does not depend on template.output_space.
 
 from pathlib import Path
 
+import nibabel as nib
+import numpy as np
 import pytest
 
 from nhp_mri_prep.config.config_validation import validate_config
@@ -96,7 +98,7 @@ def _xfm(tmp_path, name):
 
 def test_reuses_the_run_registration_to_nmt2sym(step_input, tmp_path, fake_register):
     xfm = _xfm(tmp_path, "sub-01_from-T1w_to-NMT2Sym_mode-image_xfm.nii.gz")
-    got, source = anatomical.surface_prior_transform(
+    got, source, _, _ = anatomical.surface_prior_transform(
         step_input, tmp_path / "t1w.nii.gz", tmp_path / "mask.nii.gz", xfm, tmp_path / "reg"
     )
     assert (got, source) == (xfm, "reused")
@@ -113,7 +115,7 @@ def test_reuses_the_run_registration_to_nmt2sym(step_input, tmp_path, fake_regis
 )
 def test_registers_to_nmt2sym_otherwise(step_input, tmp_path, fake_register, name):
     xfm = _xfm(tmp_path, name) if name else None
-    got, source = anatomical.surface_prior_transform(
+    got, source, _, _ = anatomical.surface_prior_transform(
         step_input, tmp_path / "t1w.nii.gz", tmp_path / "mask.nii.gz", xfm, tmp_path / "reg"
     )
     assert source == "registered" and got.exists()
@@ -131,7 +133,7 @@ def test_registration_off_passthrough_is_not_reused(tmp_path, fake_register):
         metadata={},
     )
     xfm = _xfm(tmp_path, "sub-01_from-T1w_to-NMT2Sym_mode-image_xfm.h5")
-    _, source = anatomical.surface_prior_transform(
+    _, source, _, _ = anatomical.surface_prior_transform(
         step_input, tmp_path / "t1w.nii.gz", tmp_path / "mask.nii.gz", xfm, tmp_path / "reg"
     )
     assert source == "registered"
@@ -142,7 +144,71 @@ def test_empty_placeholder_is_not_a_transform(step_input, tmp_path, fake_registe
     """Nextflow passes an empty placeholder when no registration output joined."""
     placeholder = tmp_path / "dummy_template_xfm.dummy"
     placeholder.write_text("")
-    _, source = anatomical.surface_prior_transform(
+    _, source, _, _ = anatomical.surface_prior_transform(
         step_input, tmp_path / "t1w.nii.gz", tmp_path / "mask.nii.gz", placeholder, tmp_path / "reg"
     )
     assert source == "registered"
+
+
+def test_other_template_registers_a_copy_in_nmt2sym_world(tmp_path, fake_register):
+    """MEBRAINS output space: register the T1w placed in NMT2Sym world by its header,
+    and map the warped points back with a post transform."""
+    from nhp_mri_prep.operations.nmt2sym_frame import load_table, read_itk_affine, ras_to_lps
+
+    step_input = StepInput(
+        input_file=tmp_path / "t1w.nii.gz",
+        working_dir=tmp_path,
+        config={"template": {"output_space": "MEBRAINS"}},
+        metadata={},
+    )
+    xfm = _xfm(tmp_path, "sub-01_from-T1w_to-MEBRAINS_mode-image_xfm.nii.gz")
+    got = anatomical.surface_prior_transform(
+        step_input, tmp_path / "t1w.nii.gz", tmp_path / "mask.nii.gz", xfm, tmp_path / "reg"
+    )
+    assert got.source == "registered" and got.frame["Source"] == "table"
+    (call,) = fake_register
+    moving = nib.load(call["movingf"])
+    w = load_table("MEBRAINS")
+    assert np.allclose(moving.affine, w @ np.eye(4), atol=1e-5)
+    assert np.allclose(read_itk_affine(got.post), ras_to_lps(np.linalg.inv(w)), atol=1e-6)
+
+
+def test_nmt2sym_run_still_reuses_its_registration(step_input, tmp_path, fake_register):
+    xfm = _xfm(tmp_path, "sub-01_from-T1w_to-NMT2Sym_mode-image_xfm.nii.gz")
+    got = anatomical.surface_prior_transform(
+        step_input, tmp_path / "t1w.nii.gz", tmp_path / "mask.nii.gz", xfm, tmp_path / "reg"
+    )
+    assert got.post is None and got.frame is None and got.source == "reused"
+
+
+@pytest.mark.parametrize("in_mask, on", [(0.9995, True), (0.5, False)])
+def test_misplaced_template_surface_falls_back_to_tessellation(
+    step_input, tmp_path, monkeypatch, in_mask, on
+):
+    from fastsurfer_surfrecon.processing import template_init
+
+    xfm = _xfm(tmp_path, "x.nii.gz")
+    monkeypatch.setattr(
+        anatomical, "surface_prior_transform",
+        lambda *a, **k: anatomical.SurfacePriorTransform(xfm, "registered"),
+    )
+    monkeypatch.setattr(template_init, "warped_fraction_in_mask", lambda *a, **k: in_mask)
+    fields, meta = anatomical._template_surface_prior(
+        step_input, tmp_path / "t1w.nii.gz", tmp_path / "mask.nii.gz", None
+    )
+    assert meta["template_surface"] is on
+    assert bool(fields) is on
+    if not on:
+        assert meta["template_surface_fallback"] == "registration"
+
+
+def test_failed_prior_transform_falls_back_to_tessellation(step_input, tmp_path, monkeypatch):
+    def broken(*a, **k):
+        raise RuntimeError("no registration")
+
+    monkeypatch.setattr(anatomical, "surface_prior_transform", broken)
+    fields, meta = anatomical._template_surface_prior(
+        step_input, tmp_path / "t1w.nii.gz", tmp_path / "mask.nii.gz", None
+    )
+    assert fields == {} and meta["template_surface"] is False
+    assert "no registration" in meta["template_surface_fallback"]

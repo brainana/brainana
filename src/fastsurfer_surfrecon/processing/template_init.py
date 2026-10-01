@@ -92,7 +92,12 @@ def scanner_to_surface(points: np.ndarray, info: dict) -> np.ndarray:
     return (m @ np.c_[points, np.ones(len(points))].T)[:3].T
 
 
-def transform_points_ants(ras_points: np.ndarray, xfm: Path, log_file: Optional[Path] = None) -> np.ndarray:
+def transform_points_ants(
+    ras_points: np.ndarray,
+    xfm: Path,
+    log_file: Optional[Path] = None,
+    post: Optional[Path] = None,
+) -> np.ndarray:
     """Map world (RAS) points through an ANTs transform with antsApplyTransformsToPoints.
 
     ANTs works in LPS. With the subject-to-template *image* transform
@@ -100,6 +105,10 @@ def transform_points_ants(ras_points: np.ndarray, xfm: Path, log_file: Optional[
     maps fixed-space (template) points to moving-space (subject) points.
     Accepts whatever the registration wrote: a displacement field (.nii.gz),
     a composite (.h5) or an affine (.mat).
+
+    ``post`` (an ITK affine point map, LPS) is applied to the points after
+    ``xfm``. antsApplyTransformsToPoints applies its ``-t`` list to points in the
+    order given (tested in tests/test_template_surface.py).
     """
     lps = np.asarray(ras_points, dtype=float) * [-1.0, -1.0, 1.0]
     with tempfile.TemporaryDirectory(prefix="tpl_points_") as tmp:
@@ -107,11 +116,12 @@ def transform_points_ants(ras_points: np.ndarray, xfm: Path, log_file: Optional[
         np.savetxt(src, np.c_[lps, np.zeros(len(lps))], delimiter=",",
                    header="x,y,z,t", comments="", fmt="%.6f")
         run_fs_command(
-            ["antsApplyTransformsToPoints", "-d", "3", "-i", str(src), "-o", str(dst), "-t", str(xfm)],
+            ["antsApplyTransformsToPoints", "-d", "3", "-i", str(src), "-o", str(dst), "-t", str(xfm)]
+            + (["-t", str(post)] if post else []),
             log_file=log_file,
             expect_outputs=[dst],
         )
-        moved = np.loadtxt(dst, delimiter=",", skiprows=1)[:, :3]
+        moved = np.loadtxt(dst, delimiter=",", skiprows=1, ndmin=2)[:, :3]
     if moved.shape != lps.shape:
         raise RuntimeError(
             f"antsApplyTransformsToPoints returned {moved.shape[0]} points for {lps.shape[0]}"
@@ -125,6 +135,7 @@ def warp_template_surface(
     subject_orig_mgz: Path,
     out_surf: Path,
     log_file: Optional[Path] = None,
+    post: Optional[Path] = None,
 ) -> np.ndarray:
     """Write ``template_surf`` carried into the subject, in the subject's surface RAS.
 
@@ -135,10 +146,33 @@ def warp_template_surface(
     if not all(k in meta for k in ("xras", "yras", "zras", "cras", "volume", "voxelsize")):
         raise ValueError(f"{template_surf} has no volume geometry; cannot place it in world space")
     template_world = surface_to_scanner(verts, meta)
-    subject_world = transform_points_ants(template_world, xfm, log_file=log_file)
+    subject_world = transform_points_ants(template_world, xfm, log_file=log_file, post=post)
     info = volume_info_from_mgz(subject_orig_mgz)
     write_geometry(str(out_surf), scanner_to_surface(subject_world, info), faces, volume_info=info)
     return subject_world
+
+
+def warped_fraction_in_mask(
+    template_surf: Path,
+    xfm: Path,
+    mask: Path,
+    post: Optional[Path] = None,
+    log_file: Optional[Path] = None,
+) -> float:
+    """Share of ``template_surf``'s vertices, carried into the subject, inside ``mask``.
+
+    The same warp as :func:`warp_template_surface`, checked against a brain mask in
+    the subject's world (any NIfTI/MGZ) before surface reconstruction starts.
+    """
+    verts, _, meta = read_geometry(str(template_surf), read_metadata=True)
+    world = transform_points_ants(surface_to_scanner(verts, meta), xfm, log_file=log_file, post=post)
+    img = nib.load(str(mask))
+    inside_mask = np.asarray(img.dataobj) > 0
+    ijk = np.rint(nib.affines.apply_affine(np.linalg.inv(img.affine), world)).astype(int)
+    on_grid = np.all((ijk >= 0) & (ijk < inside_mask.shape[:3]), axis=1)
+    inside = np.zeros(len(world), dtype=bool)
+    inside[on_grid] = inside_mask[tuple(ijk[on_grid].T)]
+    return float(inside.mean())
 
 
 def fraction_in_mask(surface: Path, mask_mgz: Path) -> float:
