@@ -16,7 +16,7 @@ A 3.0.0 config runs unchanged; no config key or output file was renamed or remov
 
 - Surfaces start from the NMT2Sym template (shared mesh and vertex numbering, V1 held at the template). `anat.surface_reconstruction.template_surface.enabled: false` restores the 3.0.0 tessellation.
 - `fix_V1_WM: "auto"` fills V1 white matter only for tessellated surfaces; set `true` to keep it.
-- GPU steps now run on the GPU. An explicit `general.gpu_device` the machine cannot serve stops the run instead of falling back to the CPU.
+- GPU steps now run on the GPU. When GPUs are visible, a `general.gpu_device` index that does not exist stops the run at start-up.
 - A config without `anat.synthesis_level` gets `subject`, as documented (3.0.0 used `session`).
 - The work directory must support file locks (GPU slots under `<work_dir>/.gpu_slots`).
 
@@ -46,6 +46,7 @@ A 3.0.0 config runs unchanged; no config key or output file was renamed or remov
 - **Resources and diagnostics**: the segmentation network uses the task's CPU allocation; `NXF_MAX_CPUS`/`NXF_MAX_MEMORY` are clamped to the container; an unlockable work directory fails with a message; per-task containers get the GPU and thread settings; native crashes leave a Python stack trace.
 - **A partial `--config` could switch anatomical synthesis to per-session** (2.1.0 and 3.0.0).
 - **`--anat_only` on the command line reaches BIDS discovery.**
+- **A single numeric value for `--subjects`, `--sessions`, `--tasks` or `--runs` no longer aborts the run.** Lists are comma-separated.
 - **Surface reconstruction normalised intensities on cortex instead of white matter.**
 - **Topology fix (tessellated surfaces)**: a failed `mris_fix_topology -ga` search is retried with the default search, also on `-resume`; an inside-out premesh is flipped; unknown `mris_place_surface` options are an error.
 - The report generator's fallback config is read over the package defaults.
