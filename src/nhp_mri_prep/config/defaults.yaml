@@ -17,9 +17,10 @@ template:
   output_space: "NMT2Sym:res-05"  # str: template space in format "TEMPLATE_NAME:[:DESCRIPTION]" (e.g., "NMT2Sym:res-1", "MEBRAINS:res-05")
   # description: "Template space specification in format TEMPLATE_NAME:[:DESCRIPTION]"
   # examples:
-  #   - "T1w"
   #   - "NMT2Sym:res-1"
   #   - "NMT2Sym:res-025"
+  #   - "MEBRAINS:res-05", "D99:res-05", "Yerkes19:res-05", "NMT2Asym:res-05"
+  #   - "/path/to/custom_template.nii.gz"
 
 anat:
   synthesis_level: "subject"  # str: T1w/T2w synthesis level ("subject", "session", "session_longitudinal").
