@@ -29,7 +29,7 @@ def _cfg(surface=True, template=True):
     [
         ("auto", _cfg(), "anat", False),  # template surfaces: V1 white comes from the template
         ("auto", _cfg(template=False), "anat", True),  # tessellated surfaces: the fill helped
-        ("auto", _cfg(surface=False), "anat", True),  # no surfaces: keep v3.0.0 behaviour
+        ("auto", _cfg(surface=False), "anat", False),  # no surfaces: nothing to help
         ("auto", {}, "anat", False),  # defaults: template surfaces on
         ("auto", _cfg(template=False), "func", False),
         (True, _cfg(), "anat", True),  # explicit values are honoured as given

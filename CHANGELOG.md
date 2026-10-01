@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 No config key or output file was renamed or removed, and a 3.0.0 config runs unchanged. Default outputs do change, so re-run rather than mixing 3.0.0 and newer anatomical or surface outputs in one analysis:
 
 - **Surfaces start from the NMT2Sym template.** Every subject now shares the template's ico6 mesh and vertex numbering; V1's white surface is held at the template. `anat.surface_reconstruction.template_surface.enabled: false` restores the 3.0.0 tessellation.
-- **The V1 white-matter fill is off with template surfaces** (`fix_V1_WM: "auto"`). Set `true` to keep it.
+- **The V1 white-matter fill is off unless tessellated surfaces are built** (`fix_V1_WM: "auto"`): off with template surfaces, and off without surface reconstruction (Brainana Lite, volume-only runs). Set `true` to keep it.
 - **Segmentation can run a second pass**, intensity rescaling is capped relative to brain, and `part-phase`/`part-real`/`part-imag` anatomicals are skipped. Masks change only for images these affect.
 - **GPU steps really run on the GPU.** In 3.0.0 they ran on the CPU on every machine; results differ within numerical noise.
 - **An explicit GPU request the machine cannot serve now stops the run** (`general.gpu_device: cuda` or an index) instead of falling back to the CPU.
@@ -31,7 +31,7 @@ No config key or output file was renamed or removed, and a 3.0.0 config runs unc
 
 ### Changed
 
-- **`fastSurferCNN.fix_V1_WM` defaults to `"auto"`**: the V1 white-matter fill runs only when template surfaces are off. With tessellated surfaces it helped (in blind comparisons the version without it was never preferred), but with template surfaces V1's white surface no longer comes from the segmentation and the fill made no visible difference. `true`/`false` behave as before
+- **`fastSurferCNN.fix_V1_WM` defaults to `"auto"`**: the V1 white-matter fill runs only when tessellated surfaces are built (surface reconstruction on, template surfaces off). With tessellated surfaces it helped (in blind comparisons the version without it was never preferred), but with template surfaces V1's white surface no longer comes from the segmentation and the fill made no visible difference. Without surface reconstruction (Brainana Lite, volume-only runs) it only relabelled ~200 voxels of the segmentation, and moving the image by 0.05° changed half of them, so it is off there too. `true`/`false` behave as before
 
 - **The V1 white-matter fix runs once, on the segmentation that is kept**, instead of inside every network pass: with a second pass, the first pass's template registration was thrown away
 - **Intensity rescaling is capped relative to brain intensity.** The 0–255 rescale before segmentation (and for the 8-bit volume surface reconstruction starts from) mapped the brightest 0.1% of *all* voxels to 255, so non-brain tissue far brighter than brain — fat and muscle beside a surface coil — squeezed the brain into a few grey levels and the network returned a 7 cm³ "brain". The upper limit is now at most 2.5× the 99th percentile of the image's central box, which after conform is ~90% brain. On the uncorrected conformed T1w of 98 PRIME-DE images from 17 sites the cap binds on 1; the other 97 are rescaled byte-identically. Whether it applied is recorded in the sidecars

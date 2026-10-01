@@ -1382,21 +1382,22 @@ def resolve_fix_v1_wm(value, config, modal: str) -> bool:
     """Resolve anat.skullstripping_segmentation.fastSurferCNN.fix_V1_WM.
 
     true/false are taken as given. "auto" turns the V1 white-matter fill on only
-    for anatomical data whose surfaces are not built from the template: with
-    anat.surface_reconstruction.template_surface on, V1's white surface is the
-    template's, and in blind comparisons the fill no longer helped there, while
-    for tessellated surfaces it did.
+    when tessellated surfaces will be built from the segmentation, the one case
+    where it was shown to help (blind comparisons). With template surfaces V1's
+    white surface is the template's and the fill made no visible difference.
+    Without surfaces it only relabels ~200 voxels of the volume, and those voxels
+    change with a 0.05 degree move of the image, so it is off there too.
     """
     if value != "auto":
         return bool(value)
     if modal != "anat":
         return False
-    template_surfaces = config_value(
-        config, "anat.surface_reconstruction.enabled", True
-    ) and config_value(
-        config, "anat.surface_reconstruction.template_surface.enabled", True
+    return bool(
+        config_value(config, "anat.surface_reconstruction.enabled", True)
+        and not config_value(
+            config, "anat.surface_reconstruction.template_surface.enabled", True
+        )
     )
-    return not template_surfaces
 
 def apply_segmentation(
     imagef: Union[str, Path],

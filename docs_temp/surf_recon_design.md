@@ -222,9 +222,17 @@ through these voxels.
 
 Blind result: with tessellation the fill helps (AN — tessellation without it — was never
 picked over A); with the template surface it barely matters (all noted ties were C vs CN,
-CN picked 24 vs C 10). `"auto"` = on only for anatomy whose surfaces are not template-built
-(surface reconstruction off, or `template_surface` off). Note it changes the segmentation
-itself, not only the surfaces.
+CN picked 24 vs C 10). `"auto"` = on only when tessellated surfaces are built (surface
+reconstruction on and `template_surface` off). Note it changes the segmentation itself, not
+only the surfaces.
+
+Without surface reconstruction (Brainana Lite, volume-only runs) it was on until 2026-09-30
+and is now off: there its only effect is relabelling ~200 voxels of the segmentation
+(184 on devtest 032309), with no evidence of benefit, and those voxels are unstable: a
+0.05° / 0.02 mm move of the image changed them to 147, Dice 0.47 with the original
+(`cnn_segmentation_design.md` 3.7). The fill is also not applied when a subject falls back
+to tessellation at surface time, since segmentation already ran with template surfaces in
+the config.
 
 ### 3.6 Longitudinal
 
@@ -251,7 +259,7 @@ Work files of a registered transform: `work/surface_prior_registration/`.
 anat:
   skullstripping_segmentation:
     fastSurferCNN:
-      fix_V1_WM: "auto"        # true | false | "auto" (on only when template surfaces are off)
+      fix_V1_WM: "auto"        # true | false | "auto" (on only for tessellated surfaces)
   surface_reconstruction:
     template_surface:
       enabled: true            # false = v3.0.0 tessellation

@@ -304,8 +304,11 @@ maps.
     during segmentation.
   - **fix_V1_WM:** ``anat.skullstripping_segmentation.fastSurferCNN.fix_V1_WM``
     (fills missing thin V1 white matter from the template's) defaults to
-    ``"auto"``: on only when template surfaces are off, where it improved
-    surfaces; with template surfaces it made no visible difference.
+    ``"auto"``: on only when tessellated surfaces are built (surface
+    reconstruction on, template surfaces off), where it improved surfaces.
+    With template surfaces it made no visible difference, and without
+    surface reconstruction it only relabels a few hundred voxels whose exact
+    position changes with a tiny move of the image, so it is off there.
   - **Longitudinal:** the base template is reconstructed this way, and each
     timepoint inherits its mesh and the V1 label, so V1 stays held there too.
 
