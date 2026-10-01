@@ -393,7 +393,7 @@ button#generate:hover{filter:brightness(.95);}
                         <input type="text" id="general_gpu_device" name="general_gpu_device" value="auto">
                     </span>
                 </div>
-                <span class="help-text">(GPU device for skull stripping, segmentation, registration: "auto", -1 for CPU, or index 0..N)</span>
+                <span class="help-text">(GPU use for the whole run: "auto" = every GPU the container sees, else CPU; -1 or "cpu" = CPU only; 0, 1, … or cuda:N = only that GPU, numbered as nvidia-smi lists them. GPU steps: skull stripping and segmentation, the functional brain mask, FireANTs SyN registration)</span>
             </div>
         </div>
 
@@ -596,7 +596,7 @@ button#generate:hover{filter:brightness(.95);}
                                         </select>
                                     </span>
                                 </div>
-                                <span class="help-text">("auto" = when template_prior finds brain the first pass missed, or the first mask is under 80% of the template brain and some is missed (volume alone when template_prior is off); true = always run and keep it)</span>
+                                <span class="help-text">("auto" = when template_prior finds more than min_missed_cm3 of brain the first pass missed (a smaller miss also counts when the first mask is under 80% of the template brain), or, with template_prior off, when the first mask is under 80% of the template brain; true = always run it. Either way the second pass is kept only if it agrees with the template at least as well as the first)</span>
                             </div>
                             <div class="param-block">
                                 <div class="param-row">
@@ -1386,7 +1386,7 @@ button#generate:hover{filter:brightness(.95);}
                     if (gpuDevice < -1) errors.push("general.gpu_device must be >= -1 (where -1 = CPU) or 'auto'");
                 } else if (typeof gpuDevice === 'string' && !gpuDevice.startsWith('cuda:')) {
                     if (gpuDevice !== 'cpu' && isNaN(parseInt(gpuDevice))) {
-                        errors.push("general.gpu_device must be 'auto', -1, CPU index (0..N), or 'cuda:N'");
+                        errors.push("general.gpu_device must be 'auto', -1, 'cpu', a GPU index (0..N), or 'cuda:N'");
                     }
                 }
             }
@@ -1459,8 +1459,10 @@ button#generate:hover{filter:brightness(.95);}
                 if (config.fastSurferCNN) {
                     const fscnn = config.fastSurferCNN;
                     const gpuDevice = fscnn.gpu_device;
-                    if (gpuDevice !== 'auto' && (typeof gpuDevice !== 'number' || gpuDevice < -1)) {
-                        errors.push(`${prefix}.${keyName}.fastSurferCNN.gpu_device must be integer >= -1 or 'auto'`);
+                    const okNumber = typeof gpuDevice === 'number' && gpuDevice >= -1;
+                    const okString = typeof gpuDevice === 'string' && /^cuda:\d+$/.test(gpuDevice);
+                    if (gpuDevice !== 'auto' && !okNumber && !okString) {
+                        errors.push(`${prefix}.${keyName}.fastSurferCNN.gpu_device must be integer >= -1, 'cuda:N' or 'auto'`);
                     }
                     if (!Number.isInteger(fscnn.batch_size) || fscnn.batch_size < 1) {
                         errors.push(`${prefix}.${keyName}.fastSurferCNN.batch_size must be a positive integer`);
@@ -1698,7 +1700,7 @@ button#generate:hover{filter:brightness(.95);}
             config.general.verbose = parseInt(document.getElementById('general_verbose').value);
             config.general.anat_only = document.getElementById('general_anat_only').checked;
             const gpuDeviceVal = document.getElementById('general_gpu_device').value.trim();
-            if (gpuDeviceVal === '' || gpuDeviceVal === 'auto') {
+            if (gpuDeviceVal === '' || ['auto', 'cuda', 'gpu'].includes(gpuDeviceVal.toLowerCase())) {
                 config.general.gpu_device = 'auto';
             } else if (gpuDeviceVal === '-1' || gpuDeviceVal.toLowerCase() === 'cpu') {
                 config.general.gpu_device = -1;

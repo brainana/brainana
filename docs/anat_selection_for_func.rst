@@ -101,19 +101,19 @@ When T1w images exist across multiple sessions, the
      synthesis_level: "subject"   # default — or "session", "session_longitudinal"
 
 
-- **``synthesis_level: "subject"`` (default)**
+- ``synthesis_level: "subject"`` **(default)**
 
   All T1w images across sessions are combined into a single
   **subject-level** T1w, and every functional session of the subject uses that
   one shared T1w.
 
-- **``synthesis_level: "session"``**
+- ``synthesis_level: "session"``
 
   Each session retains its own T1w. Functional runs in a session that has a T1w
   use it directly. Functional runs in a session without a T1w fall back to the
   T1w from the lexicographically first other session of the same subject.
 
-- **``synthesis_level: "session_longitudinal"``**
+- ``synthesis_level: "session_longitudinal"``
 
   Anatomical selection is **identical to** ``"session"`` — every row in the
   chart above resolves the same way, and the functional stream is unaffected.

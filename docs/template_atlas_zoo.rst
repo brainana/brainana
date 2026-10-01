@@ -28,18 +28,14 @@ The following templates can be used as ``output_space`` (e.g. in
 template and/or resolution (e.g. ``NMT2Sym:res-05``) via the
 `configuration generator <_static/config_generator.html>`_ or a config YAML.
 
-- **NMT2Sym** (`ref <https://doi.org/10.1016/j.neuroimage.2021.117997>`_) — NMT v2 symmetric template.
+- **NMT2Sym** (`ref <https://doi.org/10.1016/j.neuroimage.2021.117997>`_) — NMT v2 symmetric template. Resolutions: res-025, res-05, res-1. NMT2Sym:res-05 is the Brainana default.
+- **NMT2Asym** (`ref <https://doi.org/10.1016/j.neuroimage.2021.117997>`_) — NMT v2 asymmetric (left/right preserved) template. Resolution: res-05.
+- **MEBRAINS** (`ref <https://doi.org/10.1162/imag_a_00077>`_) — Resolutions: res-04, res-05.
+- **Yerkes19** (`ref <https://doi.org/10.1523/JNEUROSCI.0493-16.2016>`_) — Resolution: res-05.
+- **D99** (`ref <https://doi.org/10.1016/j.neuroimage.2008.10.058>`_) — Resolutions: res-025, res-05.
 
-  * Multiple resolutions are available (e.g. res-025, res-05, res-1).
-  * NMT2Sym:res-05 is the Brainana default.
-
-- **NMT2Asym** (`ref <https://doi.org/10.1016/j.neuroimage.2021.117997>`_) — NMT v2 asymmetric (left/right preserved) template.
-
-- **MEBRAINS** (`ref <https://doi.org/10.1162/imag_a_00077>`_)
-
-- **Yerkes19** (`ref <https://doi.org/10.1523/JNEUROSCI.0493-16.2016>`_)
-
-- **D99** (`ref <https://doi.org/10.1016/j.neuroimage.2008.10.058>`_)
+You can also give a path to your own ``.nii``/``.nii.gz`` template; outputs then use the
+space label ``template`` and no atlases are backprojected (see :ref:`custom-template`).
 
 
 Atlas zoo
@@ -57,8 +53,17 @@ Download: `template_zoo/atlas <https://github.com/brainana/brainana/tree/main/te
 
 - **Retinotopy** (`ref <https://doi.org/10.1523/JNEUROSCI.0569-17.2017>`_) — Group-average polar angle and eccentricity maps for mapping visual field representations (e.g. V1, V2, V3).
 
-- **Other atlases**
-  * See the download directory above for the full list and references.
+- **Somatotopy**, **MacBNA**, **D99**, **CortHierarchy** (cortical hierarchy),
+  **FuncNetwork** (resting-state networks) and **FuncConnGrad** (functional connectivity
+  gradients) — see the download directory above for references.
+
+Atlases are backprojected only in the template spaces they are provided in:
+
+- **NMT2Sym:** ARM1–6, CortHierarchy, D99, FuncNetwork, MacBNA, retinotopy, somatotopy
+- **NMT2Asym:** ARM1–6, MacBNA, retinotopy
+- **MEBRAINS:** ARM1–6, D99, retinotopy
+- **Yerkes19:** ARM1–6, CortHierarchy, FuncConnGrad, FuncNetwork
+- **D99:** ARM1–6, D99
 
 
 .. note::

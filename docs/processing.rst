@@ -9,8 +9,8 @@ Processing details
 
 Brainana adapts its pipeline depending on what data and metadata are
 available and on the configuration you provide. For example,
-anatomical synthesis runs only when multiple T1w/T2w runs or sessions
-are present and synthesis is enabled; slice timing correction runs
+anatomical synthesis runs only when there are several T1w/T2w runs to
+combine at the configured ``anat.synthesis_level``; slice timing correction runs
 only when slice timing information is available in the BIDS metadata.
 
 This page describes the methods used at each stage of the pipeline and
@@ -31,6 +31,11 @@ BIDS dataset and produces structured job descriptors.
   is needed and decides synthesis type/level
   (session vs. subject) from config. There are **no imaging
   algorithms** at this stage.
+- **Checks:** Discovery also checks that file names and directories agree
+  on subject and session, and stops with a report naming the files when
+  they do not. T1w/T2w files labelled ``part-phase``, ``part-real`` or
+  ``part-imag`` are listed as not processed and are not averaged into
+  synthesis.
 
 
 2. Anatomical processing
@@ -73,8 +78,8 @@ by one quantization step; scaled values are unchanged.
   nibabel/FSL fallback to qform and sform (code 2).
 - **Conflicting qform/sform** (``QformSformReconciled``): sform is
   copied to both (brainana/FSL use sform; FastSurfer favors qform).
-- **``.nii`` → ``.nii.gz``:** converted once at ingest (not logged in
-  the sidecar).
+- **NIfTI compression:** ``.nii`` inputs are converted to ``.nii.gz``
+  once at ingest (not logged in the sidecar).
 
 .. warning::
 
@@ -108,8 +113,9 @@ findings**; section omitted if empty):
   well-defined.
 - **Method:**
 
-  1. Skull-strip the input with a UNet-based skull-stripping model, or
-     use an existing brain mask when skull stripping is disabled.
+  1. Skull-strip the input with a UNet-based skull-stripping model, or,
+     when skull stripping is disabled, assume the input is already
+     skull-stripped.
   2. Resample the template to match the input resolution if needed.
   3. Run FSL FLIRT (rigid, 6 DOF) from the brain-extracted input to
      the template.
@@ -138,66 +144,29 @@ findings**; section omitted if empty):
   macaque anatomical MRI with CHARM and SARM level 2 atlases (ARM2
   parcellation). The network produces an atlas-labelled segmentation,
   from which a brain mask and optional hemisphere masks are derived.
-- **Intensity scaling:** Before the network sees the image, intensities
-  are rescaled to 0–255 as FreeSurfer's ``mri_convert`` does: the
-  brightest 0.1% of voxels map to the top of the range. When tissue
-  outside the brain is far brighter than the brain itself (fat and muscle
-  next to a surface receive coil are the typical case), that would squeeze
-  the brain into a handful of grey levels. The range is therefore capped at
-  2.5× the typical intensity in the centre of the image, which is almost
-  all brain. On ordinary data the cap does not bind and nothing changes.
-  The same scaling is used for the 8-bit volume that surface
-  reconstruction starts from.
-- **Second pass on a bias-corrected input:** Strong intensity
-  non-uniformity — a surface receive coil, or a site with a strong bias
-  field — makes the network leave out brain that looks too dark, such as
-  the occipital pole far from a coil or a whole lobe. After the first pass
-  the template brain is registered to the subject and compared with the
-  mask. If the template shows brain the mask missed, the image is
-  bias-corrected with N4 and the network runs a second time on the
-  corrected image. The second result replaces the first only if it agrees
-  with the template at least as well. A mask much smaller than the
-  template's brain also triggers the second pass when the template shows
-  even a small miss; a small brain that the template agrees with does not.
-  The template is only used for this check; the segmentation always comes
-  from the network. Settings are under
-  ``anat.skullstripping_segmentation.fastSurferCNN``: ``pre_inference_n4``
-  (``enabled: true`` always runs the second pass, kept by the same rule) and
-  ``template_prior`` (``enabled: false`` skips the registration, and the
-  mask volume alone then decides). The corrected image is only network
-  input; the bias correction in 2.4 still starts from the uncorrected
-  image. Cost on a subject that needs no second pass: about half a minute
-  on a GPU.
-- **Alignment to NMT2Sym for the template checks:** the template used for
-  the second-pass check, for ``fix_V1_WM`` and for the template surface is
-  always NMT2Sym, whatever ``template.output_space`` is. Its registration
-  refines an image that is already roughly aligned and is not reliable from
-  far off. Conform aligns the image to the output template. NMT2Sym and
-  NMT2Asym share NMT2Sym's coordinates, but MEBRAINS, D99 and Yerkes19 sit
-  about 25 mm away (D99 is also tilted about 10°). For these the image is
-  first placed in NMT2Sym coordinates by a rigid transform bundled in
-  ``template_zoo/template/xfm/``. Only the image header changes, never its
-  voxels. With a custom template, or with ``anat.conform.enabled: false``,
-  the brain is first rigidly registered to the NMT2Sym brain with the
-  conform method (FLIRT; SimpleITK in Brainana Lite), which takes a few
-  seconds. If that fails, the template checks and ``fix_V1_WM`` are
-  skipped and the first segmentation pass is kept. The undersized-mask rule
-  always compares with the NMT2Sym brain (92.5 cm³).
+- **Intensity scaling:** Intensities are rescaled to 0–255 before
+  segmentation, capped relative to brain intensity so that very bright
+  tissue outside the brain (e.g. next to a surface coil) does not compress
+  the brain's range.
+- **Second pass when brain is missed:** Strong intensity non-uniformity
+  (a surface coil or a strong bias field) can make the network leave out
+  dark brain. After the first pass, the NMT2Sym template is registered to
+  the subject; if it shows brain outside the mask, the image is N4-corrected
+  and segmented again, and the second result is kept only if it agrees with
+  the template at least as well. If any of these checks fails, the first
+  pass is kept. Settings: ``fastSurferCNN.pre_inference_n4`` and
+  ``fastSurferCNN.template_prior``.
+- **Other output spaces:** these template checks always use NMT2Sym. When
+  the output space is another template, a custom template, or conform is
+  off, the image is first rigidly aligned to NMT2Sym (a few seconds at
+  most); this is automatic.
 - **Provenance:** The brain-mask and segmentation sidecars record the mask
-  volume and its ratio to the template brain (``MaskVolumeCm3``,
-  ``MaskToTemplateBrainRatio``, ``MaskUndersized``), whether the intensity
-  cap applied (``IntensityCapApplied``, ``IntensityCapRatio``), how many
-  passes ran and why (``SegmentationPasses``, ``Pass1``,
-  ``PreInferenceN4``), and the template comparison (``TemplatePrior``: how
-  much brain the mask missed and its agreement with the template). After a
-  second pass that was kept, the top-level fields describe it and ``Pass1``
-  keeps the first pass's values. An undersized mask is also logged as a
-  warning.
+  volume, how many passes ran and why (``SegmentationPasses``), and the
+  template comparison (``TemplatePrior``). A mask much smaller than the
+  template brain is logged as a warning (``MaskUndersized``).
 - **Label fragments (optional):** Detached label pieces smaller than
-  ``fastSurferCNN.label_island_min_volume_mm3`` are relabelled to the label
-  surrounding them; the largest piece of every label is always kept. Such
-  fragments carry no anatomy but can turn into small topological defects in
-  the surfaces. Off by default; 2.5 mm³ is a sensible value.
+  ``fastSurferCNN.label_island_min_volume_mm3`` take the surrounding label.
+  Off by default; 2.5 mm³ is a sensible value.
 
 
 2.4 Bias field correction
@@ -218,12 +187,14 @@ findings**; section omitted if empty):
   example, NMT2Sym).
 - **Method:** Multi-stage ANTs registration:
 
-  - Translation → rigid → affine → optional SyN.
-  - Metrics (e.g. mutual information, cross-correlation, Mattes),
-    gradient steps, shrink factors, convergence criteria, and
-    smoothing schedules are configurable.
-  - When GPU resources and FireANTs are available, the SyN stage can
-    be run with FireANTs.
+  - Translation → rigid → affine → SyN, up to the transform type set by
+    ``registration.anat2template_xfm_type`` (default ``syn``). Stage
+    metrics, iterations, shrink factors and smoothing are fixed; the
+    transform type and ``registration.interpolation`` are configurable.
+  - With ``registration.enable_fireants: true`` (default), the SyN stage
+    runs with FireANTs (affine followed by greedy deformable
+    registration), on the GPU when one is assigned to the step and
+    otherwise on the CPU. If FireANTs fails, ANTs is used.
 
 
 2.6 T2w to T1w coregistration
@@ -258,96 +229,38 @@ maps.
   derive morphological measures (e.g. cortical thickness, surface area,
   curvature).
 - **Inputs:** Preprocessed T1w, ARM2 atlas segmentation, and brain mask
-  from section 2 (skull stripping and segmentation).
+  from section 2.3 (skull stripping and segmentation).
 - **Method:** A FastSurfer-style workflow built on FreeSurfer, with
   macaque-specific adaptations:
 
   - Convert CNN-derived ARM2 labels into a FreeSurfer-compatible segmentation.
   - Tune surface reconstruction parameters for submillimeter macaque MRI.
   - Apply targeted segmentation refinements in error-prone regions,
-    including the claustrum and orbitofrontal cortex (and, when template
-    surfaces are off, the occipital calcarine cortex; see
-    ``fix_V1_WM`` below).
+    including the claustrum and orbitofrontal cortex (skipped with a custom
+    template).
 
 - **Starting surface: the NMT2Sym template** (default,
-  ``anat.surface_reconstruction.template_surface.enabled: true``). Instead of
-  tessellating the white-matter segmentation, the white surface of
-  the NMT2Sym template (``template_zoo/fastsurfer/sub-NMT2Sym``) is carried
-  into the subject by the subject-to-NMT2Sym registration and used as the
-  starting mesh. That mesh is already closed and genus 0, so no topology
-  correction is needed, and every subject shares the template's vertex
-  numbering. The white surface is then fitted to the image everywhere
-  except V1, whose white surface stays at the template (only the light
-  smoothing ``mris_place_surface --nsmooth`` applies moves it); the pial
-  surface, including over V1, is fitted to the image as before.
-
-  - **Why V1 is held:** on T1w data V1's heavily myelinated cortex gives
-    little grey/white contrast. A white surface fitted to the image there sat
-    about 0.4 mm too far out (V1 thickness 1.3–1.4 mm against the expected
-    1.7–2.0 mm), and on images with strong bias it lost V1's characteristic
-    fold shape. In blind visual comparisons the template-held V1 was
-    preferred on hard data (surface coil, strong bias) and was as good or
-    better on 21 of 24 normal-quality PRIME-DE subjects.
-  - **Transform:** the anatomical registration's transform is reused when
-    ``template.output_space`` is NMT2Sym (the default). For any other output
-    space, surface reconstruction registers the skull-stripped T1w to the
-    NMT2Sym brain itself, with the same ``registration`` settings, so the
-    surface prior does not depend on the chosen output space. The T1w is
-    first placed in NMT2Sym coordinates as described for segmentation
-    above. An affine-only registration (``anat2template_xfm_type`` other
-    than ``syn``) places V1 less accurately and is logged as a warning.
-  - **Fallback:** if that transform cannot be computed, or puts less than
-    80% of the template white surface inside the brain mask (a correct one
-    puts over 99.9% there), the subject is tessellated instead and the step
-    metadata records why (``template_surface_fallback``). V1's white matter
-    is then not filled under ``fix_V1_WM: "auto"``, because that was decided
-    during segmentation.
-  - **fix_V1_WM:** ``anat.skullstripping_segmentation.fastSurferCNN.fix_V1_WM``
-    (fills missing thin V1 white matter from the template's) defaults to
-    ``"auto"``: on only when tessellated surfaces are built (surface
-    reconstruction on, template surfaces off), where it improved surfaces.
-    With template surfaces it made no visible difference, and without
-    surface reconstruction it only relabels a few hundred voxels whose exact
-    position changes with a tiny move of the image, so it is off there.
-  - **Longitudinal:** the base template is reconstructed this way, and each
-    timepoint inherits its mesh and the V1 label, so V1 stays held there too.
-
-- **Starting surface: tessellation** (``template_surface.enabled: false``, the
-  v3.0.0 behaviour). The white-matter segmentation is tessellated and
-  topology-corrected:
-
-  - Run an additional topology correction step for surface defects that
-    commonly arise in macaque reconstructions and are not reliably
-    resolved by FreeSurfer alone.
-  - Map the uncorrected surface to a sphere with FreeSurfer's
-    quasi-homeomorphic mapping (``mris_sphere -q``, as ``recon-all -qsphere``
-    does). ``mris_fix_topology`` finds defects where faces overlap on this
-    map, so a map that folds less keeps defects small and separate; a
-    spectral projection folded more and led to larger cuts, notably at the
-    occipital pole. The spectral projection can still be selected with
-    ``processing.use_fs_qsphere: false`` in the surface-reconstruction
-    package defaults (``src/fastsurfer_surfrecon/config/default.yaml``; it
-    is not a brainana config key).
-  - Fix topology with ``mris_fix_topology -ga``. If the genetic-algorithm
-    search crashes on a large defect (seen with FreeSurfer 7.4.1), the fix
-    is retried with the default search rather than abandoning the
-    hemisphere. If it finishes but returns an open or non-genus-0 mesh, or
-    one that could only be repaired by removing more than 2% of it, the
-    default search is also run and the result that keeps more of the
-    surface is used. A mesh that comes out consistently wound but
-    inside-out is flipped before it is checked and promoted.
-
-- **Template-surface record:** with template surfaces, ``scripts/?h.template_init.json``
-  records the template, the transform used and the held label, and
-  ``label/?h.template.V1.label`` lists the held vertices.
-
-- **Surface QC record:** ``scripts/surface_qc.json`` records the topology
-  of every key surface, which topology-fix path was taken per hemisphere
-  (``topology_fix``: ``ga``, ``no_ga_fallback``, ``no_ga_rescue`` or ``no_ga``, and whether
-  the mesh was flipped or repaired), and the median cortical thickness per
-  hemisphere (``thickness``). A median below 1.0 mm is flagged as
-  ``collapsed`` and logged — the pial surface has most likely failed to
-  move off the white surface.
+  ``anat.surface_reconstruction.template_surface.enabled: true``). The
+  NMT2Sym white surface is warped into the subject and fitted to the image,
+  except in V1, where the white surface stays at the template: V1 has too
+  little grey/white contrast on T1w images to place it reliably. The pial
+  surface is fitted everywhere. Every subject shares the template's mesh and
+  vertex numbering. If the template cannot be aligned to the subject, that
+  subject is tessellated instead. ``scripts/?h.template_init.json`` and
+  ``label/?h.template.V1.label`` record what was used and held.
+- **Starting surface: tessellation** (``template_surface.enabled: false``,
+  the 3.0.0 behaviour). The white-matter segmentation is tessellated and
+  its topology corrected with FreeSurfer (``mris_sphere -q``,
+  ``mris_fix_topology``), with extra repair steps for defects common in
+  macaque data.
+- **fix_V1_WM** (``fastSurferCNN.fix_V1_WM``, default ``"auto"``): fills
+  thin V1 white matter from the template before tessellation. ``"auto"``
+  turns it on only for tessellated surfaces.
+- **Longitudinal:** timepoints inherit the base's mesh and V1 label.
+- **Surface QC record:** ``scripts/surface_qc.json`` records the surfaces'
+  topology and the median cortical thickness per hemisphere; a median below
+  1.0 mm is flagged ``collapsed`` and logged (the pial surface most likely
+  failed).
 
 - **Outputs:** FreeSurfer-compatible subject directories under ``fastsurfer/``.
 
@@ -386,14 +299,16 @@ described in :doc:`synthesis_level`.
 
 
 The functional branch preprocesses fMRI data and produces
-motion-corrected, optionally slice-time-corrected, despiked,
-bias-corrected, and skullstripped fMRI in native or template space,
-with associated transforms and QC outputs.
+motion-corrected and optionally slice-time-corrected and despiked fMRI
+in native or template space, with a brain mask, transforms and QC
+outputs. Bias correction and skull stripping are computed on the
+temporal mean to guide registration; they are not applied to the 4D
+series.
 
 The workflow is conceptually split into:
 
 - **Time-series steps:** Slice timing (if available) →
-  motion correction and temporal mean → 
+  motion correction and temporal mean → despike (optional) →
   within-session coregistration and session-averaged temporal mean.
 - **Compute on temporal mean:** Bias correction → conform → brain mask
   (UNet) → registration to anatomical or template.
@@ -423,13 +338,14 @@ applies slice timing correction.
 ~~~~~~~~~~~~~~~~~~~~~
 
 - **Purpose:** Realign fMRI volumes to correct for subject motion.
-- **Method:** FSL ``mcflirt`` performs volume realignment with 6 DOF.
-  The reference volume is either a user-specified timepoint, the
-  middle volume, or a temporal mean (via ``fslmaths -Tmean`` or
+- **Method:** FSL ``mcflirt`` performs volume realignment
+  (``func.motion_correction.dof``, default 6). The reference volume
+  (``ref_vol``) is the middle volume (default), a given timepoint, or
+  the temporal mean (via ``fslmaths -Tmean`` or
   ``fslroi``). Outputs include motion-corrected 4D fMRI, motion
   matrices, and motion parameters (TSV).
-- **Short runs:** For very short runs (e.g. fewer than 15 volumes),
-  motion correction can be skipped, and pass-through outputs
+- **Short runs:** Runs with fewer than 15 volumes skip motion
+  correction, and pass-through outputs
   (including a temporal mean and zero-filled motion parameters) are
   generated.
 
@@ -449,16 +365,16 @@ applies slice timing correction.
 4.4 Within-session coregistration
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-When multiple fMRI runs exist per session, an optional within-session
-coregistration step can align runs to a common reference and produce
-a session-averaged temporal mean.
+When multiple fMRI runs exist per session, within-session
+coregistration (``func.coreg_runs_within_session``, on by default)
+aligns runs to a common reference and produces a session-averaged
+temporal mean.
 
 - **Purpose:** Improve stability of the temporal mean used for
   bias correction, conform, and registration.
-- **Method:** Rigid registration from each run's temporal mean to a
-  reference run's temporal mean, using ANTs or FSL FLIRT as
-  configured, followed by applying the transform to the 4D fMRI and
-  mask.
+- **Method:** ANTs rigid registration from each run's temporal mean to
+  the first run's temporal mean; the transform is then applied to that
+  run's 4D fMRI.
 
 
 4.5 Bias correction
@@ -484,14 +400,16 @@ a session-averaged temporal mean.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 - **Conform:** The functional temporal mean is conformed to the
-  chosen template using the same strategy as anatomical conform:
+  selected anatomical brain (or to the output template when there is no
+  anatomical), using the same strategy as anatomical conform:
   skull-stripping the mean, FSL FLIRT rigid registration to the
   template, resampling with AFNI ``3dresample``, and application of the
   transform (optionally composed with anatomical transforms).
 - **Skull stripping:** A UNet-based functional (EPI) skull-stripping
   model, derived from NHP-BrainExtraction/DeepBet, is run on the
-  temporal mean to obtain a brain mask, which is then applied to the
-  4D fMRI.
+  temporal mean to obtain a brain mask. The mask is resampled with the
+  same transforms as the 4D fMRI and published alongside it; the fMRI
+  itself is not masked.
 
 
 4.7 Registration
@@ -580,7 +498,7 @@ never scrubbed or modified.
      - Main tool / method
    * - Anatomical
      - Ingest normalization
-     - nibabel header repair (4D collapse, missing qform/sform)
+     - nibabel header repair (4D collapse, missing or conflicting qform/sform)
    * - Anatomical
      - Synthesis
      - ANTs rigid + average
@@ -595,7 +513,7 @@ never scrubbed or modified.
      - ANTs N4BiasFieldCorrection
    * - Anatomical
      - Registration
-     - ANTs (optional FireANTs for SyN)
+     - FireANTs SyN (default) or ANTs
    * - Surface
      - Surface recon
      - FastSurfer-style workflow + FreeSurfer
@@ -610,7 +528,7 @@ never scrubbed or modified.
      - AFNI 3dDespike (optional)
    * - Functional
      - Within-session coreg
-     - ANTs or FLIRT
+     - ANTs rigid
    * - Functional
      - Bias correction
      - ANTs N4BiasFieldCorrection
@@ -619,7 +537,7 @@ never scrubbed or modified.
      - FLIRT + UNet skull-strip + 3dresample
    * - Functional
      - Registration
-     - ANTs (optional FireANTs for SyN)
+     - FireANTs SyN (default) or ANTs
    * - Functional
      - tSNR
      - nibabel (``|mean| / SD`` over time)

@@ -12,7 +12,7 @@ Brainana Lite is a **notebook-based** workflow for volumetric **T1w** preprocess
 Run it
 ------
 
-Open the notebook, edit ``WORKING_DIR`` in the **USER SETTINGS** cell, then **Run All**. Colab vs local Jupyter is detected automatically.
+Open the notebook, edit ``WORKING_DIR`` in the **USER SETTINGS** cell, then **Run All**. The same cell sets the subject and session IDs, the template (``TEMPLATE``), GPU use (``USE_GPU``) and ``BRAINANA_REF``, the Brainana release the notebook installs. On Colab the first **Run All** may restart the runtime once; run all again when it reconnects. Colab vs local Jupyter is detected automatically.
 
 - **GitHub:** `BrainanaLite.ipynb <https://github.com/brainana/brainana/blob/main/examples/BrainanaLite.ipynb>`_
 - **Colab:** Open in `Colab <https://colab.research.google.com/github/brainana/brainana/blob/main/examples/BrainanaLite.ipynb>`_
@@ -30,14 +30,14 @@ What you get
 
 After **Run All**, derivatives are written in a **BIDS-styled** layout (exact filenames and the output tree are printed when preprocessing finishes):
 
-- **Preprocessed T1w** in **individual (T1w) space** and in your chosen **template space** (skull-stripped brain volumes included)
+- **Preprocessed T1w** in **individual (T1w) space** (head and skull-stripped brain) and in your chosen **template space** (head, plus the brain mask)
 - **Brain mask**, **hemisphere mask**, and **atlas-based tissue segmentation** in individual space (e.g. ARM2), with a color lookup table
 - **Standard macaque atlases** backprojected into **individual spaces** (T1w and scanner)
 - **An uncropped conformed T1w** (``desc-conformFullFOV``) — the conform field of view is sized from the template, so a recording chamber, head-post or the neck can fall outside it and be cropped from every other derivative; this leaf output keeps them visible
 - **QC snapshot figures** (conformation — including a full-field-of-view figure with the processing box drawn on it — skull stripping, bias correction, segmentation, registration, and related checks)
 - **A** ``dataset_description.json`` **at the derivatives root**, and the effective configuration of the run under ``lite_reports/``
 
-Lite outputs are related to but not identical to the full pipeline; see :doc:`outputs` for the canonical Docker derivative layout. QC figures are displayed inline in the notebook as they are produced; the aggregated per-subject HTML QC report is a full-pipeline feature.
+Lite outputs are related to but not identical to the full pipeline; see :doc:`outputs` for the canonical Docker derivative layout. Lite runs synthesis, conform, skull stripping and segmentation, bias correction, registration to the template and atlas backprojection. Conform uses a SimpleITK rigid registration instead of FLIRT, and there is no surface reconstruction, so the V1 white-matter fill (``fix_V1_WM: "auto"``) is off. QC figures are displayed inline in the notebook as they are produced; the aggregated per-subject HTML QC report is a full-pipeline feature.
 
 See also
 --------

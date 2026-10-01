@@ -8,8 +8,8 @@ USAGE
       liuxingyu987/brainana:<version> [bids_dir] [output_dir] \
         [--freesurfer_license PATH] [--config PATH | --config_file PATH] \
         [-w PATH | --work_dir PATH] [--no_resume] \
-        [--subjects SUBJECT ...] [--sessions SESSION ...] \
-        [--tasks TASK ...] [--runs RUN ...] \
+        [--subjects SUBJECT[,SUBJECT...]] [--sessions SESSION[,SESSION...]] \
+        [--tasks TASK[,TASK...]] [--runs RUN[,RUN...]] \
         [--anat_only] [--output_space SPACE] [-profile PROFILE] [-h | --help]
 
   Local (from source):
@@ -35,26 +35,27 @@ GENERAL OPTIONS
   -h, --help                   Show this help and exit.
 
 BIDS FILTERING OPTIONS
-  --subjects SUBJECT ...       Restrict to the listed subject IDs (omit the "sub-" prefix).
+  --subjects SUBJECT[,...]     Restrict to the listed subject IDs, comma-separated
+                               (e.g. 01,02; omit the "sub-" prefix).
                                Default: (all subjects)
-  --sessions SESSION ...       Restrict to specific session IDs (omit the "ses-" prefix).
+  --sessions SESSION[,...]     Restrict to session IDs, comma-separated (omit "ses-").
                                Default: (all sessions)
-  --tasks TASK ...             Restrict to specific task names (functional data only).
+  --tasks TASK[,...]           Restrict to task names, comma-separated (functional only).
                                Default: (all tasks)
-  --runs RUN ...               Restrict to specific run indices. Default: (all runs)
+  --runs RUN[,...]             Restrict to run indices, comma-separated. Default: (all runs)
 
 PROCESSING OPTIONS
   --anat_only                  Run only the anatomical pipeline; skip functional. Default: False
   --output_space SPACE         Template space for registered outputs. Either a bundled template
                                spec TEMPLATE_NAME[:DESCRIPTION] (e.g. NMT2Sym:res-1 [1 mm],
-                               NMT2Sym:res-05 [0.5 mm], T1w [native]), OR a path to a CUSTOM
+                               NMT2Sym:res-05 [0.5 mm], MEBRAINS:res-05), OR a path to a CUSTOM
                                template file (.nii/.nii.gz). Default: NMT2Sym:res-05
                                NOTE: custom templates use --output_space <file>. There is no
                                --custom-template flag.
 
 RESOURCE OPTIONS
   -profile PROFILE             Nextflow resource profile: minimal (4 CPUs, 16 GB) |
-                               recommended (8+ CPUs, 32 GB). Default: built-in (8 CPUs, 20 GB)
+                               recommended (8 CPUs, 32 GB). Default: built-in (8 CPUs, 20 GB)
   NXF_MAX_CPUS=N   (env var)   Max CPUs for Nextflow, e.g. docker run -e NXF_MAX_CPUS=8 ...
   NXF_MAX_MEMORY=SIZE (env)    Max memory for Nextflow, e.g. docker run -e NXF_MAX_MEMORY=20g ...
 

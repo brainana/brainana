@@ -27,8 +27,8 @@ System requirements
    - **Disk:** ≥ 20 GB (recommended 50 GB+ for multiple subjects)
    - **CPU:** ≥ 4 logical cores (recommended 8+)
    - **GPU (optional, NVIDIA only):** ≥ 6 GB VRAM (recommended ≥ 10 GB for production)
-   - **NVIDIA Driver (optional):** ≥ 520.61.05 if using GPU
-   - **CUDA (optional):** ≥ 11.8 if using GPU
+   - **NVIDIA Driver (optional):** ≥ 525.60.13 if using GPU
+   - **CUDA (optional):** ≥ 12.0 if using GPU
 
 Resource guidelines:
 
@@ -63,8 +63,8 @@ Set up Docker
 
    In the output (top-right corner), check:
 
-   - Driver version — must be ≥ 520.61.05
-   - CUDA version — must be ≥ 11.8
+   - Driver version — must be ≥ 525.60.13
+   - CUDA version — must be ≥ 12.0
 
    If you have no NVIDIA GPU, or either value is below the minimum, no compatible GPU is available. Skip the rest of this step.
 
