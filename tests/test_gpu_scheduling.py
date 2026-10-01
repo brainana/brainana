@@ -120,6 +120,27 @@ def test_slot_helper_cpu_mode_leaves_gpu_hidden(tmp_path):
     assert "cvd=unset" in out
 
 
+def test_slot_helper_fails_when_locks_are_unsupported(tmp_path):
+    """A file system without flock support must fail the task, not wait forever."""
+    shim = tmp_path / "shim"
+    shim.mkdir()
+    (shim / "flock").write_text("#!/bin/sh\nexit 1\n")
+    (shim / "flock").chmod(0o755)
+    env = dict(os.environ)
+    env.update(
+        PATH=f"{shim}:{SLOT_HELPER.parent}:{env['PATH']}",
+        BRAINANA_GPU_SLOTS="0",
+        BRAINANA_GPU_LOCK_DIR=str(tmp_path / "locks"),
+    )
+    proc = subprocess.run(
+        ["bash", "-ue", "-c", "source brainana_gpu_slot.sh\necho ran"],
+        env=env, capture_output=True, text=True, timeout=30,
+    )
+    assert proc.returncode == 1
+    assert "ran" not in proc.stdout
+    assert "cannot lock" in proc.stderr
+
+
 def test_slot_helper_assigns_distinct_slots(tmp_path):
     holder = _run_task(tmp_path, "3 5", 'echo "gpu=$CUDA_VISIBLE_DEVICES"; sleep 3')
     time.sleep(1)

@@ -26,12 +26,17 @@ brainana_acquire_gpu_slot() {
         return 0
     fi
     mkdir -p "$dir"
-    local waited=0 i gpu fd
+    local waited=0 i gpu fd rc
     while true; do
         i=0
         for gpu in $slots; do
             exec {fd}>>"$dir/slot${i}_gpu${gpu}.lock"
-            if flock -n "$fd"; then
+            # 75 = held by another task. Anything else is an error (e.g. a work dir
+            # on Lustre or NFS without lock support), which would otherwise look
+            # like a busy slot forever.
+            rc=0
+            flock -n -E 75 "$fd" || rc=$?
+            if [ "$rc" -eq 0 ]; then
                 export CUDA_VISIBLE_DEVICES="$gpu" BRAINANA_DEVICE=cuda
                 if [ "$waited" -gt 0 ]; then
                     echo "[GPU Assignment] slot $i -> GPU $gpu (waited ${waited}s)"
@@ -41,10 +46,19 @@ brainana_acquire_gpu_slot() {
                 return 0
             fi
             exec {fd}>&-
+            if [ "$rc" -ne 75 ]; then
+                echo "[GPU Assignment] ERROR: cannot lock $dir/slot${i}_gpu${gpu}.lock" \
+                    "(flock exit $rc). The work dir's file system may not support" \
+                    "file locks (Lustre/NFS): use a work dir on local disk." >&2
+                exit 1
+            fi
             i=$((i + 1))
         done
         sleep 5
         waited=$((waited + 5))
+        if [ $((waited % 600)) -eq 0 ]; then
+            echo "[GPU Assignment] waiting for a GPU slot (${waited}s)"
+        fi
     done
 }
 
