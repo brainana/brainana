@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **DataLad / git-annex datasets**: discovery found no subjects, because every NIfTI is a symlink into `.git/annex`. Symlinked files are now found where they sit in the dataset.
+
 
 ## [3.1.0] - 2026-09-30
 

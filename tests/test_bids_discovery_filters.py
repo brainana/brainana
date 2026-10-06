@@ -44,6 +44,38 @@ def _paths(job):
     return sorted(Path(p).name for p in job.get("file_paths") or [job["file_path"]])
 
 
+def test_annexed_symlinked_niftis_are_discovered(tmp_path):
+    """DataLad/git-annex datasets store every NIfTI as a symlink into .git/annex."""
+    files = [
+        "sub-01/ses-01/anat/sub-01_ses-01_run-1_T1w.nii.gz",
+        "sub-01/ses-02/func/sub-01_ses-02_task-rest_run-1_bold.nii.gz",
+    ]
+    for i, rel in enumerate(files):
+        obj = tmp_path / ".git" / "annex" / "objects" / f"MD5E-{i}.nii.gz"
+        obj.parent.mkdir(parents=True, exist_ok=True)
+        obj.touch()
+        link = tmp_path / rel
+        link.parent.mkdir(parents=True, exist_ok=True)
+        link.symlink_to(Path("../../..") / obj.relative_to(tmp_path))
+    _make(tmp_path, [])
+
+    anat, func = _discover(tmp_path)
+    assert [_paths(j) for j in _t1w_jobs(anat)] == [
+        ["sub-01_ses-01_run-1_T1w.nii.gz"]
+    ]
+    assert [Path(j["file_path"]).name for j in func] == [
+        "sub-01_ses-02_task-rest_run-1_bold.nii.gz"
+    ]
+
+
+def test_symlinked_bids_root_is_discovered(tmp_path):
+    real = _make(tmp_path / "real", ["sub-01/anat/sub-01_T1w.nii.gz"])
+    link = tmp_path / "link"
+    link.symlink_to(real)
+    anat, _ = _discover(link)
+    assert [_paths(j) for j in _t1w_jobs(anat)] == [["sub-01_T1w.nii.gz"]]
+
+
 def test_phase_run_does_not_trigger_synthesis(tmp_path):
     _make(
         tmp_path,
