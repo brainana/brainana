@@ -1504,13 +1504,35 @@ def fsl_mat_for_new_reference(
     introduces an x error of ``spacing * (pad_left_x - pad_right_x)`` on exactly the
     templates this pipeline ships. Compute it through S/A instead.
     """
-    m = (
-        np.asarray(mat, dtype=np.float64)
-        if isinstance(mat, np.ndarray)
-        else np.loadtxt(str(validate_input_file(mat, logger)))
-    )
-    old = _sitk_ensure_3d(sitk.ReadImage(str(validate_input_file(old_reff, logger))))
-    new = _sitk_ensure_3d(sitk.ReadImage(str(validate_input_file(new_reff, logger))))
+    return _fsl_change_of_frame(old_reff, new_reff) @ _load_fsl_mat(mat)
+
+
+def fsl_mat_for_new_moving(
+    mat: "np.ndarray | Path | str", old_movingf: "Path | str", new_movingf: "Path | str"
+) -> np.ndarray:
+    """Re-express an FSL matrix for a moving grid with a different FOV.
+
+    The moving-side mirror of :func:`fsl_mat_for_new_reference`: a matrix estimated
+    on a cropped (or padded) moving image, ``old_movingf``, becomes valid for
+    ``new_movingf`` on the same voxel lattice. FLIRT's matrix maps moving-FSL-mm ->
+    reference-FSL-mm, so the change of frame goes on the right:
+
+        mat_new = mat_old @ S_old @ inv(A_old) @ A_new @ inv(S_new)
+    """
+    return _load_fsl_mat(mat) @ _fsl_change_of_frame(new_movingf, old_movingf)
+
+
+def _load_fsl_mat(mat: "np.ndarray | Path | str") -> np.ndarray:
+    if isinstance(mat, np.ndarray):
+        return np.asarray(mat, dtype=np.float64)
+    return np.loadtxt(str(validate_input_file(mat, logger)))
+
+
+def _fsl_change_of_frame(old_f: "Path | str", new_f: "Path | str") -> np.ndarray:
+    """FSL-mm of grid ``old_f`` -> FSL-mm of grid ``new_f``, for two grids on the
+    same voxel lattice (same spacing and direction; one a crop or pad of the other)."""
+    old = _sitk_ensure_3d(sitk.ReadImage(str(validate_input_file(old_f, logger))))
+    new = _sitk_ensure_3d(sitk.ReadImage(str(validate_input_file(new_f, logger))))
 
     change_of_frame = (
         _sitk_fsl_scale(new)
@@ -1520,10 +1542,10 @@ def fsl_mat_for_new_reference(
     )
     if not np.allclose(change_of_frame[:3, :3], np.eye(3), atol=1e-9):
         raise ValueError(
-            "Reference grids differ by more than a translation (spacing or direction "
-            "changed); the FSL matrix cannot be re-expressed by padding alone."
+            "Grids differ by more than a translation (direction changed); "
+            "the FSL matrix cannot be re-expressed by cropping or padding alone."
         )
-    return change_of_frame @ np.asarray(m, dtype=np.float64)
+    return change_of_frame
 
 
 def reference_padding_to_cover(
@@ -1555,9 +1577,10 @@ def reference_padding_to_cover(
         margin: Extra voxels per face. One by default: it costs almost nothing, covers
             FLIRT's zero-pad ramp (nonzero support out to a full voxel, wider than
             SimpleITK's edge clamp) and absorbs the floor/ceil rounding.
-        max_growth: Per-axis sanity cap on total padding as a multiple of the reference
-            size. A NaN or garbage transform yields an absurd hull; this catches it
-            before anything is allocated.
+        max_growth: Per-axis cap on total padding as a multiple of the reference
+            size. A garbage transform yields an absurd hull; this catches it before
+            anything is allocated. A correct transform of a scan reaching well past the
+            head (neck, shoulders) can exceed it too, so it is not a correctness test.
 
     Returns:
         ``(pad_left, pad_right)``, non-negative int arrays of shape ``(3,)``.
@@ -1596,8 +1619,10 @@ def reference_padding_to_cover(
     growth = (pad_left + pad_right) / np.maximum(ref_shape, 1)
     if np.any(growth > max_growth):
         raise ValueError(
-            f"Implausible full-FOV padding (left={list(pad_left)}, right={list(pad_right)}) "
+            f"Full-FOV padding too large (left={list(pad_left)}, right={list(pad_right)}) "
             f"for reference shape {list(ref_shape)}: grows by up to {growth.max():.1f}x, "
-            f"cap is {max_growth}x. The rigid transform is probably wrong."
+            f"cap is {max_growth}x. This measures how far the scan extends beyond the "
+            f"template box (e.g. neck or body in the field of view), not whether the "
+            f"rigid transform is right."
         )
     return pad_left, pad_right

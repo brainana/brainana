@@ -117,8 +117,9 @@ findings**; section omitted if empty):
      when skull stripping is disabled, assume the input is already
      skull-stripped.
   2. Resample the template to match the input resolution if needed.
-  3. Run FSL FLIRT (rigid, 6 DOF) from the brain-extracted input to
-     the template.
+  3. Run FSL FLIRT (rigid, 6 DOF) from the brain-extracted input,
+     cropped to the brain plus a margin, to the template. The crop
+     keeps scans that include the neck or body from misaligning.
   4. Use AFNI ``3dresample`` to ensure template and input share a
      consistent grid.
   5. Apply the FLIRT transform back to the full-head anatomical.

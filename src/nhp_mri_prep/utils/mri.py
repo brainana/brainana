@@ -1214,6 +1214,75 @@ def crop_image_to_original(
     )
 
 
+def crop_to_nonzero_bbox(
+    imagef: Union[str, Path],
+    outputf: Union[str, Path],
+    margin_fraction: float,
+    min_margin_mm: float,
+    logger: Optional[logging.Logger] = None,
+) -> Optional[Tuple[slice, slice, slice]]:
+    """Crop a 3-D image to the bounding box of its nonzero voxels, plus a margin.
+
+    The margin on each axis is ``max(margin_fraction * bbox extent, min_margin_mm)``,
+    converted to voxels with that axis's voxel size and clipped to the image. The
+    output keeps world coordinates (only the stored origins move), so a world-space
+    transform estimated on it holds for the uncropped image as well.
+
+    Args:
+        imagef: Input 3-D image, zero outside the region of interest (e.g. a brain).
+        outputf: Output path for the cropped image. Only written when cropping.
+        margin_fraction: Margin as a fraction of the bounding-box extent per axis.
+        min_margin_mm: Lower bound on the margin, in mm.
+        logger: Optional logger instance.
+
+    Returns:
+        The voxel slices taken from the input, or *None* if the image is empty or
+        the box already spans the whole image (no file written).
+    """
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
+    img = nib.load(str(imagef))
+    shape = np.asarray(img.shape[:3], dtype=int)
+    nonzero = np.asanyarray(img.dataobj) != 0
+    if nonzero.ndim != 3 or not nonzero.any():
+        return None
+
+    zooms = np.asarray(img.header.get_zooms()[:3], dtype=float)
+    lo, hi = np.zeros(3, dtype=int), np.zeros(3, dtype=int)
+    for axis in range(3):
+        idx = np.flatnonzero(nonzero.any(axis=tuple(j for j in range(3) if j != axis)))
+        lo[axis], hi[axis] = idx[0], idx[-1]
+    extent_mm = (hi - lo + 1) * zooms
+    margin_vox = np.ceil(np.maximum(margin_fraction * extent_mm, min_margin_mm) / zooms).astype(int)
+
+    start = np.maximum(lo - margin_vox, 0)
+    stop = np.minimum(hi + margin_vox + 1, shape)
+    if np.all(start == 0) and np.all(stop == shape):
+        return None
+
+    slices = tuple(slice(int(a), int(b)) for a, b in zip(start, stop))
+    # Shift only the two stored origins; every other header field, including the
+    # qform/sform codes and the stored direction, stays bit-identical. Rebuilding the
+    # header from the affine (nibabel's ``slicer``) drops the qform and re-rounds an
+    # oblique direction, which SimpleITK then reads from the other matrix, so the two
+    # grids would no longer share a lattice for :func:`fsl_mat_for_new_moving`.
+    header = img.header.copy()
+    qform, sform = header.get_qform(), header.get_sform()
+    q_origin = qform[:3, :3] @ start + qform[:3, 3]
+    header["qoffset_x"], header["qoffset_y"], header["qoffset_z"] = q_origin
+    s_origin = sform[:3, :3] @ start + sform[:3, 3]
+    for row, value in zip(("srow_x", "srow_y", "srow_z"), s_origin):
+        header[row][3] = value
+    cropped = nib.Nifti1Image(np.asanyarray(img.dataobj)[slices], None, header)
+    nib.save(cropped, str(outputf))
+    logger.info(
+        f"Cropped to nonzero bounding box (+{margin_fraction:.0%}, >= {min_margin_mm:g} mm): "
+        f"{list(shape)} -> {list(stop - start)}"
+    )
+    return slices
+
+
 def write_inner_box_mask(
     grid_imagef: Union[str, Path],
     outputf: Union[str, Path],

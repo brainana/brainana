@@ -28,6 +28,7 @@ from .registration import (
 from .sitk_rigid_registration import (
     DEFAULT_FULL_FOV_MAX_VOXELS,
     _sitk_tx_to_matrix,
+    fsl_mat_for_new_moving,
     fsl_mat_for_new_reference,
     fsl_mat_to_world_affine,
     reference_padding_to_cover,
@@ -48,6 +49,7 @@ from ..config import validate_slice_timing_config
 from ..utils.mri import (
     apply_brain_mask,
     correct_affine_for_mismatch_orientation,
+    crop_to_nonzero_bbox,
     ensure_3d,
     pad_image,
     write_inner_box_mask,
@@ -58,6 +60,10 @@ from fastsurfer_nn.inference.segmentation import run_segmentation
 # %%
 # Default for template padding during conform (fraction of dimension, e.g. 0.1 = 10% per side)
 DEFAULT_CONFORM_PADDING_PERCENTAGE = 0.1
+# Margin around the brain when cropping the anat registration input: a fraction of the
+# brain's extent per axis, at least two of FLIRT's coarsest (8 mm) voxels.
+DEFAULT_CONFORM_REG_CROP_MARGIN_FRACTION = 0.25
+DEFAULT_CONFORM_REG_CROP_MIN_MM = 16.0
 # Minimum voxel size threshold (mm) for template downsampling during conform
 DEFAULT_DOWNSAMPLE_VOXEL_SIZE_THRESHOLD = 0.5
 # Fixed macaque head radius (mm) for converting rotational deltas to displacement.
@@ -503,6 +509,24 @@ def conform_to_template(
                     f"If this issue persists, consider disabling conform by setting 'anat.conform.enabled: false' in your configuration."
                 )
 
+        # Step 1b (anat only): crop the brain to its bounding box for registration.
+        # FLIRT's +/-180 deg search misses the right pose when the brain is a small
+        # corner of a large zero grid (neck and shoulders in the field of view), even
+        # though the skull strip itself is fine. Registration runs on the crop; the
+        # transform is then re-expressed for the full grid and applied to the
+        # uncropped input, so every output keeps the input's full FOV.
+        brain_f_for_reg = brain_f
+        if modal == "anat":
+            reg_crop_f = work_dir / "brain_for_reg.nii.gz"
+            if crop_to_nonzero_bbox(
+                brain_f,
+                reg_crop_f,
+                margin_fraction=DEFAULT_CONFORM_REG_CROP_MARGIN_FRACTION,
+                min_margin_mm=DEFAULT_CONFORM_REG_CROP_MIN_MM,
+                logger=logger,
+            ):
+                brain_f_for_reg = reg_crop_f
+
         # Step 2: prepare template for registration
         # Step 2.1: Pad the template to ensure input image is fully contained
         logger.info(
@@ -648,7 +672,7 @@ def conform_to_template(
                 logger.info("Step: SimpleITK rigid registration (FSL-free)")
                 registration_result = sitk_register(
                     fixedf=template_f_for_reg,
-                    movingf=str(brain_f),
+                    movingf=str(brain_f_for_reg),
                     work_dir=work_dir,
                     output_prefix="conform_scanner2native",
                     sitk_config=sitk_config_for_modality(modal),
@@ -667,7 +691,7 @@ def conform_to_template(
             else:
                 registration_result = flirt_register(
                     fixedf=template_f_for_reg,
-                    movingf=str(brain_f),
+                    movingf=str(brain_f_for_reg),
                     working_dir=str(work_dir),
                     output_prefix="conform_scanner2native",
                     config=flirt_config_for_modality(modal),
@@ -680,6 +704,19 @@ def conform_to_template(
                     if "inverse_transform" in registration_result
                     else None
                 )
+            if brain_f_for_reg != brain_f:
+                # Both backends write FSL matrices against the moving grid they saw;
+                # re-express them for the uncropped input, which is what Step 5 and
+                # every published transform refer to. The sitk transform object and
+                # its .world.mat are world-space and need no change.
+                forward_full = fsl_mat_for_new_moving(
+                    xfm_forward_f, brain_f_for_reg, brain_f
+                )
+                np.savetxt(str(xfm_forward_f), forward_full, fmt="%.10f")
+                xfm_inverse_f = xfm_forward_f.with_name(
+                    f"{xfm_forward_f.stem}_inverse{xfm_forward_f.suffix}"
+                )
+                np.savetxt(str(xfm_inverse_f), np.linalg.inv(forward_full), fmt="%.10f")
         except Exception as e:
             logger.error(f"Error during {rigid_method} registration: {e}")
             raise RuntimeError(

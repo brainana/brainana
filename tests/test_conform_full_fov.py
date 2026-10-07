@@ -18,12 +18,13 @@ from nhp_mri_prep.operations.sitk_rigid_registration import (
     _sitk_affine_lps,
     _sitk_tx_to_fsl_matrix,
     _sitk_tx_to_matrix,
+    fsl_mat_for_new_moving,
     fsl_mat_for_new_reference,
     fsl_mat_to_world_affine,
     reference_padding_to_cover,
     world_mat_to_vox2vox,
 )
-from nhp_mri_prep.utils.mri import pad_image, write_inner_box_mask
+from nhp_mri_prep.utils.mri import crop_to_nonzero_bbox, pad_image, write_inner_box_mask
 
 # det(RAS) > 0 -> SimpleITK sees det(LPS) > 0 too, which activates the FSL x-flip.
 # Every template this pipeline ships is in that branch, so it is the default here.
@@ -216,6 +217,125 @@ def test_world_affine_from_fsl_mat_round_trips(tmp_path):
     )
 
 
+_MOV_AFFINE_NEG = np.diag([-0.6, 0.6, 0.6, 1.0])
+_MOV_AFFINE_NEG[:3, 3] = [9.0, -9.0, -9.0]
+
+
+@pytest.mark.parametrize("mov_affine", [_MOV_AFFINE, _MOV_AFFINE_NEG])
+def test_fsl_mat_for_new_moving_keeps_the_world_transform(tmp_path, mov_affine):
+    """A matrix estimated on a cropped moving image, re-expressed for the full image,
+    is the matrix FLIRT would have produced on the full image (both x-flip branches)."""
+    ref_f = _save(tmp_path / "ref.nii.gz", (20, 20, 20), _REF_AFFINE, seed=1)
+    full_f = _save(tmp_path / "full.nii.gz", (30, 34, 38), mov_affine, seed=2)
+    crop_f = tmp_path / "crop.nii.gz"
+    nib.save(nib.load(str(full_f)).slicer[3:21, 9:30, 2:33], str(crop_f))  # asymmetric
+    tx = _tx()
+    mat_crop = _sitk_tx_to_fsl_matrix(tx, _read(ref_f), _read(crop_f))
+
+    mat_full = fsl_mat_for_new_moving(mat_crop, crop_f, full_f)
+    assert np.allclose(
+        mat_full, _sitk_tx_to_fsl_matrix(tx, _read(ref_f), _read(full_f)), atol=1e-9
+    )
+    assert np.allclose(
+        fsl_mat_to_world_affine(mat_full, ref_f, full_f), _sitk_tx_to_matrix(tx), atol=1e-9
+    )
+
+
+def test_fsl_mat_for_new_moving_rejects_a_different_lattice(tmp_path):
+    full_f = _save(tmp_path / "full.nii.gz", (30, 30, 30), _MOV_AFFINE, seed=2)
+    swapped = _MOV_AFFINE[:, [1, 0, 2, 3]]  # x and y axes exchanged: a new direction
+    other_f = _save(tmp_path / "other.nii.gz", (30, 30, 30), swapped, seed=3)
+    with pytest.raises(ValueError, match="more than a translation"):
+        fsl_mat_for_new_moving(np.eye(4), other_f, full_f)
+
+
+def _blob(path, shape, zooms, box):
+    """Zero image with a constant block at voxel ``box`` (tuple of slices)."""
+    data = np.zeros(shape, np.float32)
+    data[box] = 1.0
+    affine = np.diag([*zooms, 1.0])
+    affine[:3, 3] = [-10.0, 4.0, 7.0]
+    nib.save(nib.Nifti1Image(data, affine), str(path))
+    return path
+
+
+def test_crop_to_nonzero_bbox_margin_is_fraction_with_mm_floor(tmp_path):
+    # 1 mm voxels; blob extent 40 x 8 x 20 mm.
+    src = _blob(tmp_path / "b.nii.gz", (200, 200, 200), (1.0, 1.0, 1.0),
+                (slice(80, 120), slice(96, 104), slice(90, 110)))
+    out = tmp_path / "c.nii.gz"
+    slices = crop_to_nonzero_bbox(src, out, margin_fraction=0.25, min_margin_mm=6.0)
+    # x: 25% of 40 = 10 vox; y: 25% of 8 = 2 < floor 6; z: 25% of 20 = 5 < floor 6
+    assert slices == (slice(70, 130), slice(90, 110), slice(84, 116))
+    cropped = nib.load(str(out))
+    # World coordinates are preserved: the crop's voxel 0 sits at the source's slice start.
+    assert np.allclose(
+        cropped.affine[:3, 3],
+        nib.affines.apply_affine(nib.load(str(src)).affine, [70, 90, 84]),
+    )
+    assert np.asanyarray(cropped.dataobj).sum() == 40 * 8 * 20
+
+
+def test_crop_to_nonzero_bbox_margin_is_in_mm_not_voxels(tmp_path):
+    # 0.5 mm voxels: the same 16 mm floor is 32 voxels.
+    src = _blob(tmp_path / "b.nii.gz", (200, 200, 200), (0.5, 0.5, 0.5),
+                (slice(90, 110), slice(90, 110), slice(90, 110)))
+    slices = crop_to_nonzero_bbox(src, tmp_path / "c.nii.gz", 0.25, 16.0)
+    assert slices == (slice(58, 142),) * 3
+
+
+def _oblique_scanner_header():
+    """Header fields of a real oblique PRIME-DE scan (site-ohsu): qform with qfac -1 and a
+    float32 sform that agrees with it only to ~1e-7, both with code 2."""
+    hdr = nib.Nifti1Header()
+    hdr.set_data_dtype(np.float32)
+    hdr["pixdim"][:4] = [-1.0, 0.5, 0.5, 0.5]
+    hdr["quatern_b"], hdr["quatern_c"], hdr["quatern_d"] = 0.03664155, -0.99928236, 0.0003517419
+    hdr["qoffset_x"], hdr["qoffset_y"], hdr["qoffset_z"] = 47.6246, -43.52, -81.4662
+    hdr["srow_x"] = [-4.98565376e-01, -3.66186313e-02, 9.57280491e-03, 47.6246]
+    hdr["srow_y"] = [-3.66118811e-02, 4.98657286e-01, 7.02976424e-04, -43.52]
+    hdr["srow_z"] = [9.59858205e-03, -2.55282528e-09, 4.99907851e-01, -81.4662]
+    hdr["qform_code"] = hdr["sform_code"] = 2
+    return hdr
+
+
+def test_crop_of_an_oblique_scan_stays_on_the_same_lattice(tmp_path):
+    """SimpleITK must read the crop with the direction it reads the original with, or
+    the matrix conversion refuses the pair. Rebuilding the header from the affine
+    (nibabel's ``slicer``) drops the qform, so SimpleITK switches to the float32 sform."""
+    data = np.zeros((60, 80, 80), np.float32)
+    data[20:40, 30:60, 25:50] = 1.0
+    full_f = tmp_path / "full.nii.gz"
+    nib.save(nib.Nifti1Image(data, None, _oblique_scanner_header()), str(full_f))
+    crop_f = tmp_path / "crop.nii.gz"
+    slices = crop_to_nonzero_bbox(full_f, crop_f, 0.25, 4.0)
+
+    cropped = nib.load(str(crop_f))
+    assert int(cropped.header["qform_code"]) == 2 and int(cropped.header["sform_code"]) == 2
+    assert _read(crop_f).GetDirection() == _read(full_f).GetDirection()
+    start = [sl.start for sl in slices]
+    assert np.allclose(
+        cropped.affine[:3, 3], nib.affines.apply_affine(nib.load(str(full_f)).affine, start), atol=1e-4
+    )
+    change = fsl_mat_for_new_moving(np.eye(4), crop_f, full_f)
+    assert np.allclose(change[:3, :3], np.eye(3))
+
+
+def test_crop_to_nonzero_bbox_clips_and_skips(tmp_path):
+    out = tmp_path / "c.nii.gz"
+    # Blob against the low edge: the margin is clipped at 0.
+    src = _blob(tmp_path / "edge.nii.gz", (100, 100, 100), (1.0, 1.0, 1.0),
+                (slice(0, 10), slice(40, 60), slice(40, 60)))
+    assert crop_to_nonzero_bbox(src, out, 0.25, 5.0)[0] == slice(0, 15)
+    # Box already spans the image, or nothing to crop to: no output.
+    full = _blob(tmp_path / "full.nii.gz", (20, 20, 20), (1.0, 1.0, 1.0), (slice(2, 18),) * 3)
+    empty = _blob(tmp_path / "empty.nii.gz", (20, 20, 20), (1.0, 1.0, 1.0), (slice(0, 0),) * 3)
+    out.unlink()
+    assert crop_to_nonzero_bbox(full, out, 0.25, 16.0) is None
+    assert crop_to_nonzero_bbox(empty, out, 0.25, 16.0) is None
+    assert not out.exists()
+
+
 def test_moving_fully_inside_needs_no_padding(tmp_path):
     """A scan already within the target FOV must not grow the grid."""
     ref_f = _save(tmp_path / "ref.nii.gz", (40, 40, 40), _REF_AFFINE, seed=1)
@@ -235,7 +355,7 @@ def test_implausible_transform_is_rejected(tmp_path):
     ref_shape, mov_shape = np.array([20, 20, 20]), np.array([30, 30, 30])
     runaway = np.eye(4)
     runaway[:3, 3] = [5000.0, 0.0, 0.0]
-    with pytest.raises(ValueError, match="Implausible full-FOV padding"):
+    with pytest.raises(ValueError, match="Full-FOV padding too large"):
         reference_padding_to_cover(runaway, mov_shape, ref_shape)
 
     with pytest.raises(ValueError, match="Non-finite"):
