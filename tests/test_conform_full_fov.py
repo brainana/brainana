@@ -18,6 +18,7 @@ from nhp_mri_prep.operations.sitk_rigid_registration import (
     _sitk_affine_lps,
     _sitk_tx_to_fsl_matrix,
     _sitk_tx_to_matrix,
+    clip_padding_to_max_dim,
     fsl_mat_for_new_moving,
     fsl_mat_for_new_reference,
     fsl_mat_to_world_affine,
@@ -351,15 +352,47 @@ def test_moving_fully_inside_needs_no_padding(tmp_path):
     assert not np.any(pad_left) and not np.any(pad_right)
 
 
-def test_implausible_transform_is_rejected(tmp_path):
+def test_non_finite_transform_is_rejected_but_a_large_cover_is_not(tmp_path):
     ref_shape, mov_shape = np.array([20, 20, 20]), np.array([30, 30, 30])
-    runaway = np.eye(4)
-    runaway[:3, 3] = [5000.0, 0.0, 0.0]
-    with pytest.raises(ValueError, match="Full-FOV padding too large"):
-        reference_padding_to_cover(runaway, mov_shape, ref_shape)
-
     with pytest.raises(ValueError, match="Non-finite"):
         reference_padding_to_cover(np.full((4, 4), np.nan), mov_shape, ref_shape)
+    # A scan reaching far past the template box (neck, body) is a real cover, not an
+    # error: it is sized here and clipped later by clip_padding_to_max_dim.
+    far = np.eye(4)
+    far[:3, 3] = [-100.0, 0.0, 0.0]
+    pad_left, pad_right = reference_padding_to_cover(far, mov_shape, ref_shape)
+    assert pad_left[0] > 5 * ref_shape[0]
+
+
+def test_clip_leaves_a_grid_under_the_cap_alone():
+    pl, pr, clipped = clip_padding_to_max_dim([10, 0, 5], [3, 7, 0], [100, 120, 80], 512)
+    assert not clipped
+    assert list(pl) == [10, 0, 5] and list(pr) == [3, 7, 0]
+
+
+def test_clip_keeps_the_centre_of_the_requested_grid():
+    # Requested x: [-300, 100 + 200) -> 600 voxels, centre at 0; keep 512 around it.
+    pl, pr, clipped = clip_padding_to_max_dim([300, 0, 0], [200, 0, 0], [100, 50, 50], 512)
+    assert clipped
+    assert pl[0] + 100 + pr[0] == 512
+    assert pl[0] == 256 and pr[0] == 156  # window [-256, 256), centred on 0
+    assert list(pl[1:]) == [0, 0] and list(pr[1:]) == [0, 0]
+
+
+def test_clip_never_cuts_the_standard_box():
+    # Almost all of the request lies far to one side; centring alone would push the
+    # window off the reference, so it is clamped to keep [0, ref) inside.
+    pl, pr, clipped = clip_padding_to_max_dim([2000, 0, 0], [0, 0, 0], [100, 50, 50], 512)
+    assert clipped and pl[0] == 412 and pr[0] == 0
+    pl, pr, _ = clip_padding_to_max_dim([0, 0, 0], [2000, 0, 0], [100, 50, 50], 512)
+    assert pl[0] == 0 and pr[0] == 412
+
+
+def test_clip_does_not_pad_an_axis_already_over_the_cap():
+    pl, pr, clipped = clip_padding_to_max_dim([50, 10, 0], [50, 10, 0], [600, 100, 100], 512)
+    assert clipped
+    assert pl[0] == 0 and pr[0] == 0
+    assert pl[1] == 10 and pr[1] == 10
 
 
 def test_inner_box_mask_marks_exactly_the_original_fov(tmp_path):

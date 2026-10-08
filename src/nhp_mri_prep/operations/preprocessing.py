@@ -26,8 +26,9 @@ from .registration import (
     flirt_config_for_modality,
 )
 from .sitk_rigid_registration import (
-    DEFAULT_FULL_FOV_MAX_VOXELS,
+    DEFAULT_FULL_FOV_MAX_DIM,
     _sitk_tx_to_matrix,
+    clip_padding_to_max_dim,
     fsl_mat_for_new_moving,
     fsl_mat_for_new_reference,
     fsl_mat_to_world_affine,
@@ -215,7 +216,7 @@ def _conform_full_fov(
     xfm_forward_f: Path,
     sitk_transform_obj: Any,
     logger: logging.Logger,
-    max_voxels: int = DEFAULT_FULL_FOV_MAX_VOXELS,
+    max_dim: int = DEFAULT_FULL_FOV_MAX_DIM,
 ) -> Dict[str, Any]:
     """Conform the input onto an enlarged grid that crops nothing.
 
@@ -224,6 +225,8 @@ def _conform_full_fov(
     downstream product. This produces one extra image on the *same* grid (same
     direction, same spacing, voxel-aligned) enlarged so that every voxel of the
     scanner-space input is inside it. It is a leaf: nothing downstream reads it.
+    An axis that would exceed ``max_dim`` voxels is clipped to it around the centre of
+    the requested grid, always keeping the standard box (status ``"clipped"``).
 
     Because the padding is clamped at zero, the enlarged grid is a strict superset of
     the standard one: the two differ by a whole number of voxels, which is what lets the
@@ -241,7 +244,8 @@ def _conform_full_fov(
 
     Returns a dict with ``imagef_conformed_full_fov``, ``template_f_full_fov``,
     ``fov_box``, ``pad_left``, ``pad_right`` and ``status`` (``"expanded"``,
-    ``"no_expansion_needed"`` or ``"fallback"``).
+    ``"clipped"``, ``"no_expansion_needed"`` or ``"fallback"``, the last only for a
+    non-finite transform or a failed resample).
     """
     ref_shape = np.asarray(nib.load(str(template_f_for_xfm)).shape[:3], dtype=int)
     moving_shape = np.asarray(nib.load(str(image_path)).shape[:3], dtype=int)
@@ -265,14 +269,16 @@ def _conform_full_fov(
         pad_left, pad_right = reference_padding_to_cover(
             vox2vox, moving_shape, ref_shape
         )
-
         requested_shape = [int(v) for v in ref_shape + pad_left + pad_right]
-        n_voxels = int(np.prod(requested_shape))
-        if n_voxels > max_voxels:
-            raise ValueError(
-                f"Enlarged grid would be {requested_shape} = {n_voxels:.3g} voxels, "
-                f"over the {max_voxels:.3g} cap "
-                f"({n_voxels * 4 / 1e6:.0f} MB as float32)."
+        pad_left, pad_right, clipped = clip_padding_to_max_dim(
+            pad_left, pad_right, ref_shape, max_dim
+        )
+        if clipped:
+            status = "clipped"
+            logger.info(
+                f"Full-FOV conform: the whole input needs {requested_shape} voxels; "
+                f"clipped to {[int(v) for v in ref_shape + pad_left + pad_right]} "
+                f"(at most {max_dim} per axis, centred)."
             )
     except Exception as e:
         logger.warning(

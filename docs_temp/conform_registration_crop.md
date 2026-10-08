@@ -50,14 +50,40 @@ original, and `fsl_mat_for_new_moving` correctly refused the pair (direction dif
 
 Func conform (tmean) is unchanged.
 
-## The full-FOV growth cap is not a correctness test
+## Full-FOV output: no growth cap, clip at 512 per axis
 
-`reference_padding_to_cover` refuses to enlarge the full-FOV grid past 3× the template box per
-axis. Its message used to say "the rigid transform is probably wrong". On `dataset_CM`,
-the correct pose also exceeds the cap (4.34× vs 4.58× for the wrong pose), so the number
-measures how far the scan reaches beyond the head. The message now says so. A cross-check
-against a second backend was considered and dropped: with the crop, FLIRT alone gets this case
-right, and the check would cost 1–2 min per run.
+`reference_padding_to_cover` used to refuse a full-FOV grid more than 3× the template box on any
+axis ("the rigid transform is probably wrong"), and `_conform_full_fov` refused more than 512³
+voxels. Either made `desc-conformFullFOV` silently fall back to the standard box
+(`FullFOVPadding.status: "fallback"`). Sizing every regression sample without caps:
+
+- 3× growth cap: fired on `sub-CM` (4.5×; carmenlyon 2.9×). It is not a correctness test: the
+  correct sub-CM pose needs 4.34×, the wrong one 4.58×. It measures how far the scan reaches past
+  the head.
+- 512³ voxel cap: fired on the two high-resolution sites, ucdavis (0.30 mm, 505 × 584 × 579,
+  171 M voxels) and uwmadison (0.27 mm, 529 × 486 × 548, 141 M). Everything else was 2–50 M.
+
+Now the growth cap is gone (`reference_padding_to_cover` only rejects a non-finite transform) and
+`clip_padding_to_max_dim` caps each axis at `DEFAULT_FULL_FOV_MAX_DIM = 512` voxels. The kept
+window is centred on the requested grid and shifted only as needed to keep the standard box
+inside, so the output stays voxel-aligned with `space-T1w` and the QC box still applies. Status
+`clipped` when any axis is cut; `fallback` remains only for a non-finite transform or a failed
+resample. Measured (conform with the full-FOV output, 2026-10-08):
+
+| sample | status | standard grid | full-FOV grid |
+|---|---|---|---|
+| sub-CM | expanded | 79 × 97 × 62 | 214 × 339 × 339 |
+| carmenlyon | expanded | 127 × 155 × 100 | 209 × 387 × 385 |
+| amu | expanded | 95 × 116 × 75 | 201 × 219 × 222 |
+| ucdavis | clipped | 253 × 310 × 200 | 505 × 512 × 512 |
+| uwmadison | clipped | 281 × 344 × 222 | 512 × 486 × 512 |
+
+The full-FOV step adds ≤ 0.2 GB to the conform task's peak memory (sub-CM 14.05 vs 14.06 GB,
+ucdavis 15.51 vs 15.32 GB; the skull-strip network and FLIRT set the peak). Outputs in
+`brainana_test/preproc/conform_fullfov_check/`.
+
+A cross-check against a second backend was considered and dropped: with the crop, FLIRT alone
+gets the `sub-CM` case right, and the check would cost 1–2 min per run.
 
 ## Tests
 

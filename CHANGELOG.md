@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **DataLad / git-annex datasets**: discovery found no subjects, because every NIfTI is a symlink into `.git/annex`. Symlinked files are now found where they sit in the dataset.
 - **Scans that include the neck or body**: the anatomical conform could align the brain upside down or tilted, and every later step failed while the run still reported success. Conform now registers only the region around the brain found by its skull strip; outputs keep the full field of view. Cropping scans by hand is no longer needed.
+- **`desc-conformFullFOV` kept only the standard field of view** for scans that include the neck or body, and for high-resolution scans (about 0.3 mm or finer). It now always holds the whole input, up to 512 voxels per axis; a longer axis keeps its central 512 voxels. The sidecar's `FullFOVPadding.status` reads `clipped` when that happens.
 
 
 ## [3.1.0] - 2026-09-30

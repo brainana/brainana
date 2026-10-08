@@ -101,7 +101,8 @@ Subject directory (``sub-<id>/``)
 - ``<anat_prefix>_space-T1w_desc-conformFullFOV_T1w.nii.gz`` — The conformed anatomical on a
   larger grid that keeps everything outside the processing field of view (recording chamber,
   head-post, neck), which the images above crop. Same transform and resolution; for reference
-  only, no step uses it. The conform QC figure shows the processing field of view as a box on it.
+  only, no step uses it. The grid holds the whole input up to 512 voxels per axis; a longer axis
+  keeps its central 512 voxels. The conform QC figure shows the processing field of view as a box on it.
 
 *Segmentation and masks — T1w space*
 

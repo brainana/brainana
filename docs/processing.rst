@@ -128,7 +128,8 @@ findings**; section omitted if empty):
   sized for a brain rather than a head, and anything outside it is
   cropped. All downstream steps use that cropped image. Alongside it,
   the step also writes ``desc-conformFullFOV`` — the same conform on a
-  grid enlarged just enough to contain every voxel of the input — for
+  grid enlarged just enough to contain every voxel of the input, up to
+  512 voxels per axis (a longer axis keeps its central 512) — for
   users who need what falls outside, such as a recording chamber or
   head-post. Nothing downstream reads it. The QC report shows both
   fields of view: the uncropped one with the processing box drawn on

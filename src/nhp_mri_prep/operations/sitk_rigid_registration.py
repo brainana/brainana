@@ -1425,11 +1425,12 @@ def apply_sitk_affine(
 # every voxel of the moving image, so the extra output is a super-volume of the
 # standard conformed image rather than a differently-gridded sibling.
 
-# Guard rails for the enlarged grid. The conform resolution is min(input spacing)
-# applied to *all three* axes, so an anisotropic scan over a whole-head FOV can
-# explode: 0.2x0.2x2.0 mm at 1024x1024x40 becomes ~4.2e8 voxels (1.7 GB float32).
-DEFAULT_FULL_FOV_MAX_VOXELS = 512**3  # ~1.34e8 voxels, ~537 MB as float32
-DEFAULT_FULL_FOV_MAX_GROWTH = 3.0  # per-axis cap on (pad_left + pad_right) / size
+# Size cap for the enlarged grid. The conform resolution is min(input spacing)
+# applied to *all three* axes, so a high-resolution or anisotropic scan over a
+# whole-head FOV can explode: 0.2x0.2x2.0 mm at 1024x1024x40 becomes ~4.2e8 voxels.
+# An axis longer than this is clipped to it, keeping the centre (see
+# clip_padding_to_max_dim), so the grid is at most 512^3 (~537 MB as float32).
+DEFAULT_FULL_FOV_MAX_DIM = 512
 
 
 def fsl_mat_to_world_affine(
@@ -1554,7 +1555,6 @@ def reference_padding_to_cover(
     ref_shape: "tuple[int, int, int]",
     *,
     margin: int = 1,
-    max_growth: float = DEFAULT_FULL_FOV_MAX_GROWTH,
 ) -> "tuple[np.ndarray, np.ndarray]":
     """Voxel padding of the reference grid needed to contain the whole moving image.
 
@@ -1577,16 +1577,15 @@ def reference_padding_to_cover(
         margin: Extra voxels per face. One by default: it costs almost nothing, covers
             FLIRT's zero-pad ramp (nonzero support out to a full voxel, wider than
             SimpleITK's edge clamp) and absorbs the floor/ceil rounding.
-        max_growth: Per-axis cap on total padding as a multiple of the reference
-            size. A garbage transform yields an absurd hull; this catches it before
-            anything is allocated. A correct transform of a scan reaching well past the
-            head (neck, shoulders) can exceed it too, so it is not a correctness test.
+
+    The result is the full cover, however large; size it with
+    :func:`clip_padding_to_max_dim` before allocating anything.
 
     Returns:
         ``(pad_left, pad_right)``, non-negative int arrays of shape ``(3,)``.
 
     Raises:
-        ValueError: If ``vox2vox`` is not finite, or the padding exceeds ``max_growth``.
+        ValueError: If ``vox2vox`` is not finite.
     """
     vox2vox = np.asarray(vox2vox, dtype=np.float64)
     if not np.isfinite(vox2vox).all():
@@ -1615,14 +1614,41 @@ def reference_padding_to_cover(
 
     pad_left = np.maximum(0, -lo).astype(int)
     pad_right = np.maximum(0, hi - (ref_shape - 1)).astype(int)
-
-    growth = (pad_left + pad_right) / np.maximum(ref_shape, 1)
-    if np.any(growth > max_growth):
-        raise ValueError(
-            f"Full-FOV padding too large (left={list(pad_left)}, right={list(pad_right)}) "
-            f"for reference shape {list(ref_shape)}: grows by up to {growth.max():.1f}x, "
-            f"cap is {max_growth}x. This measures how far the scan extends beyond the "
-            f"template box (e.g. neck or body in the field of view), not whether the "
-            f"rigid transform is right."
-        )
     return pad_left, pad_right
+
+
+def clip_padding_to_max_dim(
+    pad_left: np.ndarray,
+    pad_right: np.ndarray,
+    ref_shape: "tuple[int, int, int]",
+    max_dim: int = DEFAULT_FULL_FOV_MAX_DIM,
+) -> "tuple[np.ndarray, np.ndarray, bool]":
+    """Clip the enlarged grid to at most ``max_dim`` voxels per axis, keeping the centre.
+
+    On an axis whose padded size ``ref + pad_left + pad_right`` exceeds the cap, the
+    kept window of ``max(max_dim, ref)`` voxels is centred on the centre of the
+    requested grid, then shifted only as far as needed to keep the whole reference box
+    inside it. Pads stay non-negative integers, so the result is still a voxel-aligned
+    superset of the reference. An axis whose reference already exceeds ``max_dim`` gets
+    no padding at all.
+
+    Returns:
+        ``(pad_left, pad_right, clipped)``; ``clipped`` is True if any axis was cut.
+    """
+    pad_left = np.asarray(pad_left, dtype=np.int64).copy()
+    pad_right = np.asarray(pad_right, dtype=np.int64).copy()
+    ref_shape = np.asarray(ref_shape, dtype=np.int64)[:3]
+    clipped = False
+    for axis in range(3):
+        requested = ref_shape[axis] + pad_left[axis] + pad_right[axis]
+        size = max(int(max_dim), int(ref_shape[axis]))
+        if requested <= size:
+            continue
+        clipped = True
+        total = size - ref_shape[axis]
+        # Requested grid spans [-pad_left, ref + pad_right) in reference voxels; centre
+        # the kept window on it, then clamp so it still holds [0, ref).
+        start = (-pad_left[axis] + ref_shape[axis] + pad_right[axis]) / 2.0 - size / 2.0
+        left = int(np.clip(-np.round(start), 0, total))
+        pad_left[axis], pad_right[axis] = left, total - left
+    return pad_left.astype(int), pad_right.astype(int), clipped
