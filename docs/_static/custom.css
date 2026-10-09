@@ -30,6 +30,20 @@
 .wy-nav-top i {
   color: #333;
 }
+/* Version switcher injected by RTD: the theme draws it (and its arrow) in translucent
+   white for a dark header, which vanishes on the cream. */
+.wy-side-nav-search > div.switch-menus,
+.wy-side-nav-search > div.switch-menus > div.version-switch select,
+.wy-side-nav-search > div.switch-menus > div.language-switch select {
+  color: #333;
+}
+.wy-side-nav-search > div.switch-menus > div.version-switch select:hover,
+.wy-side-nav-search > div.switch-menus > div.version-switch select:focus,
+.wy-side-nav-search > div.switch-menus > div.language-switch select:hover,
+.wy-side-nav-search > div.switch-menus > div.language-switch select:focus {
+  background: #f6f3fc;
+  color: #6a4fb3;
+}
 /* Search box: the theme's border is blue (#2472a4); use the cream hairline, purple on focus. */
 .wy-side-nav-search input[type="text"] {
   border-color: #e6e1cd;
