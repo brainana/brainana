@@ -1,0 +1,575 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Brainana docs style guide</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lato:ital,wght@0,400;0,700;1,400&family=Roboto+Slab:wght@400;700&display=swap"/>
+<style>
+/* Page chrome previews the target: sphinx_rtd_theme layout + type, with the RTD blue swapped for brainana purple. */
+:root{
+  --bn-font:Lato,"proxima-nova","Helvetica Neue",Arial,sans-serif;
+  --bn-head:"Roboto Slab",Georgia,serif;
+  --bn-mono:SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
+  --bn-fs:16px; --bn-lh:1.5; --bn-measure:800px;
+  --bn-bg:#edf0f2; --bn-page:#fcfcfc; --bn-inset:#ffffff; --bn-surface:#f3f6f6;
+  --bn-ink:#404040; --bn-text:#404040; --bn-muted:#808080;
+  --bn-border:#e1e4e5; --bn-border-mid:#d6d9dc;
+  --bn-code-bg:#f8f8f8; --bn-link:#6a4fb3; --bn-link-hover:#563c9c;
+  --bn-ok:#22704a; --bn-ok-bg:#e8f6ee; --bn-fail:#5f6b7a; --bn-fail-bg:#f0f2f4;
+  --bn-r-inset:4px;
+}
+.bn-root a{color:var(--bn-link);text-decoration:none}
+.bn-root a:hover{color:var(--bn-link-hover);text-decoration:underline}
+.bn-root p{margin:0 0 24px}
+.bn-h1,.bn-h2{font-family:var(--bn-head);font-weight:700;color:var(--bn-ink);line-height:1.25}
+.bn-h1{font-size:175%;margin:0 0 24px}
+.bn-h2{font-size:150%;margin:40px 0 16px}
+.topbar{background:#6a4fb3;color:#fff;font-family:var(--bn-font);font-weight:700;padding:10px 32px;font-size:15px}
+.topbar span{opacity:.75;font-weight:400;margin-left:8px}
+.wrap{background:var(--bn-page);box-shadow:0 0 0 1px var(--bn-border)}
+body{margin:0;font-family:var(--bn-font);color:var(--bn-text);background:var(--bn-bg);
+  font-size:var(--bn-fs);line-height:var(--bn-lh)}
+.wrap{max-width:960px;margin:0 auto;padding:36px 32px 120px}
+.lead{color:var(--bn-muted);margin:0 0 8px;max-width:var(--bn-measure)}
+.back{font-size:13px}
+nav.toc{font-size:14px;columns:2;column-gap:32px;margin:18px 0 8px;padding:12px 16px;
+  background:var(--bn-inset);border:1px solid var(--bn-border);border-radius:var(--bn-r-inset)}
+nav.toc a{display:block;padding:1px 0}
+h3{font-family:var(--bn-head);font-size:1.1em;font-weight:700;color:var(--bn-ink);margin:22px 0 8px}
+p,li{max-width:var(--bn-measure)}
+ul.rules li{margin:.2em 0}
+.note{font-size:13px;color:var(--bn-muted);margin:10px 0 0}
+pre{font-family:var(--bn-mono);font-size:12.5px;line-height:1.5;background:var(--bn-code-bg);
+  border:1px solid var(--bn-border);border-radius:var(--bn-r-inset);padding:10px 12px;overflow-x:auto;margin:8px 0}
+code{font-family:var(--bn-mono);font-size:80%;background:#fff;border:1px solid var(--bn-border);color:#22704a;padding:1px 5px}
+pre code{background:none;border:0;color:inherit;padding:0;font-size:inherit}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:760px){.grid2{grid-template-columns:1fr} nav.toc{columns:1}}
+.dd{border:1px solid var(--bn-border-mid);border-radius:var(--bn-r-inset);background:var(--bn-inset);overflow:hidden}
+.dd>.lbl{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:5px 10px;border-bottom:1px solid var(--bn-border)}
+.dd.dont>.lbl{color:var(--bn-fail);background:var(--bn-fail-bg)}
+.dd.do>.lbl{color:var(--bn-ok);background:var(--bn-ok-bg)}
+.dd pre{margin:0;border:0;border-radius:0;background:transparent}
+.dd .body{padding:10px 12px}
+table.t{border-collapse:collapse;font-size:14px;width:100%;margin:8px 0}
+table.t th,table.t td{border-bottom:1px solid var(--bn-border);padding:6px 8px;text-align:left;vertical-align:top}
+table.t th{font-weight:700;color:var(--bn-ink);background:var(--bn-surface)}
+.sw{display:inline-block;width:16px;height:16px;border-radius:3px;border:1px solid rgba(0,0,0,.15);vertical-align:-3px;margin-right:6px}
+.palette{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin:10px 0}
+.pcard{border:1px solid var(--bn-border);border-radius:var(--bn-r-inset);background:var(--bn-inset);padding:10px 12px;font-size:13px}
+.pcard .box{height:46px;border-radius:4px;border:1.3px solid;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  font-family:Lato,'Helvetica Neue',Arial,sans-serif;margin-bottom:8px}
+.pcard .box b{font-size:13px;color:#333}
+.pcard .box span{font-family:Menlo,Consolas,monospace;font-size:11px}
+.pcard .hx{font-family:var(--bn-mono);font-size:11.5px;color:var(--bn-muted)}
+
+/* ---- RTD preview frame: approximates sphinx_rtd_theme so previews show the real target ---- */
+.rtd{font-family:Lato,'proxima-nova','Helvetica Neue',Arial,sans-serif;font-size:16px;line-height:24px;color:#404040;
+  background:#fff;border:1px solid #e1e4e5;border-radius:6px;padding:18px 22px;margin:10px 0}
+.rtd a{color:#6a4fb3;text-decoration:none} .rtd a:hover{text-decoration:underline}
+.rtd h4{font-family:'Roboto Slab',Georgia,serif;font-weight:700;color:#404040;font-size:20px;margin:0 0 12px}
+.rtd p{margin:0 0 12px}
+.rtd code{font-family:SFMono-Regular,Menlo,Consolas,monospace;font-size:75%;background:#fff;border:1px solid #e1e4e5;color:#22704a;padding:2px 5px;border-radius:0}
+.rtd pre{font-family:SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;background:#fffeee;border:1px solid #e6e1cd;border-radius:0;color:#404040}
+.rtd dl dt{font-weight:700;margin-top:8px} .rtd dl dd{margin:0 0 6px 24px}
+.adm{padding:10px 14px;margin:0 0 12px;border-left:3px solid;font-size:15px;line-height:22px}
+.adm .t{font-weight:700;font-size:13px;margin-bottom:2px}
+.adm.note{background:#f6f3fc;border-color:#9370db} .adm.note .t{color:#563c9c}
+.adm.tip{background:#f1f9f4;border-color:#3cb371} .adm.tip .t{color:#22704a}
+.adm.warning{background:#fdf6ec;border-color:#d68a2e} .adm.warning .t{color:#9a5d12}
+.adm.seealso{background:#f6f7f8;border-color:#a8b0ba} .adm.seealso .t{color:#5f6b7a}
+.feature{border:1px solid #e1e4e5;border-radius:6px;padding:16px 18px;display:grid;grid-template-columns:220px 1fr;gap:18px;align-items:start}
+@media (max-width:640px){.feature{grid-template-columns:1fr}}
+.shot{border:1px solid #d6d9dc;border-radius:4px;background:#fffeee;height:150px;position:relative;overflow:hidden;font-family:var(--bn-font)}
+.shot .nav{position:absolute;left:0;top:0;bottom:0;width:58px;background:#fffddd;border-right:1px solid #e6e1cd}
+.shot .nav i{display:block;height:6px;margin:10px 8px 0;background:#cdc9b0;border-radius:3px}
+.shot .row{position:absolute;left:70px;right:10px;height:12px;display:flex;gap:6px}
+.shot .row b{flex:0 0 48px;background:#e6e1cd;border-radius:2px} .shot .row s{flex:1;border:1px solid #cdc9b0;border-radius:2px;background:#fff}
+.btn{display:inline-block;background:#6a4fb3;color:#fff !important;font-weight:700;font-size:15px;padding:8px 16px;border-radius:4px;text-decoration:none !important}
+.btn:hover{background:#563c9c}
+.check li{list-style:none;margin-left:-1.2em}
+.check li::before{content:"☐ ";color:var(--bn-muted)}
+.pill{display:inline-block;font-family:var(--bn-font);font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px;border:1px solid var(--bn-border-mid);color:var(--bn-muted);margin-left:6px;vertical-align:2px}
+.tokgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;margin:8px 0 4px}
+.tok{display:flex;align-items:flex-start;gap:10px;background:var(--bn-inset);border:1px solid var(--bn-border);border-radius:var(--bn-r-inset);padding:8px 10px}
+.tok .chip{width:34px;height:34px;flex:0 0 34px;border-radius:4px;border:1px solid rgba(0,0,0,.12)}
+.tok .nm{display:flex;flex-direction:column;font-size:12.5px;line-height:1.35}
+.tok .nm code{background:none;border:0;padding:0;color:var(--bn-ink);font-weight:700;font-size:12px}
+.tok .hx{font-family:var(--bn-mono);color:var(--bn-muted);font-size:11.5px}
+.tok .role{color:var(--bn-text);margin-top:2px}
+</style></head>
+<body class="bn-root">
+<div class="topbar">Brainana docs<span>style guide for Read the Docs</span></div>
+<div class="wrap">
+<p class="back"><a href="styleguide.html">← Brainana design system (QC report, config generator, notebook)</a></p>
+<h1 class="bn-h1">Brainana docs style guide</h1>
+<p class="lead">How the Read the Docs site at <code>docs/*.rst</code> should look and read. Brainana keeps the stock
+<code>sphinx_rtd_theme</code> and makes it quieter. Content changes happen in markup and wording. CSS stays a thin layer in
+<code>docs/_static/custom.css</code>. The light previews below show the target rendering inside the RTD theme.</p>
+
+<nav class="toc">
+<a href="#principles">1. Principles</a>
+<a href="#tokens">2. Color tokens</a>
+<a href="#diagrams">3. Diagrams and the palette</a>
+<a href="#chrome">4. Page chrome and CSS</a>
+<a href="#emphasis">5. Emphasis</a>
+<a href="#admonitions">6. Admonitions</a>
+<a href="#headings">7. Headings and page structure</a>
+<a href="#figures">8. Figures and tables</a>
+<a href="#code">9. Code blocks</a>
+<a href="#terms">10. Terminology and voice</a>
+<a href="#interactive">11. Interactive pages</a>
+<a href="#feature">12. Feature card: the config generator</a>
+<a href="#checklist">13. Review checklist</a>
+</nav>
+
+<!-- ============================================================ -->
+<h2 class="bn-h2" id="principles">1. Principles</h2>
+<ul class="rules">
+<li><strong>Prose first.</strong> A sentence that reads well needs no decoration. Add structure such as a list, table or heading only when it helps the reader scan.</li>
+<li><strong>One signal per block.</strong> A paragraph may carry one emphasis device: one bold term, one admonition or one link-heavy line. Stacked signals cancel each other out.</li>
+<li><strong>Two brand colors, used generically.</strong> Purple and green, taken from the paper figures, are Brainana's visual identity. They carry no fixed meaning: purple is the primary accent (interface, links, first category), green is the secondary accent (second category, tips). What a color stands for in a given diagram is said by its caption or legend.</li>
+<li><strong>Color separates, it does not decorate.</strong> Use a hue only to tell two kinds of things apart or to mark the one interactive element. Everything else is grey.</li>
+<li><strong>One look across the site.</strong> All pages, mermaid diagrams, SVGs and embedded widgets draw from one palette: purple, green, slate and neutral grey, plus amber reserved for warnings. The RTD default blue and orange go away.</li>
+<li><strong>User-oriented.</strong> RTD tells users what to do and what they get. Evidence, internals and design rationale go in <code>docs_temp/</code>.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 class="bn-h2" id="tokens">2. Color tokens</h2>
+<p>Every color used anywhere in the docs: pages, <code>custom.css</code>, mermaid, SVGs and embedded widgets. A color that is not listed here does not belong in the docs.
+Names describe the color, not a concept (§1). In this guide <code>-wash</code> means a page-area background, <code>-tint</code> a diagram fill, <code>-mid</code> a stroke or rule, and <code>-dark</code> text on light backgrounds.</p>
+<h3>Brand: purple (primary)</h3>
+<div class="tokgrid">
+  <div class="tok"><span class="chip" style="background:#6a4fb3"></span><span class="nm"><code>--bn-purple</code><span class="hx">#6a4fb3</span><span class="role">Links, the feature button, focus rings, mermaid/SVG accent text</span></span></div>
+  <div class="tok"><span class="chip" style="background:#563c9c"></span><span class="nm"><code>--bn-purple-dark</code><span class="hx">#563c9c</span><span class="role">Link and button hover, note title, code keywords / builtins / YAML keys</span></span></div>
+  <div class="tok"><span class="chip" style="background:#9370db"></span><span class="nm"><code>--bn-purple-mid</code><span class="hx">#9370db</span><span class="role">Diagram stroke, note left rule</span></span></div>
+  <div class="tok"><span class="chip" style="background:#c9bbef"></span><span class="nm"><code>--bn-purple-line</code><span class="hx">#c9bbef</span><span class="role">GUI-label chip border, Recommended pill border</span></span></div>
+  <div class="tok"><span class="chip" style="background:#f1ecfb"></span><span class="nm"><code>--bn-purple-tint</code><span class="hx">#f1ecfb</span><span class="role">Diagram fill</span></span></div>
+  <div class="tok"><span class="chip" style="background:#f6f3fc"></span><span class="nm"><code>--bn-purple-wash</code><span class="hx">#f6f3fc</span><span class="role">Note background, GUI-label chip, widget hint box</span></span></div>
+</div>
+<h3>Brand: green (secondary)</h3>
+<div class="tokgrid">
+  <div class="tok"><span class="chip" style="background:#22704a"></span><span class="nm"><code>--bn-green-dark</code><span class="hx">#22704a</span><span class="role">Inline code text, tip title, code strings and numbers</span></span></div>
+  <div class="tok"><span class="chip" style="background:#2e8b57"></span><span class="nm"><code>--bn-green</code><span class="hx">#2e8b57</span><span class="role">Diagram accent text</span></span></div>
+  <div class="tok"><span class="chip" style="background:#3cb371"></span><span class="nm"><code>--bn-green-mid</code><span class="hx">#3cb371</span><span class="role">Diagram stroke, tip left rule</span></span></div>
+  <div class="tok"><span class="chip" style="background:#e8f6ee"></span><span class="nm"><code>--bn-green-tint</code><span class="hx">#e8f6ee</span><span class="role">Diagram fill</span></span></div>
+  <div class="tok"><span class="chip" style="background:#f1f9f4"></span><span class="nm"><code>--bn-green-wash</code><span class="hx">#f1f9f4</span><span class="role">Tip background</span></span></div>
+</div>
+<h3>Slate (tertiary)</h3>
+<div class="tokgrid">
+  <div class="tok"><span class="chip" style="background:#5f6b7a"></span><span class="nm"><code>--bn-slate</code><span class="hx">#5f6b7a</span><span class="role">See-also title, diagram accent text</span></span></div>
+  <div class="tok"><span class="chip" style="background:#8a94a3"></span><span class="nm"><code>--bn-slate-mid</code><span class="hx">#8a94a3</span><span class="role">Diagram stroke</span></span></div>
+  <div class="tok"><span class="chip" style="background:#a8b0ba"></span><span class="nm"><code>--bn-slate-line</code><span class="hx">#a8b0ba</span><span class="role">See-also left rule</span></span></div>
+  <div class="tok"><span class="chip" style="background:#f0f2f4"></span><span class="nm"><code>--bn-slate-tint</code><span class="hx">#f0f2f4</span><span class="role">Diagram fill</span></span></div>
+  <div class="tok"><span class="chip" style="background:#f6f7f8"></span><span class="nm"><code>--bn-slate-wash</code><span class="hx">#f6f7f8</span><span class="role">See-also background, widget panels</span></span></div>
+</div>
+<h3>Warning: amber (only on warning boxes)</h3>
+<div class="tokgrid">
+  <div class="tok"><span class="chip" style="background:#9a5d12"></span><span class="nm"><code>--bn-amber-dark</code><span class="hx">#9a5d12</span><span class="role">Warning title</span></span></div>
+  <div class="tok"><span class="chip" style="background:#d68a2e"></span><span class="nm"><code>--bn-amber</code><span class="hx">#d68a2e</span><span class="role">Warning left rule</span></span></div>
+  <div class="tok"><span class="chip" style="background:#fdf6ec"></span><span class="nm"><code>--bn-amber-wash</code><span class="hx">#fdf6ec</span><span class="role">Warning background</span></span></div>
+</div>
+<h3>Neutral: text and lines</h3>
+<div class="tokgrid">
+  <div class="tok"><span class="chip" style="background:#404040"></span><span class="nm"><code>--bn-ink</code><span class="hx">#404040</span><span class="role">Body text (RTD default), widget text, code by default</span></span></div>
+  <div class="tok"><span class="chip" style="background:#333333"></span><span class="nm"><code>--bn-diagram-text</code><span class="hx">#333333</span><span class="role">Diagram box labels, header text on the pale sidebar header</span></span></div>
+  <div class="tok"><span class="chip" style="background:#555555"></span><span class="nm"><code>--bn-edge-label</code><span class="hx">#555555</span><span class="role">Diagram edge labels</span></span></div>
+  <div class="tok"><span class="chip" style="background:#6b6b6b"></span><span class="nm"><code>--bn-caption</code><span class="hx">#6b6b6b</span><span class="role">Figure captions, code comments</span></span></div>
+  <div class="tok"><span class="chip" style="background:#777777"></span><span class="nm"><code>--bn-edge</code><span class="hx">#777777</span><span class="role">Diagram edges and arrowheads</span></span></div>
+  <div class="tok"><span class="chip" style="background:#b4b9c1"></span><span class="nm"><code>--bn-box-line</code><span class="hx">#b4b9c1</span><span class="role">Neutral diagram box stroke</span></span></div>
+  <div class="tok"><span class="chip" style="background:#d6d9dc"></span><span class="nm"><code>--bn-line-mid</code><span class="hx">#d6d9dc</span><span class="role">Widget borders, screenshot frame</span></span></div>
+  <div class="tok"><span class="chip" style="background:#e1e4e5"></span><span class="nm"><code>--bn-line</code><span class="hx">#e1e4e5</span><span class="role">Hairlines, feature-card border (RTD default)</span></span></div>
+  <div class="tok"><span class="chip" style="background:#ffffff"></span><span class="nm"><code>--bn-white</code><span class="hx">#ffffff</span><span class="role">Page body, neutral diagram fill</span></span></div>
+</div>
+<h3>Code</h3>
+<div class="tokgrid">
+  <div class="tok"><span class="chip" style="background:#fffeee"></span><span class="nm"><code>--bn-doc-code</code><span class="hx">#fffeee</span><span class="role">Code-block and widget-output background (= brand --bn-bg)</span></span></div>
+  <div class="tok"><span class="chip" style="background:#e6e1cd"></span><span class="nm"><code>--bn-doc-code-line</code><span class="hx">#e6e1cd</span><span class="role">Code-block border (= brand --bn-border)</span></span></div>
+</div>
+<h3>Sidebar</h3>
+<div class="tokgrid">
+  <div class="tok"><span class="chip" style="background:#343131"></span><span class="nm"><code>--bn-sidebar</code><span class="hx">#343131</span><span class="role">Sidebar background (RTD default)</span></span></div>
+  <div class="tok"><span class="chip" style="background:#d9d9d9"></span><span class="nm"><code>--bn-sidebar-link</code><span class="hx">#d9d9d9</span><span class="role">Sidebar links (RTD default)</span></span></div>
+  <div class="tok"><span class="chip" style="background:#fffddd"></span><span class="nm"><code>--bn-sidebar-label</code><span class="hx">#fffddd</span><span class="role">Sidebar section labels, version flyout (= --bn-surface)</span></span></div>
+  <div class="tok"><span class="chip" style="background:#fffddd"></span><span class="nm"><code>--bn-sidebar-hover</code><span class="hx">#fffddd</span><span class="role">Sidebar hover / active row, dark #333 text (= --bn-surface)</span></span></div>
+  <div class="tok"><span class="chip" style="background:#fffddd"></span><span class="nm"><code>--bn-sidebar-head</code><span class="hx">#fffddd</span><span class="role">Logo header and mobile top bar, dark #333 text (= --bn-surface, the brand cream)</span></span></div>
+</div>
+<p class="note">Contrast on white: <code>#6a4fb3</code> 6.2:1 and <code>#22704a</code> 6.0:1 (both pass WCAG AA for body-size text). <code>#2e8b57</code> is only 4.2:1, so use it for diagram text at 11px and up, never for links or body text.
+<code>#fffddd</code> on the <code>#343131</code> sidebar and <code>#333</code> on <code>#fffddd</code> are both about 12:1.</p>
+
+<!-- ============================================================ -->
+<h2 class="bn-h2" id="diagrams">3. Diagrams and the palette</h2>
+<p>The reference is <code>space_tracking.svg</code>, generated by <code>scripts/dev/docs/make_space_diagram.py</code>.
+Its green/purple pair matches the paper figures (<code>pipeline_overview.png</code>, <code>anat_workflow.png</code>, …), and it becomes the brand palette for the whole site. Every new
+flowchart, mermaid block and hand-drawn SVG uses these values and no others.</p>
+
+<h3>Brand palette <span class="pill">generic, not tied to a concept</span></h3>
+<div class="palette">
+  <div class="pcard"><div class="box" style="background:#f1ecfb;border-color:#9370db"><b>Category A</b><span style="color:#6a4fb3">space-T1w</span></div>
+    <strong>purple</strong> (primary): links, sidebar header, the one button, note boxes; first category in a diagram<br/><span class="hx">fill #f1ecfb · stroke #9370db (mediumpurple) · accent text #6a4fb3</span></div>
+  <div class="pcard"><div class="box" style="background:#e8f6ee;border-color:#3cb371"><b>Category B</b><span style="color:#2e8b57">space-bold</span></div>
+    <strong>green</strong> (secondary): tip boxes; second category in a diagram<br/><span class="hx">fill #e8f6ee · stroke #3cb371 (mediumseagreen) · accent text #2e8b57</span></div>
+  <div class="pcard"><div class="box" style="background:#f0f2f4;border-color:#8a94a3"><b>Category C</b><span style="color:#5f6b7a">space-fsnative</span></div>
+    <strong>slate</strong> (tertiary): see-also boxes; third category in a diagram<br/><span class="hx">fill #f0f2f4 · stroke #8a94a3 · accent text #5f6b7a</span></div>
+  <div class="pcard"><div class="box" style="background:#ffffff;border-color:#b4b9c1"><b>Process step</b><span style="color:#555">input · step · decision</span></div>
+    <strong>neutral</strong>: default for every box that needs no distinction<br/><span class="hx">fill #ffffff · stroke #b4b9c1 · text #333</span></div>
+</div>
+
+<h3>Lines, text, shapes</h3>
+<table class="t">
+<tr><th>Element</th><th>Value</th><th>Note</th></tr>
+<tr><td>Box label</td><td><span class="sw" style="background:#333"></span><code>#333</code>, 13px bold</td><td>Labels stay dark on every fill. The box's accent color is used only for a secondary line such as a <code>space-</code> entity.</td></tr>
+<tr><td>Edge / arrow</td><td><span class="sw" style="background:#777"></span><code>#777</code>, 1.3px</td><td>Solid means always happens. <strong>Dotted</strong> (<code>4 3</code>) means conditional or optional.</td></tr>
+<tr><td>Edge label</td><td><span class="sw" style="background:#555"></span><code>#555</code>, 11px</td><td>Short. Use a verb or a transform name, not a sentence.</td></tr>
+<tr><td>Box shape</td><td><code>rx 4</code>, stroke 1.3</td><td>Rectangles for steps and data. Stadium/rounded shapes for <em>outputs</em>. A diamond only for a real yes/no branch.</td></tr>
+<tr><td>Font</td><td>Lato → Helvetica Neue → Arial</td><td>Same as the RTD body text. Monospace only for filenames and BIDS entities.</td></tr>
+</table>
+
+<h3>Rules</h3>
+<ul class="rules">
+<li>A diagram uses <strong>at most three hues plus neutral</strong>, assigned in order: purple, then green, then slate. If one hue is enough (for example, to mark outputs), use purple and keep everything else neutral.</li>
+<li>The <strong>caption or a legend says what each hue means</strong> in that diagram. The same hue may mean different things in different diagrams. Where a diagram contrasts anatomical and functional data, keeping the paper figures' pairing (anat green, func purple) is fine because it matches the figures, not because the colors are reserved.</li>
+<li><strong>No status colors</strong> (red/amber/green for pass/fail) in docs diagrams. Status belongs to the QC report palette.</li>
+<li>No gradients, shadows, emoji or icons inside boxes. Bold/italic HTML inside mermaid labels is allowed for <em>one</em> title line per box.</li>
+<li>Mermaid diagrams render at their natural size (labels at 13px, slightly smaller than body text) and only shrink on a narrow column. So prefer <strong>top→bottom</strong> (<code>flowchart TB</code>); a wide left→right chart with more than about 4 columns gets scaled down until its text is unreadable. <code>custom.css</code> resets the font of <code>pre.mermaid</code> to Lato, because the theme's monospace would otherwise overflow and clip labels. Spell words out in labels ("session", not "ses"). Keep labels at 3 lines or fewer and boxes at 12 or fewer. If you need more, split the diagram.</li>
+<li>Generated SVGs record their generator in a comment, as <code>make_space_diagram.py</code> does. Edit the script, not the SVG.</li>
+</ul>
+
+<h3>Example in the palette</h3>
+<svg viewBox="0 0 760 150" width="100%" style="max-width:760px;background:#fff;border:1px solid #e1e4e5;border-radius:6px" font-family="Lato,'Helvetica Neue',Arial,sans-serif">
+  <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#777"/></marker></defs>
+  <g font-size="13" font-weight="700" fill="#333" text-anchor="middle">
+    <rect x="20" y="30" width="130" height="44" rx="4" fill="#fff" stroke="#b4b9c1" stroke-width="1.3"/><text x="85" y="57">ses-01 T1w</text>
+    <rect x="200" y="30" width="150" height="44" rx="4" fill="#fff" stroke="#b4b9c1" stroke-width="1.3"/><text x="275" y="57">Base template</text>
+    <rect x="400" y="30" width="150" height="44" rx="22" fill="#f1ecfb" stroke="#9370db" stroke-width="1.3"/><text x="475" y="50">sub-01_base</text>
+    <text x="475" y="66" font-size="11" font-weight="400" fill="#6a4fb3" font-family="Menlo,Consolas,monospace">one mesh</text>
+    <rect x="600" y="30" width="140" height="44" rx="22" fill="#e8f6ee" stroke="#3cb371" stroke-width="1.3"/><text x="670" y="57">Change stats</text>
+    <rect x="400" y="100" width="150" height="38" rx="4" fill="#fff" stroke="#b4b9c1" stroke-width="1.3" stroke-dasharray="4 3"/><text x="475" y="124" font-weight="400">optional QC</text>
+  </g>
+  <g stroke="#777" stroke-width="1.3" fill="none">
+    <line x1="150" y1="52" x2="198" y2="52" marker-end="url(#a)"/><line x1="350" y1="52" x2="398" y2="52" marker-end="url(#a)"/>
+    <line x1="550" y1="52" x2="598" y2="52" marker-end="url(#a)"/><line x1="475" y1="74" x2="475" y2="98" stroke-dasharray="4 3" marker-end="url(#a)"/>
+  </g>
+  <text x="174" y="45" font-size="11" fill="#555" text-anchor="middle">register</text>
+</svg>
+<p class="note">Neutral inputs and steps, outputs in two accent colors (explained by the caption), and a dotted link for the optional branch.</p>
+
+<h3>Mermaid: paste this, then assign classes</h3>
+<pre><code>.. mermaid::
+
+   %%{init: {'theme': 'base', 'themeVariables': {
+       'fontFamily': 'Lato, Helvetica Neue, Arial, sans-serif', 'fontSize': '13px',
+       'primaryColor': '#ffffff', 'primaryBorderColor': '#b4b9c1', 'primaryTextColor': '#333333',
+       'lineColor': '#777777', 'edgeLabelBackground': '#ffffff'},
+     'flowchart': {'curve': 'basis', 'htmlLabels': true, 'padding': 10,
+                   'diagramPadding': 2, 'nodeSpacing': 28, 'rankSpacing': 32,
+                   'useMaxWidth': false}}}%%
+   flowchart TB
+       ...
+       classDef neutral fill:#ffffff,stroke:#b4b9c1,color:#333333,stroke-width:1.3px
+       classDef purple  fill:#f1ecfb,stroke:#9370db,color:#333333,stroke-width:1.3px
+       classDef green   fill:#e8f6ee,stroke:#3cb371,color:#333333,stroke-width:1.3px
+       classDef slate   fill:#f0f2f4,stroke:#8a94a3,color:#333333,stroke-width:1.3px
+       linkStyle default stroke:#777777,stroke-width:1.3px
+       %% optional path:  A -.-> B</code></pre>
+<p class="note">This replaces today's Tailwind indigo/blue/emerald (<code>#eef2ff</code>, <code>#6366f1</code>, <code>#3b82f6</code>,
+<code>#059669</code>) in <code>synthesis_level.rst</code> and <code>anat_selection_for_func.rst</code>. The old <code>proc</code>/<code>input</code>/<code>result</code>/<code>decision</code> classes
+map to <code>neutral</code>, <code>neutral</code>, <code>purple</code> and <code>neutral</code>. Class names describe the color, not a concept.</p>
+
+<!-- ============================================================ -->
+<h2 class="bn-h2" id="chrome">4. Page chrome and CSS</h2>
+<table class="t">
+<tr><th>Element</th><th>Rule</th></tr>
+<tr><td>Theme</td><td><code>sphinx_rtd_theme</code> layout and type (Lato body, Roboto Slab headings, dark <code>#343131</code> sidebar). Only its accent changes: every RTD blue <code>#2980b9</code> becomes purple.</td></tr>
+<tr><td>Accent swap in <code>custom.css</code></td><td>Links and visited links <code>#6a4fb3</code>, hover <code>#563c9c</code> (6.2:1 contrast on white). Purple links are for the page body only; the dark sidebar keeps RTD's light-grey links. The sidebar uses the brand cream <code>--bn-surface</code> <code>#fffddd</code> for the logo header <code>.wy-side-nav-search</code>, the hover/active rows and the mobile top bar (all with dark <code>#333</code> text), and for the section labels. This is the one place the yellow brand family appears on RTD, next to the cream code blocks.</td></tr>
+<tr><td>Amber</td><td>The only color outside the brand pair: <code>#d68a2e</code> rule / <code>#9a5d12</code> title, on <code>warning</code> boxes only. RTD's other oranges (the version badge and the default admonition bars) are recolored.</td></tr>
+<tr><td>Code blocks</td><td>Use the brand page cream <code>--bn-bg</code> (<code>#fffeee</code> fill) with the brand hairline <code>#e6e1cd</code> border. It is the same yellow family as the cream sidebar, light enough to stay calm, and the border defines the block against the near-white page. Use it for every block and for widget output.</td></tr>
+<tr><td>Headings</td><td>Theme default color everywhere. <strong>Remove the blue FAQ question headings</strong>: blue on a heading reads as a link.</td></tr>
+<tr><td>Admonitions</td><td>Restyle quietly, as in §6: light tint, 3px left rule, small dark title. No saturated full-width title bar.</td></tr>
+<tr><td>Spacing</td><td>Figures get <code>margin: 8px 0 24px</code> from CSS, which removes every <code>|</code> spacer line. Fix the invalid <code>margin: 10 !important</code> (no unit) on mermaid blocks.</td></tr>
+<tr><td>custom.css</td><td>Stays short (under about 120 lines), with one commented block per rule group. No inline <code>style=</code> in <code>.rst</code>, and no <code>raw:: html</code> except the interactive widgets in §11.</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 class="bn-h2" id="emphasis">5. Emphasis</h2>
+<table class="t">
+<tr><th>Device</th><th>Use it for</th><th>Never for</th></tr>
+<tr><td><strong>bold</strong></td><td>A term at the place it is <em>defined</em>, once per page.</td><td>Lead-ins on bullets ("<strong>Purpose:</strong>"), fake headings, whole sentences, emphasis inside running text.</td></tr>
+<tr><td><em>italic</em></td><td>A word you would stress when speaking. Titles of papers.</td><td>Sub-headings.</td></tr>
+<tr><td><code>``literal``</code></td><td>Things the user types or sees verbatim: config keys, flags, paths, BIDS entities, file names.</td><td>Product names (Brainana, FastSurfer, ANTs), concepts, UI labels.</td></tr>
+<tr><td><code>:guilabel:</code></td><td>Buttons and menus: <code>:guilabel:`Run all`</code>, <code>:menuselection:`Settings --&gt; Resources`</code>.</td><td>—</td></tr>
+<tr><td>Unicode arrows / em dashes</td><td>Sparingly in prose. Use <code>→</code> only for "maps to" in tables.</td><td>Chains of several arrows in a sentence. Rewrite as words.</td></tr>
+<tr><td>Emoji, ALL CAPS</td><td>—</td><td>Anywhere. This includes "✨" in installation.rst and "<strong>USER SETTINGS</strong>" in brainana_lite.rst.</td></tr>
+</table>
+
+<h3>Bold lead-in bullets → a lead sentence or a definition list</h3>
+<div class="grid2">
+<div class="dd dont"><div class="lbl">Don't (processing.rst)</div><pre>- **Purpose:** Fix NIfTI header issues with one
+  unambiguous fix, flag ambiguous ones, and
+  optionally merge multiple anatomicals.
+- **Pass-through:** One read/write pass;
+  well-formed inputs are not rewritten.
+
+**Automatic header repairs** (metadata only ...)
+
+- **4D shape** (``Input4DCollapsed``): drop a
+  trailing singleton dimension, or average ...
+- **Missing qform/sform** (``OrientationRecovered``): ...</pre></div>
+<div class="dd do"><div class="lbl">Do</div><pre>Ingest fixes NIfTI header issues that have one
+unambiguous fix, flags ambiguous ones, and can merge
+several anatomicals into one reference. Well-formed
+inputs pass through untouched.
+
+Header repairs change metadata only; images are
+never resampled or reoriented:
+
+4D shape (``Input4DCollapsed``)
+   Drop a trailing singleton dimension, or average a
+   true multi-volume anatomical on the last axis.
+
+Missing qform/sform (``OrientationRecovered``)
+   ...</pre></div>
+</div>
+<p class="note">Definition lists (<code>term</code> + indented body) give the scan-ability of bold lead-ins without the visual noise. RTD styles the term once, consistently.
+If items have 2 or more parallel attributes, use a <code>list-table</code> instead.</p>
+
+<h3>Fake headings → real headings (or nothing)</h3>
+<div class="grid2">
+<div class="dd dont"><div class="lbl">Don't (usage_notes.rst)</div><pre>**Creating a configuration file**
+
+- Use the interactive `configuration generator
+  &lt;_static/config_generator.html&gt;`_ ...
+
+.. _gpu-use:
+
+**GPU use**</pre></div>
+<div class="dd do"><div class="lbl">Do</div><pre>Create a configuration file
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Build one in the :doc:`config_generator`, or
+write the YAML by hand.
+
+.. _gpu-use:
+
+GPU use
+~~~~~~~</pre></div>
+</div>
+<p class="note">A real heading appears in the sidebar and the page TOC, gets an anchor and can be linked. A bold paragraph gets none of that. The same applies to italic sub-headings in outputs.rst. Use a <code>rubric</code> only for an unlinked label above a list, and never two in a row.</p>
+
+<!-- ============================================================ -->
+<h2 class="bn-h2" id="admonitions">6. Admonitions</h2>
+<div class="grid2">
+<div>
+<p><strong>Allowed:</strong> <code>note</code> (purple), <code>tip</code> (green, sparingly), <code>seealso</code> (slate), <code>warning</code> (amber).<br/>
+Do not use <code>important</code>, <code>caution</code>, <code>attention</code>, <code>danger</code> or custom <code>admonition::</code>.</p>
+<ul class="rules">
+<li>At most <strong>one per section</strong>, and <strong>never back-to-back</strong>.</li>
+<li>Never the first thing under a heading. Write the sentence first, then add the aside.</li>
+<li><code>warning</code> = data loss, wrong results or a run that will fail. A requirements list is not a warning.</li>
+<li>No more than 3 lines. Longer than that means it is a section, as with synthesis_level.rst:169.</li>
+<li>No bold or lists inside unless there is no other way.</li>
+</ul>
+</div>
+<div>
+<div class="rtd" style="margin-top:0">
+<div class="adm note"><div class="t">Note</div>Replace <code>&lt;version&gt;</code> with a release tag.</div>
+<div class="adm warning"><div class="t">Warning</div>Mounting the output folder read-only makes the run fail at the first write.</div>
+<div class="adm tip"><div class="t">Tip</div>Run one subject first to check your paths before processing a whole dataset.</div>
+<div class="adm seealso"><div class="t">See also</div><a href="#">Spaces and transforms</a></div>
+</div></div>
+</div>
+<div class="grid2">
+<div class="dd dont"><div class="lbl">Don't (installation.rst)</div><pre>System requirements
+~~~~~~~~~~~~~~~~~~~
+
+.. warning::
+
+   - **Host:** Any OS supported by Docker ...
+   - **RAM + swap:** ≥ 16 GB (recommended 20 GB+)
+   - ...</pre></div>
+<div class="dd do"><div class="lbl">Do</div><pre>System requirements
+~~~~~~~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 25 45
+
+   * - Resource
+     - Minimum
+     - Recommended
+   * - RAM + swap
+     - 16 GB
+     - 20 GB+ for the full pipeline
+   ...</pre></div>
+</div>
+
+<!-- ============================================================ -->
+<h2 class="bn-h2" id="headings">7. Headings and page structure</h2>
+<table class="t">
+<tr><th>Level</th><th>Underline</th><th>Use</th></tr>
+<tr><td>Page title</td><td><code>=====</code></td><td>One per page. Same wording as the toctree entry.</td></tr>
+<tr><td>Section</td><td><code>-----</code></td><td>Main sections. These show in the sidebar.</td></tr>
+<tr><td>Subsection</td><td><code>~~~~~</code></td><td>The usual depth limit.</td></tr>
+<tr><td>Sub-subsection</td><td><code>^^^^^</code></td><td>Rare. Never skip a level (spaces_and_transforms.rst:161 jumps from <code>-</code> to <code>^</code>).</td></tr>
+</table>
+<ul class="rules">
+<li><strong>Sentence case</strong> ("Create a configuration file", not "Creating A Configuration File"). Keep titles to about 60 characters or less. FAQ questions may be full questions, but cut the filler.</li>
+<li><strong>No hand-typed numbers</strong> ("2.1 Bias field correction"). They drift. If order matters, the page order already shows it.</li>
+<li>Underline length = title length. Sphinx accepts longer ones, but they make the source noisy to read.</li>
+<li>No manual tables of contents. The RTD sidebar and <code>.. contents:: :local:</code> do this (see faq.rst:10–27).</li>
+<li>No <code>----</code> transitions between sections. A heading already separates them.</li>
+<li>Pages over about 400 source lines should be considered for a split. The lines in a raw widget don't count.</li>
+<li>Toctree captions use the theme's own style. Do not type them in ALL CAPS in source.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 class="bn-h2" id="figures">8. Figures and tables</h2>
+<div class="grid2">
+<div class="dd dont"><div class="lbl">Don't (index.rst)</div><pre>.. image:: _static/.../pipeline_overview.png
+   :alt: Brainana pipeline overview schematic
+   :align: center
+   :width: 100%
+
+|</pre></div>
+<div class="dd do"><div class="lbl">Do</div><pre>.. figure:: _static/.../pipeline_overview.png
+   :alt: Anatomical and functional pipelines
+         converge in T1w and template space.
+   :width: 100%
+
+   Pipeline overview. Green: anatomical;
+   purple: functional.  (caption states the
+   meaning of each hue)</pre></div>
+</div>
+<ul class="rules">
+<li>Always use <code>figure</code> with <code>:alt:</code> (what it shows) and a <strong>one-line caption</strong>. When the figure is color-coded, the caption names the colors.</li>
+<li>Width: <code>100%</code> for schematics, <code>max 720px</code> for SVG diagrams, and screenshots at natural size up to 100%. Let CSS handle spacing; never add <code>|</code> spacers.</li>
+<li>Prefer SVG for diagrams. Paper PNGs stay as they are, but put new diagrams in the §3 palette.</li>
+<li>Tables: <code>list-table</code> with <code>:header-rows: 1</code> and <code>:widths:</code>. Use them when items share two or more attributes. Cells hold short phrases, not paragraphs. If a column repeats the same value in every row, drop it (processing.rst:501, "Domain").</li>
+<li>Long filename inventories (outputs.rst) are better as a <code>tree</code> block plus a short "what each file is" table than as many code-only bullets.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 class="bn-h2" id="code">9. Code blocks</h2>
+<table class="t">
+<tr><th>Content</th><th>Directive</th></tr>
+<tr><td>Commands the user runs</td><td><code>.. code-block:: bash</code>. Use <code>console</code> only when the block shows output too.</td></tr>
+<tr><td>Config</td><td><code>.. code-block:: yaml</code></td></tr>
+<tr><td>Directory layouts</td><td><code>.. code-block:: tree</code>. This is the project's lexer; never a bare <code>::</code> (usage_notes.rst:46).</td></tr>
+<tr><td>CLI synopsis, log text</td><td><code>.. code-block:: text</code></td></tr>
+<tr><td>Windows</td><td><code>.. code-block:: powershell</code></td></tr>
+</table>
+<ul class="rules">
+<li>Never use a bare <code>::</code> literal block. Always name the language.</li>
+<li><strong>Syntax colors come from the palette only, and nothing is bold.</strong> Code is ink <code>#404040</code>. Comments are muted italic <code>#6b6b6b</code>. Keywords, shell builtins and YAML keys are <code>--bn-purple-dark</code>. Strings and numbers are <code>--bn-green-dark</code>. Everything else, including the <code>\</code> line continuation, stays ink.
+ This replaces Pygments' default (bold green builtins, bold brown <code>\</code>, teal comments, red strings) through overrides in <code>custom.css</code>; <code>pygments_style</code> is left unset.</li>
+<li>Keep blocks copy-pasteable: no <code>$</code> prompts in <code>bash</code> blocks, and placeholders written as <code>&lt;version&gt;</code>, explained once in the sentence before the block.</li>
+<li>Don't repeat a long command on two pages. Link to the canonical one (the <code>docker run</code> appears twice in usage_notes).</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 class="bn-h2" id="terms">10. Terminology and voice</h2>
+<table class="t">
+<tr><th>Write</th><th>Not</th></tr>
+<tr><td>Brainana (prose) · <code>brainana</code> (command, package)</td><td>brainana in a sentence, <strong>Brainana</strong> in bold</td></tr>
+<tr><td>FastSurfer · FreeSurfer · ANTs · FSL · AFNI · Nextflow · Docker</td><td>Fastsurfer, Freesurfer</td></tr>
+<tr><td>BOLD (data) · <code>space-bold</code> (entity)</td><td>bold as a noun in prose</td></tr>
+<tr><td>skull stripping · bias field correction · brain extraction</td><td>Skullstripping, Skull strip, Bias correction (mixed)</td></tr>
+<tr><td>configuration generator (lowercase in prose; page title "Configuration generator")</td><td>config generator, interactive generator, Config Generator</td></tr>
+<tr><td>US spelling: customize, normalize, color</td><td>customise, colour</td></tr>
+</table>
+<ul class="rules">
+<li>Address the reader as "you". Use the imperative for steps ("Mount the folder…").</li>
+<li>Describe internal modules in prose. Keep external tool names and config keys literal.</li>
+<li>One "See also" style per page: a <code>seealso</code> directive at the end, not a "See also" heading.</li>
+<li>Link text says where the link goes ("see the <a href="#">sample QC report</a>"), never "click here".</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 class="bn-h2" id="interactive">11. Interactive pages</h2>
+<p>Two interactive surfaces live in the docs: the <strong>configuration generator</strong> (<code>_static/config_generator.html</code>, standalone, on the brand
+system from <a href="styleguide.html">styleguide.html</a>) and the <strong>transform-command builder</strong> (<code>raw:: html</code> inside
+<code>spaces_and_transforms.rst</code>).</p>
+<ul class="rules">
+<li>Widgets embedded <em>inside</em> an RTD page follow this guide: neutral greys (<code>#f6f7f8</code> panels, <code>#d6d9dc</code> borders), purple for interactive accents, and the §4 code surface for code output.
+ <strong>No dark code panel</strong> (the builder's <code>#1e1e2e</code>/<code>#cdd6f4</code>), no GitHub grey (<code>#f6f8fa</code>/<code>#d0d7de</code>) and no amber hint box (<code>#fff8e1</code>/<code>#f9a825</code>). Hints use the §6 note style.</li>
+<li>The standalone config generator currently uses the cream/yellow brand system. <strong>Open decision:</strong> leave it as its own surface, or bring its accents to purple/green so it matches the site the button opens from. Either way it changes in a separate step, not as part of this docs pass.</li>
+<li>Inline <code>&lt;style&gt;</code> in a widget is scoped under one wrapper class, so it can't leak into the theme.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 class="bn-h2" id="feature">12. Feature and choice cards</h2>
+<p>Today the generator appears only as a bullet ("Use the interactive configuration generator…") in usage_notes.rst, plus passing links in the FAQ and atlas zoo.
+It is one of the most useful things in the docs: 70+ options grouped by stage, advanced toggles, a YAML download, and a test (<code>test_config_consistency.py</code>) that checks every key in
+<code>defaults.yaml</code> has a field. It deserves its own entry point.</p>
+
+<h3>Placement</h3>
+<table class="t">
+<tr><th>Where</th><th>What</th></tr>
+<tr><td>New page <code>docs/config_generator.rst</code></td><td>The card below. Listed in the <strong>User guide</strong> toctree, so it's always one click away in the sidebar.</td></tr>
+<tr><td><code>index.rst</code>, near the quick start</td><td>One sentence: "Brainana runs with sensible defaults. To change templates, registration or BIDS filters, build a config in the browser with the :doc:`config_generator`."</td></tr>
+<tr><td><code>usage_notes.rst</code> "Create a configuration file"</td><td>A short paragraph plus a <code>:doc:</code> link, replacing the bullet.</td></tr>
+<tr><td><code>faq.rst</code>, <code>template_atlas_zoo.rst</code></td><td>Plain <code>:doc:`configuration generator &lt;config_generator&gt;`</code> links, replacing the awkward <code>:ref:</code> text.</td></tr>
+</table>
+
+<h3>Target rendering</h3>
+<div class="rtd">
+<h4>Configuration generator</h4>
+<p>Build a Brainana configuration file in your browser: pick options, see what each one does, and download a ready-to-use YAML.</p>
+<div class="feature">
+  <div class="shot" aria-label="config generator screenshot placeholder">
+    <div class="nav"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="row" style="top:14px"><b></b><s></s></div><div class="row" style="top:36px"><b></b><s></s></div>
+    <div class="row" style="top:58px"><b></b><s></s></div><div class="row" style="top:80px"><b></b><s></s></div>
+    <div class="row" style="top:102px"><b></b><s></s></div><div class="row" style="top:124px"><b></b><s></s></div>
+  </div>
+  <div>
+    <dl style="margin:0">
+      <dt>Every option, grouped by stage</dt><dd>General, BIDS filtering, template, anatomical, functional, registration.</dd>
+      <dt>Defaults pre-filled</dt><dd>Change only what you need; advanced settings stay folded away.</dd>
+      <dt>Covers every option</dt><dd>A test checks that every option in the pipeline's defaults has a field in the generator.</dd>
+    </dl>
+    <p style="margin:14px 0 0"><a class="btn" href="#">Open the configuration generator →</a></p>
+  </div>
+</div>
+<p style="margin:14px 0 6px">Then pass the file to your run:</p>
+<pre style="margin:0;padding:8px 12px">docker run ... --config /config.yaml</pre>
+</div>
+<p class="note">The screenshot placeholder becomes a real PNG of the generator (<code>_static/pipeline_details/config_generator.png</code>, about 1200px wide, cropped to the nav plus the first sections).
+In RST: <code>.. container:: bn-feature</code> wrapping a <code>figure</code> and a definition list, with the button as <code>.. rst-class:: bn-button</code> on the link paragraph.
+<code>custom.css</code> styles <code>.bn-feature</code> (1px <code>#e1e4e5</code> border, 6px radius, 2-column grid that stacks on mobile) and <code>.bn-button a</code> (RTD blue fill, white bold text, 4px radius).
+<strong>This card is the only button-style link on the site.</strong> The pattern is reusable for a future feature, such as the Viewer, but use it sparingly.</p>
+
+<h3>Choice cards</h3>
+<p>When a page offers two parallel paths, such as Docker vs Brainana Lite on <code>installation.rst</code>, show them as two side-by-side cards rather than a bold list.
+Each card has a title, a one-line pitch, a muted "Best for …" line and one bold arrow link to that path. The first or recommended option gets a <code>--bn-purple</code> top rule
+and, optionally, a <code>:bn-tag:`Recommended`</code> pill. The second option gets a <code>--bn-green-mid</code> rule. Use at most two or three cards, and only on landing or choice pages.</p>
+<div class="rtd"><div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+<div style="border:1px solid #e1e4e5;border-top:3px solid #6a4fb3;border-radius:6px;padding:14px 16px">
+<p style="font-family:'Roboto Slab',Georgia,serif;font-weight:700;font-size:19px;margin:0 0 6px">Docker <span style="display:inline-block;vertical-align:3px;margin-left:6px;padding:1px 8px;border-radius:999px;border:1px solid #c9bbef;background:#f6f3fc;color:#563c9c;font-size:11px;font-weight:700">Recommended</span></p>
+<p style="margin:0 0 10px">The full pipeline: anatomical and functional preprocessing, surface reconstruction, and HTML QC reports.</p>
+<p style="margin:0 0 10px;font-size:90%;color:#6b6b6b">Best for whole datasets and production runs.</p>
+<p style="margin:0;font-weight:700"><a href="#">Set up Docker →</a></p></div>
+<div style="border:1px solid #e1e4e5;border-top:3px solid #3cb371;border-radius:6px;padding:14px 16px">
+<p style="font-family:'Roboto Slab',Georgia,serif;font-weight:700;font-size:19px;margin:0 0 6px">Brainana Lite</p>
+<p style="margin:0 0 10px">A lightweight volumetric T1w workflow in Jupyter or Google Colab, with no Docker image.</p>
+<p style="margin:0 0 10px;font-size:90%;color:#6b6b6b">Best for trying Brainana on a single subject.</p>
+<p style="margin:0;font-weight:700"><a href="#">Open Brainana Lite →</a></p></div>
+</div></div>
+<p class="note">In RST: <code>.. container:: bn-choices</code> holding one <code>.. container:: bn-choice bn-choice-primary</code> (or <code>-secondary</code>) per option, with <code>.. rst-class::</code>
+<code>bn-choice-title</code> / <code>bn-choice-meta</code> / <code>bn-choice-link</code> on the paragraphs. Declare <code>.. role:: bn-tag</code> at the top of the page to use the pill. Styles are in <code>custom.css</code>.</p>
+
+<!-- ============================================================ -->
+<h2 class="bn-h2" id="checklist">13. Review checklist</h2>
+<p>Before merging a docs change:</p>
+<ul class="check">
+<li>No bold lead-ins, bold pseudo-headings or italic pseudo-headings.</li>
+<li>Bold appears only where a term is defined; UI labels use <code>:guilabel:</code>.</li>
+<li>At most one admonition per section, none directly under a heading, and <code>warning</code> only for real failure risks.</li>
+<li>Heading levels follow <code>= - ~ ^</code> without skipping. Sentence case, no numbers, underlines match.</li>
+<li>Every image is a <code>figure</code> with <code>:alt:</code> and a caption, and there are no <code>|</code> spacers.</li>
+<li>Every code block names its language, and commands are copy-pasteable.</li>
+<li>Diagrams use only the §3 palette; grep shows no stray hex values outside it.</li>
+<li>Terms match §10 (FastSurfer, BOLD, skull stripping, US spelling).</li>
+<li>Links to the configuration generator go to <code>:doc:`config_generator`</code>.</li>
+<li>Local build (<code>docs/build_rtd_local.sh</code>, <code>.rtd-venv</code>) shows no new warnings.</li>
+</ul>
+</div>
+</body></html>

@@ -18,6 +18,10 @@ The tokens are defined once (below) and applied per surface in the way that surf
 | Notebook header | inline `style="…"` attributes in `examples/BrainanaLite.ipynb` cell 0 | Colab sanitizes `<style>`/external CSS in markdown cells |
 | Style guide | links `brainana-tokens.css` directly | it lives next to the file |
 
+The **RTD docs** (`docs/*.rst`) are a separate surface and do **not** use these tokens: they keep
+`sphinx_rtd_theme` with a purple/green accent swap in `docs/_static/custom.css`. Their rules
+(palette, diagrams, emphasis, admonitions, figures) live in **`styleguide_doc.html`** in this folder.
+
 When you change a token, update `brainana-tokens.css` here **and** mirror the value into
 the three surfaces above (they each carry their own copy by necessity).
 

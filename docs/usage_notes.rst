@@ -26,15 +26,14 @@ Quick start
           liuxingyu987/brainana:<version> /input /output \
           --work_dir /output_wd --freesurfer_license /fs_license.txt
 
-.. note::
+Replace ``<version>`` with a published Brainana tag, for example ``3.2.0`` (see the `image tags on Docker Hub <https://hub.docker.com/r/liuxingyu987/brainana/tags>`_). Also:
 
-   - Replace ``<version>`` with a published Brainana tag from Docker Hub, for example ``3.2.0``. See the `Brainana image tags on Docker Hub <https://hub.docker.com/r/liuxingyu987/brainana/tags>`_ for the list of available versions.
-   - **No compatible GPU?** Omit ``--gpus all``; the pipeline runs on CPU with no other changes. Details in :ref:`Check GPU access <installation-check-gpu-access>`.
-   - ``<path/to/work_dir>`` is a host path for Nextflow's intermediate files. Without this mount, resume is impossible.
-   - **Run as your user, not root:** Pre-create the output and work directories on the host and own them before mounting; see :ref:`docker-run-as-user-not-root`.
-   - **Windows users:** See :ref:`windows-paths`. To run on the CPU, omit ``--gpus all`` rather than combining it with CPU mode; see :ref:`CPU mode on a machine with a GPU <cpu-mode-with-gpu-host>`.
+- Without a compatible GPU, omit ``--gpus all``; the pipeline runs on the CPU with no other changes. See :ref:`Check GPU access <installation-check-gpu-access>`.
+- ``<path/to/work_dir>`` is a host path for Nextflow's intermediate files. Without this mount, a run cannot be resumed.
+- Run as your user, not root: pre-create the output and work directories on the host and own them before mounting; see :ref:`docker-run-as-user-not-root`.
+- On Windows, see :ref:`windows-paths`. To run on the CPU there, omit ``--gpus all`` rather than combining it with CPU mode; see :ref:`CPU mode on a machine with a GPU <cpu-mode-with-gpu-host>`.
 
-No configuration file is required; built-in defaults are used. To customise the pipeline, see the Configuration file section below. For all options after the image name, see :ref:`command-line-arguments`.
+No configuration file is required; built-in defaults are used. To customize the pipeline, see :ref:`generating-config-file`. For all options after the image name, see :ref:`command-line-arguments`.
 
 .. _the-bids-format:
 
@@ -43,7 +42,9 @@ The BIDS format
 
 The input dataset must be in valid `BIDS <https://bids.neuroimaging.io/getting_started/folders_and_files/folders.html>`_ format. We recommend validating your dataset with the free online `BIDS Validator <https://bids-standard.github.io/bids-validator/>`_.
 
-Minimal example layout (dataset root with one subject, one session, anat + func)::
+Minimal example layout (dataset root with one subject, one session, anat + func):
+
+.. code-block:: tree
 
    ./   # dataset root
    ├── sub-banana
@@ -56,13 +57,13 @@ Minimal example layout (dataset root with one subject, one session, anat + func)
    │           └── sub-banana_ses-1_task-eat_run-1_bold.json   # optional
    └── <other_subjects>
 
-Anatomical images must be magnitude images. BIDS allows ``T1w``/``T2w`` files to carry a ``part-`` entity for complex-valued data; Brainana uses files labelled ``part-mag`` or with no ``part-`` entity. Files labelled ``part-phase``, ``part-real`` or ``part-imag`` are listed as "will not be processed" at start-up, and they never count as extra runs for multi-run averaging. MP2RAGE inversion images (``inv-<index>_MP2RAGE``) and ``UNIT1`` images are not read either, so name the image you want processed ``T1w``.
+Anatomical images must be magnitude images. BIDS allows ``T1w``/``T2w`` files to carry a ``part-`` entity for complex-valued data; Brainana uses files labeled ``part-mag`` or with no ``part-`` entity. Files labeled ``part-phase``, ``part-real`` or ``part-imag`` are listed as "will not be processed" at start-up, and they never count as extra runs for multi-run averaging. MP2RAGE inversion images (``inv-<index>_MP2RAGE``) and ``UNIT1`` images are not read either, so name the image you want processed ``T1w``.
 
 If you start with DICOM, you can either:
 
-(1) Use `dcm2niix <https://www.nitrc.org/plugins/mwiki/index.php/dcm2nii:MainPage#General_Usage>`_ to convert DICOM to NIfTI and then manually reorganise and rename files to BIDS. Use ``-ba y`` so dcm2niix writes BIDS-compatible JSON sidecar files; you still need to create the BIDS folder structure and naming yourself.
+(1) Use `dcm2niix <https://www.nitrc.org/plugins/mwiki/index.php/dcm2nii:MainPage#General_Usage>`_ to convert DICOM to NIfTI and then manually reorganize and rename files to BIDS. Use ``-ba y`` so dcm2niix writes BIDS-compatible JSON sidecar files; you still need to create the BIDS folder structure and naming yourself.
 
-(2) Use `bids converter <https://bids.neuroimaging.io/tools/converters.html>`_, which converts DICOM to NIfTI and organises output into BIDS for you.
+(2) Use `bids converter <https://bids.neuroimaging.io/tools/converters.html>`_, which converts DICOM to NIfTI and organizes output into BIDS for you.
 
 If you only have a few images (e.g. one), option (1) is usually simpler; for a large dataset, option (2) is often better but needs a bit of extra setup.
 
@@ -73,13 +74,13 @@ If you only have a few images (e.g. one), option (1) is usually simpler; for a l
 .. _the-freesurfer-license-optional:
 
 The FreeSurfer license (needed for surface reconstruction)
------------------------------------------------------------
+----------------------------------------------------------
 
 Brainana uses FreeSurfer for surface reconstruction, which requires a valid license.
 
 Surface reconstruction is on by default, and the container stops at start-up if ``--freesurfer_license`` is not given or the license does not work. To run without a license, turn surface reconstruction off in a configuration file (``anat.surface_reconstruction.enabled: false``); anatomical and functional preprocessing then run as usual.
 
-**Get or locate the license**
+To get or locate the license:
 
 - No license yet: obtain a free one at https://surfer.nmr.mgh.harvard.edu/registration.html
 - FreeSurfer already configured on your machine: the license is usually at ``$FREESURFER_HOME/license.txt`` (check with ``ls $FREESURFER_HOME/license.txt``).
@@ -87,19 +88,20 @@ Surface reconstruction is on by default, and the container stops at start-up if 
 .. _generating-config-file:
 
 Configuration file (optional)
-------------------------------
+-----------------------------
 
-Brainana uses built-in defaults, so you can run the standard pipeline without a configuration file. 
+Brainana uses built-in defaults, so you can run the standard pipeline without a configuration file.
+Use a YAML configuration file when you need to customize the pipeline, for example the template
+space, registration type, or BIDS filtering.
 
-Use a YAML configuration file when you need to customise the pipeline (e.g. template space, registration type, or BIDS filtering).
-
-**Creating a configuration file**
-
-- Use the interactive `configuration generator <_static/config_generator.html>`_ to choose options and download a ready-to-use YAML file.
+The easiest way to write one is the :doc:`configuration generator <config_generator>`: pick
+options in your browser and download a ready-to-use YAML file. The file only needs the settings
+you change.
 
 .. _gpu-use:
 
-**GPU use**
+GPU use
+~~~~~~~
 
 GPU use is set by ``general.gpu_device`` in the configuration file (there is no command-line flag; ``--use_gpu`` is ignored with a warning):
 
@@ -119,27 +121,26 @@ This section covers running Brainana in Docker: volume mounts, example commands,
 Mounts
 ~~~~~~
 
-.. note::
-
-   **Windows users:** replace ``<path/to/...>`` with a forward-slash host path, e.g.
-   ``C:/Users/me/bids``. See :ref:`windows-paths` in the FAQ for full examples covering
-   PowerShell, CMD, and WSL2.
-
-**Mandatory mounts**
+Two mounts are required:
 
 - Input (BIDS-formatted): ``-v <path/to/bids_dir>:/input``
 - Output: ``-v <path/to/output_dir>:/output``
 
-**Optional mounts**
+The others are optional:
 
-- Work directory: ``-v <path/to/work_dir>:/output_wd`` — stores Nextflow's intermediate files and cache. **Required for resume to work.** Use local disk; the work directory must support file locks.
+- Work directory: ``-v <path/to/work_dir>:/output_wd`` — stores Nextflow's intermediate files and cache, and is required for resume to work. Use local disk; the work directory must support file locks.
 - FreeSurfer license: ``-v <path/to/license.txt>:/fs_license.txt`` — mount the file prepared in :ref:`the-freesurfer-license-optional`; required unless surface reconstruction is turned off in the configuration file (``anat.surface_reconstruction.enabled: false``).
 - Configuration file: ``-v <path/to/config.yaml>:/config.yaml`` — mount the file prepared in :ref:`generating-config-file`; omit to use built-in defaults.
 
-Example commands
-~~~~~~~~~~~~~~~~~
+.. note::
 
-**With default config (surface reconstruction enabled)**
+   On Windows, replace ``<path/to/...>`` with a forward-slash host path, e.g.
+   ``C:/Users/me/bids``. See :ref:`windows-paths` in the FAQ for PowerShell, CMD, and WSL2 examples.
+
+Example commands
+~~~~~~~~~~~~~~~~
+
+With the default configuration (surface reconstruction on):
 
 .. code-block:: bash
 
@@ -151,15 +152,15 @@ Example commands
        liuxingyu987/brainana:<version> /input /output \
        --work_dir /output_wd --freesurfer_license /fs_license.txt
 
-**Without surface reconstruction (no FreeSurfer license)**
-
-Turn surface reconstruction off in a configuration file:
+Without surface reconstruction (no FreeSurfer license), turn it off in a configuration file:
 
 .. code-block:: yaml
 
    anat:
      surface_reconstruction:
        enabled: false
+
+and run without the license mount:
 
 .. code-block:: bash
 
@@ -171,7 +172,9 @@ Turn surface reconstruction off in a configuration file:
        liuxingyu987/brainana:<version> /input /output \
        --work_dir /output_wd --config /config.yaml
 
-**With a custom config**
+.. _usage-custom-config:
+
+With a custom configuration file:
 
 .. code-block:: bash
 
@@ -184,7 +187,6 @@ Turn surface reconstruction off in a configuration file:
        liuxingyu987/brainana:<version> /input /output \
        --work_dir /output_wd --freesurfer_license /fs_license.txt \
        --config /config.yaml
-
 
 .. _command-line-arguments:
 
@@ -202,7 +204,8 @@ The following options can be passed after the image name (or after ``bids_dir`` 
        [--tasks TASK[,TASK...]] [--runs RUN[,RUN...]] \
        [--anat_only] [--output_space SPACE] [-profile PROFILE] [-h | --help]
 
-**Positional arguments**
+Positional arguments
+^^^^^^^^^^^^^^^^^^^^
 
 ``bids_dir``
    BIDS root directory mounted into the container.
@@ -210,7 +213,8 @@ The following options can be passed after the image name (or after ``bids_dir`` 
 ``output_dir``
    Output directory mounted into the container.
 
-**General options**
+General options
+^^^^^^^^^^^^^^^
 
 ``--freesurfer_license PATH``
    Path to the FreeSurfer license file *inside the container* (required when surface
@@ -238,7 +242,8 @@ The following options can be passed after the image name (or after ``bids_dir`` 
 ``-h``, ``--help``
    Print the full argument listing and exit (no processing).
 
-**Options for filtering BIDS queries**
+BIDS filtering options
+^^^^^^^^^^^^^^^^^^^^^^
 
 ``--subjects SUBJECT[,SUBJECT...]``
    Restrict processing to the listed subject IDs, comma-separated with no spaces
@@ -261,7 +266,8 @@ The following options can be passed after the image name (or after ``bids_dir`` 
 
    Default: (all runs)
 
-**Processing options**
+Processing options
+^^^^^^^^^^^^^^^^^^
 
 ``--anat_only``
    Run only the anatomical pipeline; skip functional processing.
@@ -271,12 +277,13 @@ The following options can be passed after the image name (or after ``bids_dir`` 
 ``--output_space SPACE``
    Template space for registered outputs. Either a bundled template spec in
    ``TEMPLATE_NAME[:DESCRIPTION]`` format — examples: ``NMT2Sym:res-1`` (1 mm),
-   ``NMT2Sym:res-05`` (0.5 mm), ``MEBRAINS:res-05`` — **or** a path to a custom
+   ``NMT2Sym:res-05`` (0.5 mm), ``MEBRAINS:res-05`` — or a path to a custom
    template image (``.nii`` / ``.nii.gz``). See the FAQ :ref:`custom-template` for details.
 
    Default: ``NMT2Sym:res-05``
 
-**Resource options**
+Resource options
+^^^^^^^^^^^^^^^^
 
 ``-profile PROFILE``
    Nextflow resource profile. Choices:

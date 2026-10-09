@@ -41,7 +41,7 @@ Choosing a level
        correspond between them.
    * - ``session_longitudinal``
      - Same as ``session``, plus an unbiased base template per subject.
-     - The per-session reconstructions **and** base-seeded ones that share a
+     - The per-session reconstructions *and* base-seeded ones that share a
        single mesh.
      - You intend to measure within-subject change over time.
 
@@ -60,8 +60,8 @@ What it does
 ~~~~~~~~~~~~
 
 ``session_longitudinal`` adds a second surface pass on top of the per-session
-reconstruction, so that every session of a subject ends up sharing **one
-cortical mesh**. Vertex *i* is then the same anatomical point at every
+reconstruction, so that every session of a subject ends up sharing one
+cortical mesh. Vertex *i* is then the same anatomical point at every
 timepoint, and thickness at that vertex can be differenced across sessions
 directly — no surface registration, and no spherical registration step.
 
@@ -70,7 +70,7 @@ When to use it
 
 - Set ``anat.synthesis_level: "session_longitudinal"``, which also requires
   ``anat.surface_reconstruction.enabled``.
-- A subject needs **at least two sessions carrying anatomy**. Single-session
+- A subject needs at least two sessions carrying anatomy. Single-session
   subjects are still processed cross-sectionally; they are simply skipped by
   this stream, since an "unbiased template" built from one scan is that scan.
 - Anatomical selection is unchanged from ``"session"``, and the functional
@@ -79,10 +79,14 @@ When to use it
 How it works
 ~~~~~~~~~~~~
 
-.. mermaid::
+The stream runs in two phases: it builds one base template per subject, then
+reconstructs each session from that base.
 
-   %%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#eef2ff', 'primaryBorderColor': '#6366f1', 'primaryTextColor': '#1e1b4b', 'lineColor': '#6b7280', 'edgeLabelBackground': '#f8fafc'}, 'flowchart': {'curve': 'basis', 'htmlLabels': true, 'padding': 4, 'diagramPadding': 2, 'useMaxWidth': false}}}%%
-   flowchart LR
+.. mermaid::
+   :caption: Longitudinal stream. Purple: subject-level outputs, written into sub-01_base/; green: per-session outputs.
+
+   %%{init: {'theme': 'base', 'themeVariables': {'fontFamily': 'Lato, Helvetica Neue, Arial, sans-serif', 'fontSize': '13px', 'primaryColor': '#ffffff', 'primaryBorderColor': '#b4b9c1', 'primaryTextColor': '#333333', 'lineColor': '#777777', 'edgeLabelBackground': '#ffffff'}, 'flowchart': {'curve': 'basis', 'htmlLabels': true, 'padding': 10, 'diagramPadding': 2, 'nodeSpacing': 28, 'rankSpacing': 32, 'useMaxWidth': false}}}%%
+   flowchart TB
        S1["ses-01 T1w"]
        S2["ses-02 T1w"]
        S3["ses-03 T1w"]
@@ -106,14 +110,17 @@ How it works
        L2 --> ST
        L3 --> ST
 
-       classDef result fill:#ecfdf5,stroke:#059669,color:#064e3b
-       classDef proc   fill:#eff6ff,stroke:#3b82f6,color:#1e3a8a
-       classDef input  fill:#f8fafc,stroke:#94a3b8,color:#334155
-       class S1,S2,S3 input
-       class RT,TP proc
-       class BASE,L1,L2,L3,ST result
+       classDef neutral fill:#ffffff,stroke:#b4b9c1,color:#333333,stroke-width:1.3px
+       classDef purple  fill:#f1ecfb,stroke:#9370db,color:#333333,stroke-width:1.3px
+       classDef green   fill:#e8f6ee,stroke:#3cb371,color:#333333,stroke-width:1.3px
+       class S1,S2,S3,RT,TP neutral
+       class BASE,ST purple
+       class L1,L2,L3 green
 
-**1. Within-subject base template.** Each session's conformed volumes are
+Within-subject base template
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Each session's conformed volumes are
 registered into a common unbiased space with ``mri_robust_template`` (robust
 rigid registration, median averaging) and averaged. The average is then
 segmented and fully reconstructed, giving one mesh for the subject.
@@ -122,7 +129,10 @@ species assumptions, so it transfers to macaque data unchanged, where
 FreeSurfer's ``recon-all -base``/``-long`` streams would run a human volume
 pipeline and discard the CNN segmentation these surfaces are built on.
 
-**2. Per-timepoint reconstruction.** Each session's volume is resampled into
+Per-timepoint reconstruction
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Each session's volume is resampled into
 base space and its reconstruction is seeded from the base's surfaces.
 The base's mesh (the NMT2Sym template mesh by default, or the tessellated one
 when ``anat.surface_reconstruction.template_surface.enabled`` is false) and its
@@ -145,8 +155,8 @@ The time value for each session is taken from
    first session).
 
 With no usable column, the fit falls back to any number in the session label,
-and then to scan order — in which case the fitted rate is **per scan rather
-than per unit time**. Which regime was used is recorded as ``time_source`` in
+and then to scan order — in which case the fitted rate is *per scan* rather
+than per unit time. Which regime was used is recorded as ``time_source`` in
 the run's change-statistics summary, because a rate is not interpretable
 without it.
 
@@ -160,32 +170,37 @@ What you get
 - Base-space derivatives, atlases and QC figures, marked ``space-base``.
 
 Longitudinal mode does not replace the per-session pipeline. Brainana still
-writes the same **cross-sectional** FastSurfer trees as ``synthesis_level:
+writes the same cross-sectional FastSurfer trees as ``synthesis_level:
 "session"`` — ``fastsurfer/sub-<id>_ses-<id>/``, each in that session's own T1w
 space. The ``*_base`` and ``*_long`` directories and anything tagged
-``space-base`` are **additional** outputs in the within-subject base reference.
+``space-base`` are additional outputs in the within-subject base reference.
 :doc:`outputs` lists every path.
 
-.. note::
+Which outputs to use
+~~~~~~~~~~~~~~~~~~~~
 
-   **Use longitudinal outputs for across-time surface analysis.** Shared vertex
-   numbering on ``*_long`` meshes, plus the change statistics under ``*_base/``,
-   is what lets you compare thickness, area, and ROI rates between sessions
-   without registering surfaces to each other.
+Use the longitudinal outputs for across-time surface analysis. Shared vertex
+numbering on ``*_long`` meshes, plus the change statistics under ``*_base/``,
+is what lets you compare thickness, area, and ROI rates between sessions
+without registering surfaces to each other.
 
-   **Use cross-sectional outputs for fMRI and fsnative atlases.** Functional
-   preprocessing coregisters each run to the T1w chosen for that session (see
-   :doc:`anat_selection_for_func`), then registers to template space and can
-   project maps onto the cortical surface. Those steps always follow the
-   cross-sectional ``fastsurfer/sub-<id>_ses-<id>/`` tree — not ``*_long`` or
-   ``*_base``. The same cross-sectional surfaces drive ``space-fsnative``
-   atlases under ``anat/atlas_space-fsnative/``.
+Use the cross-sectional outputs for fMRI and fsnative atlases. Functional
+preprocessing coregisters each run to the T1w chosen for that session (see
+:doc:`anat_selection_for_func`), then registers to template space and can
+project maps onto the cortical surface. Those steps always follow the
+cross-sectional ``fastsurfer/sub-<id>_ses-<id>/`` tree — not ``*_long`` or
+``*_base``. The same cross-sectional surfaces drive ``space-fsnative``
+atlases under ``anat/atlas_space-fsnative/``.
 
-   **Why the split:** In a ``*_long`` tree the session T1w has already been
-   resampled into the base template before reconstruction, so ``orig.mgz`` and
-   the mesh sit on the **base** voxel grid. Preprocessed BOLD still lives in
-   **session-native** space, aligned to the cross-sectional T1w. Feeding
-   functional volumes into the longitudinal mesh as if it were a normal session
-   recon (for example ``mri_vol2surf`` with ``--regheader``) ignores the rigid
-   timepoint-to-base transform in ``fastsurfer/sub-<id>_base/mri/transforms/``
-   and misaligns data by exactly that amount.
+The reason for the split: in a ``*_long`` tree the session T1w has already
+been resampled into the base template before reconstruction, so ``orig.mgz``
+and the mesh sit on the base voxel grid. Preprocessed BOLD still lives in
+session-native space, aligned to the cross-sectional T1w.
+
+.. warning::
+
+   Feeding functional volumes into the longitudinal mesh as if it were a
+   normal session recon (for example ``mri_vol2surf`` with ``--regheader``)
+   ignores the rigid timepoint-to-base transform in
+   ``fastsurfer/sub-<id>_base/mri/transforms/`` and misaligns data by exactly
+   that amount.
