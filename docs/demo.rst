@@ -24,8 +24,8 @@ Download just the demo dataset from the project repository:
 This needs git ≥ 2.25; on older git, clone the whole repository instead with
 ``git clone https://github.com/brainana/brainana.git``.
 
-Run it
-------
+Run the demo
+------------
 
 From the repository root, point Brainana at ``examples/dataset_example`` as the input:
 
@@ -39,7 +39,7 @@ From the repository root, point Brainana at ``examples/dataset_example`` as the 
        liuxingyu987/brainana:<version> /input /output \
        --work_dir /output_wd --freesurfer_license /fs_license.txt
 
-Replace ``<version>`` with a published tag (e.g. ``3.1.0``), and create the output and
+Replace ``<version>`` with a published tag (e.g. ``3.2.0``), and create the output and
 work directories beforehand so results are owned by you, not root (see
 :ref:`docker-run-as-user-not-root`). Running without a GPU or without a FreeSurfer
 license is covered in the :ref:`Docker user guide <usage-docker-guide>`.
@@ -47,8 +47,8 @@ license is covered in the :ref:`Docker user guide <usage-docker-guide>`.
 Expected result
 ---------------
 
-The full run finishes in about **20 minutes** with the GPU on a typical workstation
+The full run finishes in about 20 minutes with the GPU on a typical workstation
 (8 CPU cores, 20 GB RAM, one NVIDIA GPU); CPU-only is roughly 60% slower.
 Outputs follow the BIDS-derivatives layout in :doc:`outputs`, with a browsable HTML QC
-report (``sub-example.html``) at the output root — see a
-`sample report <_static/QCreport_example/sub-example.html>`_.
+report (``sub-example.html``) at the output root; see the
+`sample QC report <_static/QCreport_example/sub-example.html>`_.

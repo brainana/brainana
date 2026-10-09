@@ -1,45 +1,382 @@
-/* FAQ question headings: make them blue to distinguish from other levels */
-.faq-question > h3,
-.faq-question > h4 {
-  /* Match the Sphinx RTD theme link blue */
-  color: #2980b9;
+/* Custom docs styles for Brainana.
+   Rules: docs_temp/update_instruction/design_system/styleguide_doc.html.
+   Keep sphinx_rtd_theme's layout and type; swap its blue/orange/teal accents for the
+   brand pair (purple primary, green secondary), slate tertiary, amber for warnings only. */
+
+/* ---- Accent swap: RTD blue #2980b9 → purple ------------------------------------
+   Purple links live in the page body; the dark sidebar keeps RTD's light-grey links
+   (purple text on #343131 is hard to read). The sidebar uses the brand cream
+   --bn-surface #fffddd: logo header, hover/active rows, mobile top bar (dark text
+   on it), and the group captions. */
+.rst-content a,
+.rst-content a:visited,
+.rst-content a code,
+.rst-content a tt,
+.rst-versions a {
+  color: #6a4fb3;
+}
+.rst-content a:hover {
+  color: #563c9c;
+}
+.wy-side-nav-search,
+.wy-side-nav-search img,
+.wy-nav-top,
+.wy-nav-top img {
+  background-color: #fffddd;
+}
+.wy-side-nav-search > a,
+.wy-side-nav-search > div.version,
+.wy-nav-top a,
+.wy-nav-top i {
+  color: #333;
+}
+/* Search box: the theme's border is blue (#2472a4); use the cream hairline, purple on focus. */
+.wy-side-nav-search input[type="text"] {
+  border-color: #e6e1cd;
+  box-shadow: none;
+}
+.wy-side-nav-search input[type="text"]:focus {
+  border-color: #6a4fb3;
+}
+.wy-menu-vertical a:active,
+.wy-nav .wy-menu-vertical a:hover {
+  background-color: #fffddd;
+  color: #333;
+}
+/* Sidebar group captions (the theme uppercases them). */
+.wy-nav .wy-menu-vertical header,
+.wy-menu-vertical header,
+.wy-menu-vertical p.caption {
+  color: #fffddd;
+}
+.rst-versions .rst-current-version {
+  color: #fffddd;
+}
+:focus-visible {
+  outline-color: #6a4fb3;
 }
 
-/* Custom docs styles for Brainana */
+/* Inline literals: dark green chip instead of RTD red, so they stand apart from prose
+   without looking like (purple) links. */
+.rst-content code.literal,
+.rst-content tt.literal {
+  color: #22704a;
+}
+.rst-content a code.literal {
+  color: #6a4fb3;
+}
+.rst-content .guilabel,
+.rst-content .menuselection {
+  border-color: #c9bbef;
+  background: #f6f3fc;
+}
 
-/* Index "Contents" toctree: the RTD theme sizes the caption group labels
-   (INSTALLATION, USER GUIDE, …) at 150% — the same as an <h2> — which made them
-   read larger than the "Contents" heading above them. Keep them subordinate. */
+/* ---- Admonitions: light tint + 3px left rule, small dark title (no colored bar) -- */
+.rst-content .admonition,
+.rst-content .note,
+.rst-content .tip,
+.rst-content .hint,
+.rst-content .seealso,
+.rst-content .warning,
+.rst-content .caution,
+.rst-content .attention,
+.rst-content .important,
+.rst-content .danger {
+  padding: 10px 14px;
+  border-left: 3px solid;
+  line-height: 22px;
+}
+.rst-content .admonition-title {
+  background: none !important;
+  margin: 0 0 2px;
+  padding: 0;
+  font-size: 90%;
+}
+.rst-content .admonition-title::before {
+  display: none;
+}
+.rst-content .admonition > :last-child {
+  margin-bottom: 0;
+}
+.rst-content .note,
+.rst-content .important {
+  background: #f6f3fc;
+  border-color: #9370db;
+}
+.rst-content .note .admonition-title,
+.rst-content .important .admonition-title {
+  color: #563c9c;
+}
+.rst-content .tip,
+.rst-content .hint {
+  background: #f1f9f4;
+  border-color: #3cb371;
+}
+.rst-content .tip .admonition-title,
+.rst-content .hint .admonition-title {
+  color: #22704a;
+}
+.rst-content .seealso {
+  background: #f6f7f8;
+  border-color: #a8b0ba;
+}
+.rst-content .seealso .admonition-title {
+  color: #5f6b7a;
+}
+.rst-content .warning,
+.rst-content .caution,
+.rst-content .attention,
+.rst-content .danger {
+  background: #fdf6ec;
+  border-color: #d68a2e;
+}
+.rst-content .warning .admonition-title,
+.rst-content .caution .admonition-title,
+.rst-content .attention .admonition-title,
+.rst-content .danger .admonition-title {
+  color: #9a5d12;
+}
+
+/* ---- Structure ------------------------------------------------------------------ */
+/* Index "Contents" toctree: the RTD theme sizes the caption group labels at 150% —
+   the same as an <h2> — which made them read larger than "Contents". */
 .rst-content .toctree-wrapper > p.caption {
   font-size: 115%;
   margin-top: 20px;
 }
 
-/* Tighten vertical spacing for Mermaid diagrams */
+/* Tables: let cells wrap. The theme sets td/th to nowrap, which pushes wide tables
+   into a horizontal scroll and cuts off the last column. */
+.rst-content table.docutils td,
+.rst-content table.docutils th,
+.wy-table-responsive table td,
+.wy-table-responsive table th {
+  white-space: normal;
+}
+
+/* Figures: spacing from CSS (no `|` spacer lines in the .rst); quiet captions. */
+.rst-content figure,
+.rst-content div.figure,
+.rst-content figure.align-center,
+.rst-content figure.align-default,
+.rst-content div.figure.align-center {
+  /* the theme's ".rst-content .align-center { margin: auto }" would zero the bottom gap */
+  margin: 8px auto 24px;
+}
+.rst-content figure figcaption,
+.rst-content div.figure p.caption {
+  text-align: center;
+}
+.rst-content figure figcaption,
+.rst-content .figure .caption {
+  margin-top: 6px;
+  font-size: 90%;
+  color: #6b6b6b;
+}
+.rst-content figure figcaption p {
+  margin: 0;
+}
+.rst-content figure .caption-text,
+.rst-content div.figure .caption-text {
+  font-style: normal;
+}
+
+/* Mermaid diagrams render inside <pre class="mermaid">, which the theme sets in monospace.
+   HTML labels would inherit it while Mermaid sizes boxes for Lato, clipping the text, so
+   reset the font (and pre's white-space/background) to match the diagram config. */
+.rst-content pre.mermaid,
+.rst-content pre.mermaid * {
+  font-family: Lato, "Helvetica Neue", Arial, sans-serif;
+}
+.rst-content pre.mermaid {
+  white-space: normal;
+  background: none;
+  border: 0;
+  overflow: visible;
+}
+
+/* Mermaid diagrams: tight vertical spacing, scale to the column. */
 .rst-content .mermaid,
 .rst-content .mermaid svg {
-  margin-top: 10 !important;
-  margin-bottom: 10 !important;
+  margin-top: 10px !important;
+  margin-bottom: 10px !important;
   padding-top: 0 !important;
   padding-bottom: 0 !important;
   display: block;
 }
 .rst-content .mermaid svg {
+  /* natural size (text at the configured 13px); only shrink when the column is narrower */
+  width: auto !important;
   height: auto !important;
-  max-width: 100%;
+  max-width: 100% !important;
+  margin-left: auto;
+  margin-right: auto;
 }
 
-/* Code-block callouts: warm cream background so demo/example blocks read as
-   distinct callouts instead of near-white (#f8f8f8) on the white page.
-   Targets syntax-highlighted blocks (.highlight) and plain literal blocks;
-   does NOT touch .rst-content .highlighted (the yellow search-hit marker). */
+/* Code blocks: the brand page cream --bn-bg #fffeee with the brand hairline #e6e1cd,
+   so example blocks read as distinct from the near-white page.
+   Targets syntax-highlighted blocks (.highlight) and plain literal blocks; does NOT
+   touch .rst-content .highlighted (the yellow search-hit marker). */
 .rst-content div[class^="highlight"],
 .rst-content pre.literal-block {
-  border-color: #efe7d8;
+  border-color: #e6e1cd;
 }
 .rst-content div[class^="highlight"] .highlight,
 .rst-content pre.literal-block,
 .highlight {
-  background: #fbf7f0;
+  background: #fffeee;
 }
 
+/* Syntax colors: palette only, never bold. Pygments' default style colors a few
+   shell builtins bold green, the "\" continuation bold brown, comments teal and strings
+   red; here everything is ink except comments (muted), keywords/builtins/YAML keys
+   (--bn-purple-dark) and strings/numbers (--bn-green-dark). */
+.rst-content .highlight span {
+  color: #404040;
+  font-weight: normal;
+  font-style: normal;
+}
+.rst-content .highlight .c,
+.rst-content .highlight .c1,
+.rst-content .highlight .ch,
+.rst-content .highlight .cm,
+.rst-content .highlight .cp,
+.rst-content .highlight .cpf,
+.rst-content .highlight .cs,
+.rst-content .highlight .go {
+  color: #6b6b6b;
+  font-style: italic;
+}
+.rst-content .highlight .k,
+.rst-content .highlight .kc,
+.rst-content .highlight .kd,
+.rst-content .highlight .kn,
+.rst-content .highlight .kp,
+.rst-content .highlight .kr,
+.rst-content .highlight .kt,
+.rst-content .highlight .nb,
+.rst-content .highlight .bp,
+.rst-content .highlight .nt,
+.rst-content .highlight .ow {
+  color: #563c9c;
+}
+.rst-content .highlight .s,
+.rst-content .highlight .s1,
+.rst-content .highlight .s2,
+.rst-content .highlight .sa,
+.rst-content .highlight .sb,
+.rst-content .highlight .sc,
+.rst-content .highlight .sd,
+.rst-content .highlight .sh,
+.rst-content .highlight .si,
+.rst-content .highlight .sx,
+.rst-content .highlight .sr,
+.rst-content .highlight .ss,
+.rst-content .highlight .dl,
+.rst-content .highlight .m,
+.rst-content .highlight .mb,
+.rst-content .highlight .mf,
+.rst-content .highlight .mh,
+.rst-content .highlight .mi,
+.rst-content .highlight .mo {
+  color: #22704a;
+}
+
+/* ---- Feature card (config_generator.rst): the only button-style link ------------ */
+.rst-content .bn-feature {
+  border: 1px solid #e1e4e5;
+  border-radius: 6px;
+  padding: 16px 18px;
+  margin: 0 0 24px;
+}
+.rst-content .bn-feature figure,
+.rst-content .bn-feature div.figure {
+  margin: 0 0 12px;
+}
+.rst-content .bn-feature img {
+  border: 1px solid #d6d9dc;
+  border-radius: 4px;
+}
+.rst-content .bn-feature dl {
+  margin-bottom: 0;
+}
+.rst-content .bn-button {
+  margin: 16px 0 0;
+}
+/* Cream --bn-surface with dark text, like the sidebar header and the generator's
+   Generate button; the border turns purple on hover. */
+.rst-content .bn-button a,
+.rst-content .bn-button a:visited {
+  display: inline-block;
+  background: #fffddd;
+  color: #333;
+  border: 1px solid #e6e1cd;
+  font-weight: 700;
+  padding: 8px 16px;
+  border-radius: 4px;
+}
+.rst-content .bn-button a:hover {
+  background: #fffddd;
+  color: #563c9c;
+  border-color: #6a4fb3;
+  text-decoration: none;
+}
+
+/* ---- Choice cards (installation.rst): two side-by-side options ------------------
+   Purple top rule = first/recommended option, green = second. Stacks on narrow screens. */
+.rst-content .bn-choices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin: 0 0 24px;
+}
+@media (max-width: 768px) {
+  .rst-content .bn-choices {
+    grid-template-columns: 1fr;
+  }
+}
+.rst-content .bn-choice {
+  border: 1px solid #e1e4e5;
+  border-top: 3px solid #b4b9c1;
+  border-radius: 6px;
+  padding: 14px 16px;
+  background: #fff;
+}
+.rst-content .bn-choice-primary {
+  border-top-color: #6a4fb3;
+}
+.rst-content .bn-choice-secondary {
+  border-top-color: #3cb371;
+}
+.rst-content .bn-choice p {
+  margin-bottom: 10px;
+}
+.rst-content .bn-choice p.bn-choice-title {
+  font-family: "Roboto Slab", Georgia, serif;
+  font-size: 120%;
+  font-weight: 700;
+  color: #404040;
+  margin-bottom: 6px;
+}
+.rst-content .bn-choice p.bn-choice-meta {
+  font-size: 90%;
+  color: #6b6b6b;
+}
+.rst-content .bn-choice p.bn-choice-link {
+  margin-bottom: 0;
+  font-weight: 700;
+}
+.rst-content .bn-tag {
+  display: inline-block;
+  vertical-align: 3px;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid #c9bbef;
+  background: #f6f3fc;
+  color: #563c9c;
+  font-family: Lato, "Helvetica Neue", Arial, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .03em;
+}

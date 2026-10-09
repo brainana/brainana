@@ -26,8 +26,10 @@ from .registration import (
     flirt_config_for_modality,
 )
 from .sitk_rigid_registration import (
-    DEFAULT_FULL_FOV_MAX_VOXELS,
+    DEFAULT_FULL_FOV_MAX_DIM,
     _sitk_tx_to_matrix,
+    clip_padding_to_max_dim,
+    fsl_mat_for_new_moving,
     fsl_mat_for_new_reference,
     fsl_mat_to_world_affine,
     reference_padding_to_cover,
@@ -48,6 +50,7 @@ from ..config import validate_slice_timing_config
 from ..utils.mri import (
     apply_brain_mask,
     correct_affine_for_mismatch_orientation,
+    crop_to_nonzero_bbox,
     ensure_3d,
     pad_image,
     write_inner_box_mask,
@@ -58,6 +61,10 @@ from fastsurfer_nn.inference.segmentation import run_segmentation
 # %%
 # Default for template padding during conform (fraction of dimension, e.g. 0.1 = 10% per side)
 DEFAULT_CONFORM_PADDING_PERCENTAGE = 0.1
+# Margin around the brain when cropping the anat registration input: a fraction of the
+# brain's extent per axis, at least two of FLIRT's coarsest (8 mm) voxels.
+DEFAULT_CONFORM_REG_CROP_MARGIN_FRACTION = 0.25
+DEFAULT_CONFORM_REG_CROP_MIN_MM = 16.0
 # Minimum voxel size threshold (mm) for template downsampling during conform
 DEFAULT_DOWNSAMPLE_VOXEL_SIZE_THRESHOLD = 0.5
 # Fixed macaque head radius (mm) for converting rotational deltas to displacement.
@@ -209,7 +216,7 @@ def _conform_full_fov(
     xfm_forward_f: Path,
     sitk_transform_obj: Any,
     logger: logging.Logger,
-    max_voxels: int = DEFAULT_FULL_FOV_MAX_VOXELS,
+    max_dim: int = DEFAULT_FULL_FOV_MAX_DIM,
 ) -> Dict[str, Any]:
     """Conform the input onto an enlarged grid that crops nothing.
 
@@ -218,6 +225,8 @@ def _conform_full_fov(
     downstream product. This produces one extra image on the *same* grid (same
     direction, same spacing, voxel-aligned) enlarged so that every voxel of the
     scanner-space input is inside it. It is a leaf: nothing downstream reads it.
+    An axis that would exceed ``max_dim`` voxels is clipped to it around the centre of
+    the requested grid, always keeping the standard box (status ``"clipped"``).
 
     Because the padding is clamped at zero, the enlarged grid is a strict superset of
     the standard one: the two differ by a whole number of voxels, which is what lets the
@@ -235,7 +244,8 @@ def _conform_full_fov(
 
     Returns a dict with ``imagef_conformed_full_fov``, ``template_f_full_fov``,
     ``fov_box``, ``pad_left``, ``pad_right`` and ``status`` (``"expanded"``,
-    ``"no_expansion_needed"`` or ``"fallback"``).
+    ``"clipped"``, ``"no_expansion_needed"`` or ``"fallback"``, the last only for a
+    non-finite transform or a failed resample).
     """
     ref_shape = np.asarray(nib.load(str(template_f_for_xfm)).shape[:3], dtype=int)
     moving_shape = np.asarray(nib.load(str(image_path)).shape[:3], dtype=int)
@@ -259,14 +269,16 @@ def _conform_full_fov(
         pad_left, pad_right = reference_padding_to_cover(
             vox2vox, moving_shape, ref_shape
         )
-
         requested_shape = [int(v) for v in ref_shape + pad_left + pad_right]
-        n_voxels = int(np.prod(requested_shape))
-        if n_voxels > max_voxels:
-            raise ValueError(
-                f"Enlarged grid would be {requested_shape} = {n_voxels:.3g} voxels, "
-                f"over the {max_voxels:.3g} cap "
-                f"({n_voxels * 4 / 1e6:.0f} MB as float32)."
+        pad_left, pad_right, clipped = clip_padding_to_max_dim(
+            pad_left, pad_right, ref_shape, max_dim
+        )
+        if clipped:
+            status = "clipped"
+            logger.info(
+                f"Full-FOV conform: the whole input needs {requested_shape} voxels; "
+                f"clipped to {[int(v) for v in ref_shape + pad_left + pad_right]} "
+                f"(at most {max_dim} per axis, centred)."
             )
     except Exception as e:
         logger.warning(
@@ -503,6 +515,24 @@ def conform_to_template(
                     f"If this issue persists, consider disabling conform by setting 'anat.conform.enabled: false' in your configuration."
                 )
 
+        # Step 1b (anat only): crop the brain to its bounding box for registration.
+        # FLIRT's +/-180 deg search misses the right pose when the brain is a small
+        # corner of a large zero grid (neck and shoulders in the field of view), even
+        # though the skull strip itself is fine. Registration runs on the crop; the
+        # transform is then re-expressed for the full grid and applied to the
+        # uncropped input, so every output keeps the input's full FOV.
+        brain_f_for_reg = brain_f
+        if modal == "anat":
+            reg_crop_f = work_dir / "brain_for_reg.nii.gz"
+            if crop_to_nonzero_bbox(
+                brain_f,
+                reg_crop_f,
+                margin_fraction=DEFAULT_CONFORM_REG_CROP_MARGIN_FRACTION,
+                min_margin_mm=DEFAULT_CONFORM_REG_CROP_MIN_MM,
+                logger=logger,
+            ):
+                brain_f_for_reg = reg_crop_f
+
         # Step 2: prepare template for registration
         # Step 2.1: Pad the template to ensure input image is fully contained
         logger.info(
@@ -648,7 +678,7 @@ def conform_to_template(
                 logger.info("Step: SimpleITK rigid registration (FSL-free)")
                 registration_result = sitk_register(
                     fixedf=template_f_for_reg,
-                    movingf=str(brain_f),
+                    movingf=str(brain_f_for_reg),
                     work_dir=work_dir,
                     output_prefix="conform_scanner2native",
                     sitk_config=sitk_config_for_modality(modal),
@@ -667,7 +697,7 @@ def conform_to_template(
             else:
                 registration_result = flirt_register(
                     fixedf=template_f_for_reg,
-                    movingf=str(brain_f),
+                    movingf=str(brain_f_for_reg),
                     working_dir=str(work_dir),
                     output_prefix="conform_scanner2native",
                     config=flirt_config_for_modality(modal),
@@ -680,6 +710,19 @@ def conform_to_template(
                     if "inverse_transform" in registration_result
                     else None
                 )
+            if brain_f_for_reg != brain_f:
+                # Both backends write FSL matrices against the moving grid they saw;
+                # re-express them for the uncropped input, which is what Step 5 and
+                # every published transform refer to. The sitk transform object and
+                # its .world.mat are world-space and need no change.
+                forward_full = fsl_mat_for_new_moving(
+                    xfm_forward_f, brain_f_for_reg, brain_f
+                )
+                np.savetxt(str(xfm_forward_f), forward_full, fmt="%.10f")
+                xfm_inverse_f = xfm_forward_f.with_name(
+                    f"{xfm_forward_f.stem}_inverse{xfm_forward_f.suffix}"
+                )
+                np.savetxt(str(xfm_inverse_f), np.linalg.inv(forward_full), fmt="%.10f")
         except Exception as e:
             logger.error(f"Error during {rigid_method} registration: {e}")
             raise RuntimeError(
@@ -1620,6 +1663,8 @@ def apply_segmentation(
     # Validate brain mask
     validate_output_file(brain_mask_path, logger)
     logger.info(f"Output: brain mask generated - {os.path.basename(brain_mask_path)}")
+    if modal == "anat":
+        _require_nonempty_mask(brain_mask_path, logger)
 
     # Validate optional outputs (segmentation and hemimask from fastsurfer_nn)
     if brain_segmentation_path is not None and os.path.exists(brain_segmentation_path):
@@ -1683,6 +1728,20 @@ def apply_segmentation(
 # (the NMT2Sym template brain is 92.5 cm^3, so the cut sits at ~74 cm^3).
 MASK_UNDERSIZED_RATIO = 0.8
 
+# Below this the mask is not a brain at all (an empty or near-empty mask, e.g.
+# from a conform step that cropped to background). Unlike an undersized mask
+# there is nothing downstream steps can use, so the subject stops here.
+MASK_EMPTY_RATIO = 0.1
+# Fallback reference when the NMT2Sym template cannot be read.
+TEMPLATE_BRAIN_VOLUME_FALLBACK_MM3 = 92_500.0
+# Exit status the ANAT_SKULLSTRIPPING process uses for EmptyBrainMaskError.
+# nextflow.config ignores it, so the rest of the run continues.
+EMPTY_BRAIN_MASK_EXIT_CODE = 3
+
+
+class EmptyBrainMaskError(RuntimeError):
+    """The brain mask is too small to be a brain; this subject cannot continue."""
+
 # Pre-inference N4. The spline distance is in mm: the pipeline's 150 mm is one
 # span across a ~70 mm macaque head, too smooth for a surface coil's fall-off.
 PRE_INFERENCE_N4_SHRINK = 4
@@ -1716,6 +1775,24 @@ def _template_brain_volume_mm3() -> Optional[float]:
         return None
     data = np.asanyarray(img.dataobj)
     return float(np.count_nonzero(data) * np.prod(img.header.get_zooms()[:3]))
+
+
+def _require_nonempty_mask(mask_path: Union[str, Path], logger: logging.Logger) -> None:
+    """Raise EmptyBrainMaskError when the final mask is not a brain."""
+    img = nib.load(str(mask_path))
+    mask_mm3 = float(
+        np.count_nonzero(np.asanyarray(img.dataobj)) * np.prod(img.header.get_zooms()[:3])
+    )
+    template_mm3 = _template_brain_volume_mm3() or TEMPLATE_BRAIN_VOLUME_FALLBACK_MM3
+    if mask_mm3 < MASK_EMPTY_RATIO * template_mm3:
+        message = (
+            f"brain mask is {mask_mm3 / 1000:.1f} cm^3, under "
+            f"{MASK_EMPTY_RATIO:.0%} of the template brain ({template_mm3 / 1000:.1f} cm^3): "
+            "skull stripping found no brain. Check this subject's conform QC figure "
+            "first -- a conform that cropped to background is the usual cause."
+        )
+        logger.error(f"QC: {message}")
+        raise EmptyBrainMaskError(message)
 
 
 def _mask_volume_check(

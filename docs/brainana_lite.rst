@@ -7,42 +7,43 @@
 Brainana Lite
 =============
 
-Brainana Lite is a **notebook-based** workflow for volumetric **T1w** preprocessing of a single macaque subject, in **Jupyter** or **Google Colab**—no Docker or Nextflow. For production batch work, multiple modalities, surfaces, and the full HTML QC suite, use the full Docker pipeline (:doc:`installation`, :doc:`usage_notes`).
+Brainana Lite is a notebook-based workflow for volumetric T1w preprocessing of a single macaque subject, in Jupyter or Google Colab, with no Docker or Nextflow. For production batch work, multiple modalities, surfaces, and the full HTML QC suite, use the full Docker pipeline (:doc:`installation`, :doc:`usage_notes`).
 
-Run it
-------
+Run the notebook
+----------------
 
-Open the notebook, edit ``WORKING_DIR`` in the **USER SETTINGS** cell, then **Run All**. The same cell sets the subject and session IDs, the template (``TEMPLATE``), GPU use (``USE_GPU``) and ``BRAINANA_REF``, the Brainana release the notebook installs. On Colab the first **Run All** may restart the runtime once; run all again when it reconnects. Colab vs local Jupyter is detected automatically.
+Open the notebook, edit ``WORKING_DIR`` in the ``USER SETTINGS`` cell, then choose :guilabel:`Run all`. The same cell sets the subject and session IDs, the template (``TEMPLATE``), GPU use (``USE_GPU``) and ``BRAINANA_REF``, the Brainana release the notebook installs. On Colab the first :guilabel:`Run all` may restart the runtime once; run all again when it reconnects. Colab vs local Jupyter is detected automatically.
 
-- **GitHub:** `BrainanaLite.ipynb <https://github.com/brainana/brainana/blob/main/examples/BrainanaLite.ipynb>`_
-- **Colab:** Open in `Colab <https://colab.research.google.com/github/brainana/brainana/blob/main/examples/BrainanaLite.ipynb>`_
+GitHub
+   `BrainanaLite.ipynb <https://github.com/brainana/brainana/blob/main/examples/BrainanaLite.ipynb>`_
+
+Colab
+   Open in `Colab <https://colab.research.google.com/github/brainana/brainana/blob/main/examples/BrainanaLite.ipynb>`_
 
 When to use it
 --------------
 
-- **Single subject, T1w only** — one macaque, anatomical T1w
-- **No BIDS dataset required** — you only need NIfTI file(s) in a folder
-- **No local system setup** — on Colab, a browser is enough
-- **Quick, interactive runs** — trying a scan, teaching, or a one-off preprocess
+Brainana Lite suits these cases:
 
-What you get
-------------
+- A single subject with T1w only: one macaque, anatomical T1w.
+- No BIDS dataset: you only need NIfTI file(s) in a folder.
+- No local system setup: on Colab, a browser is enough.
+- Quick, interactive runs: trying a scan, teaching, or a one-off preprocess.
 
-After **Run All**, derivatives are written in a **BIDS-styled** layout (exact filenames and the output tree are printed when preprocessing finishes):
+What Lite produces
+------------------
 
-- **Preprocessed T1w** in **individual (T1w) space** (head and skull-stripped brain) and in your chosen **template space** (head, plus the brain mask)
-- **Brain mask**, **hemisphere mask**, and **atlas-based tissue segmentation** in individual space (e.g. ARM2), with a color lookup table
-- **Standard macaque atlases** backprojected into **individual spaces** (T1w and scanner)
-- **An uncropped conformed T1w** (``desc-conformFullFOV``) — the conform field of view is sized from the template, so a recording chamber, head-post or the neck can fall outside it and be cropped from every other derivative; this leaf output keeps them visible
-- **QC snapshot figures** (conformation — including a full-field-of-view figure with the processing box drawn on it — skull stripping, bias correction, segmentation, registration, and related checks)
-- **A** ``dataset_description.json`` **at the derivatives root**, and the effective configuration of the run under ``lite_reports/``
+After :guilabel:`Run all`, derivatives are written in a BIDS-styled layout (exact filenames and the output tree are printed when preprocessing finishes):
 
-Lite outputs are related to but not identical to the full pipeline; see :doc:`outputs` for the canonical Docker derivative layout. Lite runs synthesis, conform, skull stripping and segmentation, bias correction, registration to the template and atlas backprojection. Conform uses a SimpleITK rigid registration instead of FLIRT, and there is no surface reconstruction, so the V1 white-matter fill (``fix_V1_WM: "auto"``) is off. QC figures are displayed inline in the notebook as they are produced; the aggregated per-subject HTML QC report is a full-pipeline feature.
+- Preprocessed T1w in individual (T1w) space (head and skull-stripped brain) and in your chosen template space (head, plus the brain mask).
+- Brain mask, hemisphere mask, and atlas-based tissue segmentation in individual space (e.g. ARM2), with a color lookup table.
+- Standard macaque atlases backprojected into individual spaces (T1w and scanner).
+- An uncropped conformed T1w (``desc-conformFullFOV``). The conform field of view is sized from the template, so a recording chamber, head-post or the neck can fall outside it and be cropped from every other derivative; this leaf output keeps them visible.
+- QC snapshot figures: conformation (including a full-field-of-view figure with the processing box drawn on it), skull stripping, bias field correction, segmentation, registration, and related checks.
+- A ``dataset_description.json`` at the derivatives root, and the effective configuration of the run under ``lite_reports/``.
 
-See also
---------
+Lite outputs are related to but not identical to the full pipeline; see :doc:`outputs` for the canonical Docker derivative layout. Lite runs synthesis, conform, skull stripping and segmentation, bias field correction, registration to the template and atlas backprojection. Conform uses a SimpleITK rigid registration instead of FLIRT, and there is no surface reconstruction, so the V1 white-matter fill (``fix_V1_WM: "auto"``) is off. QC figures are displayed inline in the notebook as they are produced; the aggregated per-subject HTML QC report is a full-pipeline feature.
 
-- :doc:`installation`
-- :doc:`processing`
-- :doc:`outputs`
-- :doc:`faq`
+.. seealso::
+
+   :doc:`installation`, :doc:`processing`, :doc:`outputs` and :doc:`faq`.

@@ -1,11 +1,11 @@
 # Brainana design system
 
-The single source of truth for the look of every Brainana user-facing surface: the **QC
-report**, the **configuration generator**, and the **BrainanaLite notebook** header.
+The single source of truth for the look of the **QC report** and the **BrainanaLite notebook**
+header. The RTD docs and the configuration generator follow `styleguide_doc.html` instead (see below).
 
-Open **`styleguide.html`** (in this folder) in a browser for a live reference — color
-swatches, the type scale, and every component. **`brainana-tokens.css`** is the canonical
-token + component stylesheet that page links.
+Open **`styleguide_doc.html`** (in this folder) in a browser: its **§14 Brand surfaces** section is
+the live reference for these tokens and components. **`brainana-tokens.css`** is the canonical
+token + component stylesheet.
 
 ## How it's distributed
 
@@ -14,12 +14,15 @@ The tokens are defined once (below) and applied per surface in the way that surf
 | Surface | Where the tokens live | Why |
 | --- | --- | --- |
 | QC report | inlined in `src/nhp_mri_prep/quality_control/reports.py` as `_REPORT_CSS` (+ the dropdown JS `_REPORT_JS`) | reports are portable single HTML files — no sibling CSS |
-| Config generator | a `<style id="bn-design-system">` block in `docs/_static/config_generator.html` | additive override over the page's original CSS |
 | Notebook header | inline `style="…"` attributes in `examples/BrainanaLite.ipynb` cell 0 | Colab sanitizes `<style>`/external CSS in markdown cells |
-| Style guide | links `brainana-tokens.css` directly | it lives next to the file |
+| Style guide (`styleguide_doc.html` §14) | a `.brand`-scoped copy for the previews | keeps brand variables away from the guide's docs chrome |
+
+The **RTD docs** (`docs/*.rst`) and the **configuration generator** (`docs/_static/config_generator.html`, restyled 2026-10-09 to match the docs) are a separate surface and do **not** use these tokens: they keep
+`sphinx_rtd_theme` with a purple/green accent swap in `docs/_static/custom.css`. Their rules
+(palette, diagrams, emphasis, admonitions, figures) live in **`styleguide_doc.html`** §1–13.
 
 When you change a token, update `brainana-tokens.css` here **and** mirror the value into
-the three surfaces above (they each carry their own copy by necessity).
+the surfaces above (they each carry their own copy by necessity).
 
 ## Tokens
 
@@ -70,7 +73,7 @@ the three surfaces above (they each carry their own copy by necessity).
 - The top bar is a fixed flat bar; multi-group modalities use a native `<details>`
   dropdown closed by a tiny capture-phase script (no jQuery/Bootstrap).
 
-## Components (see `styleguide.html`)
+## Components (see `styleguide_doc.html` §14)
 
 `.bn-card` · `.bn-callout` · `.bn-code` / `.bn-tag` · `.bn-btn` (`.ghost`) ·
 `.bn-badge` (`.ok` / `.fail` / `.warn`) · `.bn-status` (`.ok` / `.fail`) ·

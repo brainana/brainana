@@ -456,8 +456,18 @@ input_obj = StepInput(
     }
 )
 
-# Run step
-result = anat_skullstripping(input_obj)
+# Run step. A mask with no brain in it skips this subject (exit status
+# EMPTY_BRAIN_MASK_EXIT_CODE, which nextflow.config ignores) instead of
+# stopping the whole run.
+from nhp_mri_prep.operations.preprocessing import (
+    EMPTY_BRAIN_MASK_EXIT_CODE, EmptyBrainMaskError
+)
+try:
+    result = anat_skullstripping(input_obj)
+except EmptyBrainMaskError as e:
+    import sys
+    print(f"ERROR: sub-${subject_id} ses-${session_id}: {e} This subject is skipped.", file=sys.stderr)
+    sys.exit(EMPTY_BRAIN_MASK_EXIT_CODE)
 
 # Generate BIDS-compliant output filenames
 # Principle: anat_after_xxxstep = full head (_T1w), anat_after_xxxstep_brain = brain (_T1w_brain)

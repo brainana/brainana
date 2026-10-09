@@ -8,62 +8,69 @@ Brainana
 ========
 
 About
-^^^^^
-.. image:: _static/pipeline_details/brainana_unified_framework.png
+-----
+
+.. figure:: _static/pipeline_details/brainana_unified_framework.png
    :alt: Brainana unified framework for macaque MRI: anatomical, functional, and surface processing
    :align: center
    :width: 100%
 
-|
+   Anatomical, functional, and surface processing in one framework.
 
-**Brainana** is a unified, end-to-end preprocessing framework for **macaque (non-human primate) MRI**. It provides anatomical and functional preprocessing, registration, tissue segmentation, and cortical surface reconstruction from BIDS data — reproducible with Docker and Nextflow, built on FSL, ANTs, AFNI, FreeSurfer, and FastSurfer.
+Brainana is a unified, end-to-end preprocessing framework for macaque (non-human primate) MRI. It provides anatomical and functional preprocessing, registration, tissue segmentation, and cortical surface reconstruction from BIDS data, reproducible with Docker and Nextflow and built on FSL, ANTs, AFNI, FreeSurfer, and FastSurfer.
 
-.. image:: _static/pipeline_details/pipeline_overview.png
+.. figure:: _static/pipeline_details/pipeline_overview.png
    :alt: Brainana pipeline overview schematic
    :align: center
    :width: 100%
 
-|
+   Pipeline overview. A: image preprocessing (green: structural, purple: functional).
+   B: dataset batch processing. C: benchmark runtime. D: Brainana Viewer.
+
+To get started, see :doc:`installation` and :doc:`usage_notes`. Brainana runs with
+built-in defaults; to change templates, registration, or BIDS filtering, build a
+configuration file in your browser with the :doc:`configuration generator <config_generator>`.
 
 To explore a subject's outputs interactively, use the companion
 `Brainana Viewer <https://github.com/brainana/brainana-viewer>`_.
 
 License
-^^^^^^^
-Copyright (c) the Brainana Developers. 
+-------
+
+Copyright (c) the Brainana Developers.
 Licensed under the GNU Affero General Public License v3 (AGPL-3.0).
 
 Citation
-^^^^^^^^
+--------
+
 Brainana: an end-to-end preprocessing framework for macaque neuroimaging `[preprint] <https://www.biorxiv.org/content/10.64898/2026.06.03.729972v1.abstract>`_
 
-----
-
 Contents
-^^^^^^^^
+--------
 
 .. toctree::
    :maxdepth: 1
-   :caption: INSTALLATION
+   :caption: Installation
 
    installation
 
 .. toctree::
    :maxdepth: 1
-   :caption: USER GUIDE
+   :caption: User guide
 
    usage_notes
+   config_generator
    demo
 
 .. toctree::
    :maxdepth: 1
-   :caption: BRAINANA LITE
+   :caption: Brainana Lite
 
    brainana_lite
 
 .. toctree::
    :maxdepth: 1
-   :caption: PROCESS AND OUTPUTS
+   :caption: Processing and outputs
 
    processing
    outputs
@@ -73,18 +80,18 @@ Contents
 
 .. toctree::
    :maxdepth: 1
-   :caption: TEMPLATE AND ATLAS
+   :caption: Templates and atlases
 
    template_atlas_zoo
 
 .. toctree::
    :maxdepth: 1
-   :caption: VIEWER
+   :caption: Viewer
 
    viewer
 
 .. toctree::
    :maxdepth: 1
-   :caption: OTHER INFO
+   :caption: Other info
 
    faq

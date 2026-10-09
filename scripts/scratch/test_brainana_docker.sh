@@ -1,29 +1,11 @@
 fs_license=/mnt/DataDrive3/xliu/prep_test/freesurfer_license.txt
-version=3.1.0
-
-# # # ------------------------------------------------------------
-# # # # 1. devtest
-# bids_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/dataset_devtest
-# output_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/dataset_devtest_docker_v${version}_sub
-# config_f=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/config_res-1.yaml
+version=3.2.0
 
 # # ------------------------------------------------------------
-# # # # newcastle - sub-03
-# bids_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/dataset_newcastle
-# output_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/dataset_newcastle
-# config_f=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/config_res-1.yaml
-
-# # run docker without custom template
-# docker run --rm -t --gpus all \
-#     -v "$bids_dir":/input \
-#     -v "$output_dir":/output \
-#     -v "$fs_license":/fs_license.txt \
-#     -v "$config_f":/config.yaml \
-#     brainana:${version} \
-#     /input /output/preprocessed \
-#     -w /output/preprocessed_wd \
-#     --config /config.yaml \
-#     --freesurfer-license /fs_license.txt 
+# # # 1. devtest
+bids_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/dataset_devtest
+output_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/dataset_devtest_docker_v${version}_sub
+config_f=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/config_res-1.yaml
 
 # ------------------------------------------------------------
 # # # 2. prime-de
@@ -36,21 +18,12 @@ version=3.1.0
 # bids_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/dataset_example
 # output_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/dataset_example_docker_v${version}
 
-# # ------------------------------------------------------------
-# # long test
-# bids_dir=/mnt/DataDrive3/swap/test_brainana/raw/long_test
-# output_dir=/mnt/DataDrive3/swap/test_brainana/preproc/long_test_docker_v${version}
-
-# ------------------------------------------------------------
-bids_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/dataset_surfcoil
-output_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/dataset_surfcoil_docker_v${version}
-
 # run docker without custom template
 docker run --rm -t --gpus all \
     -v "$bids_dir":/input \
     -v "$output_dir":/output \
     -v "$fs_license":/fs_license.txt \
-    brainana:${version} \
+    liuxingyu987/brainana:${version} \
     /input /output/preprocessed \
     -w /output/preprocessed_wd \
     --freesurfer-license /fs_license.txt 
@@ -66,7 +39,7 @@ docker run --rm -t --gpus all \
 #     -v "$fs_license":/fs_license.txt \
 #     -v "$config_f":/config.yaml \
 #     -v "$custom_template_f":/custom_template.nii.gz \
-#     brainana:latest \
+#     liuxingyu987/brainana:${version} \
 #     /input /output/preprocessed \
 #     -w /output/preprocessed_wd \
 #     --config /config.yaml \

@@ -3,340 +3,149 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Configuration Generator</title>
+    <title>Configuration generator · Brainana</title>
     <style>
-        * { box-sizing: border-box; }
-        body {
-            font-family: "IBM Plex Mono", "Consolas", "Monaco", monospace;
-            margin: 0;
-            line-height: 1.5;
-            color: #000000;
-            background: #fffeee;
-        }
-        .app-layout {
-            display: flex;
-            min-height: 100vh;
-        }
-        .nav-sidebar {
-            width: 240px;
-            flex-shrink: 0;
-            padding: 20px 16px;
-            background: #fffddd;
-            border-right: 1px solid #b8b8b8;
-            position: sticky;
-            top: 0;
-            max-height: 100vh;
-            overflow-y: auto;
-        }
-        .nav-logo {
-            display: block;
-            width: 180px;
-            height: auto;
-            margin: 0 auto 12px auto;
-            image-rendering: auto;
-        }
-        .nav-brand {
-            font-weight: 600;
-            font-size: 1.2rem;
-            color: #000000;
-            margin-bottom: 16px;
-            text-align: center;
-        }
-        .nav-search {
-            width: 100%;
-            padding: 8px 10px;
-            margin-bottom: 20px;
-            border: 1px solid #8a8a8a;
-            font-family: inherit;
-            font-size: 15px;
-            background: #fff;
-        }
-        .nav-section {
-            margin-bottom: 16px;
-        }
-        .nav-section-title {
-            font-size: 16px;
-            font-weight: 600;
-            color: #666666;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-            margin-bottom: 6px;
-        }
-        .nav-section a {
-            display: block;
-            font-size: 16px;
-            color: #000000;
-            text-decoration: none;
-            padding: 4px 0 4px 16px;
-            margin-left: 0;
-        }
-        .nav-section a:hover { color: #000000; text-decoration: underline; }
-        html { scroll-behavior: smooth; }
-        .main-content {
-            flex: 1;
-            padding: 28px 32px 40px;
-            max-width: 720px;
-        }
-        h1 {
-            color: #000000;
-            border-bottom: 3px solid #fff999;
-            padding-bottom: 12px;
-            font-weight: 600;
-            font-size: 1.6rem;
-            margin-top: 0;
-        }
-        h2 {
-            color: #000000;
-            margin-top: 32px;
-            margin-bottom: 16px;
-            padding-bottom: 6px;
-            border-bottom: 1px solid #b8b8b8;
-            font-weight: 600;
-            font-size: 1.2rem;
-            text-transform: lowercase;
-        }
-        h2:first-of-type { margin-top: 0; }
-        h3, h4 { color: #000000; margin-top: 20px; font-size: 1.15rem; font-weight: 600; }
-        .section {
-            margin: 0 0 24px 0;
-            padding: 0;
-            padding-left: 24px;
-        }
-        .param-row {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            flex-wrap: wrap;
-            margin-bottom: 2px;
-        }
-        .param-check {
-            flex: 0 0 22px;
-            min-width: 22px;
-            display: flex;
-            align-items: center;
-        }
-        .param-check input[type="checkbox"],
-        .param-control input[type="checkbox"] { margin: 0; }
-        .param-row label {
-            flex: 0 0 auto;
-            font-weight: 600;
-            font-size: 16px;
-            color: #000000;
-        }
-        .param-control {
-            flex: 1 1 200px;
-            min-width: 180px;
-            max-width: 100%;
-        }
-        .param-control select,
-        .param-control input[type="text"],
-        .param-control input[type="number"] {
-            width: 100%;
-            max-width: 100%;
-            padding: 6px 8px;
-            border: 1px solid #b8b8b8;
-            font-family: inherit;
-            font-size: 16px;
-            background: #fff;
-        }
-        .param-block { margin-bottom: 14px; }
-        .param-block:last-child { margin-bottom: 0; }
-        .help-text {
-            font-size: 15px;
-            color: #666666;
-            margin-top: 2px;
-            margin-bottom: 6px;
-            margin-left: 30px;
-            line-height: 1.4;
-            display: block;
-        }
-        .param-block .help-text { margin-bottom: 0; }
-        /* help-text-list: one option per line, indented under the opening line so the
-           list reads as subordinate to it. Used only where the option text does not
-           itself say what the option does (verbose, synthesis_level, dof, cost,
-           ref_vol, xfm_type, interpolation); one line everywhere else. */
-        .help-text-list { padding-left: 1.6em; text-indent: -1.6em; }
-        input[type="text"], textarea {
-            padding: 6px 8px;
-            border: 1px solid #b8b8b8;
-            font-family: inherit;
-            font-size: 16px;
-            background: #fff;
-        }
-        textarea { width: 100%; }
-        select { min-width: 180px; }
-        input[type="number"].short { width: 100px; }
-        /* Layout: .param-block = flat keys; .step = nested pipeline modules.
-           Dividers separate a section's top-level entries: one under each module,
-           and one closing the section's leading flat keys (anat: synthesis_level |
-           conform | ...). A section that is all flat keys draws none. */
-        .step {
-            margin-bottom: 20px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid #d0d0d0;
-        }
-        .step:last-child { border-bottom: none; padding-bottom: 0; margin-bottom: 0; }
-        /* The first module after a section's leading flat keys draws its own top
-           divider, so those keys close instead of sharing the module's band. */
-        .section > .param-block + .step {
-            margin-top: 20px;
-            padding-top: 20px;
-            border-top: 1px solid #d0d0d0;
-        }
-        .step .param-row { margin-bottom: 0; }
-        .step .help-text { margin-top: 2px; margin-bottom: 0; }
-        .generator-section {
-            border-top: 3px solid #fff999;
-            margin-top: 32px;
-            padding-top: 24px;
-        }
-        .advanced-toggle {
-            font-size: 16px;
-            color: #666666;
-            cursor: pointer;
-            margin: 12px 0 6px 0;
-            margin-left: 24px;
-            user-select: none;
-            display: block;
-        }
-        .advanced-toggle:hover { color: #000000; text-decoration: underline; }
-        .advanced-toggle::before { content: "> "; }
-        .advanced-toggle.open::before { content: "v "; }
-        .advanced-settings {
-            margin-top: 8px;
-            margin-left: 24px;
-            padding: 16px 0 0 0;
-            display: none;
-        }
-        .advanced-settings.visible { display: block; }
-        .advanced-settings .param-block { margin-bottom: 14px; }
-        .advanced-settings .param-block:last-child { margin-bottom: 0; }
-        .advanced-settings .advanced-settings {
-            margin-left: 24px;
-        }
-        .advanced-subgroup {
-            margin-left: 0;
-        }
-        .advanced-subgroup-title {
-            font-size: 16px;
-            font-weight: 600;
-            font-family: inherit;
-            margin: 12px 0 8px 30px;  /* 22px param-check + 8px gap = align with param-row label */
-        }
-        .advanced-subgroup > .param-block {
-            margin-left: 24px;
-        }
-        button {
-            padding: 10px 20px;
-            background: #000000;
-            color: #fff;
-            border: 1px solid #000000;
-            cursor: pointer;
-            font-size: 16px;
-            font-family: inherit;
-            margin-top: 24px;
-        }
-        button#generate {
-            font-size: 20px;
-            font-weight: 700;
-            color: #fff999;
-            width: 100%;
-            text-align: center;
-        }
-        button:hover { background: #333; border-color: #333; }
-        .error { color: #666666; font-size: 15px; margin-top: 8px; display: block; margin-left: 30px; }
-        .save-location { background: #f0f0f0; border: 1px solid #b8b8b8; padding: 12px; margin: 16px 0; }
-        .yaml-output {
-            margin-top: 24px;
-            padding: 16px;
-            background: #f8f8f8;
-            border: 1px solid #b8b8b8;
-        }
-        .yaml-output textarea {
-            width: 100%;
-            min-height: 400px;
-            font-family: inherit;
-            font-size: 15px;
-            padding: 10px;
-            border: 1px solid #b8b8b8;
-            background: #fff;
-            margin-top: 8px;
-        }
-        .copy-button { margin-top: 10px; margin-right: 8px; background: #666666; color: #fff; border: none; }
-        .copy-button:hover { background: #000000; }
-        .success {
-            color: #155724;
-            padding: 10px;
-            background: #ddf3e2;
-            border: 1px solid #c3e6cb;
-            margin-top: 16px;
-        }
-        .hidden { display: none; }
-    </style>
-<style id="bn-design-system">
-/* brainana design system — unify the config generator with the QC report / brand.
-   IBM Plex Sans everywhere (mono only for code/YAML), shared palette, modern controls. */
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+/* Configuration generator — styled like the Read the Docs site (sphinx_rtd_theme +
+   docs/_static/custom.css). Rules and color tokens:
+   docs_temp/update_instruction/design_system/styleguide_doc.html */
+@font-face{font-family:"Lato";font-weight:400;font-style:normal;font-display:swap;src:url("css/fonts/lato-normal.woff2") format("woff2"),url("css/fonts/lato-normal.woff") format("woff");}
+@font-face{font-family:"Lato";font-weight:700;font-style:normal;font-display:swap;src:url("css/fonts/lato-bold.woff2") format("woff2"),url("css/fonts/lato-bold.woff") format("woff");}
+@font-face{font-family:"Lato";font-weight:400;font-style:italic;font-display:swap;src:url("css/fonts/lato-normal-italic.woff2") format("woff2"),url("css/fonts/lato-normal-italic.woff") format("woff");}
 :root{
-  --bn-bg:#fffeee; --bn-surface:#fffddd; --bn-inset:#ffffff;
-  --bn-ink:#1b1b16; --bn-text:#333333; --bn-muted:#6b6651;
-  --bn-border:#e6e1cd; --bn-border-mid:#cdc9b0;
-  --bn-accent:#fff27a; --bn-link:#8a7a00;
-  --bn-btn-bg:#1b1b16; --bn-btn-bg-hover:#333333;
-  --bn-ok:#3f6b46; --bn-ok-bg:#eef3ea; --bn-ok-border:#cdddc2;
-  --bn-r-card:10px; --bn-r-inset:8px;
-  --bn-font:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-  --bn-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
-  --bn-fs:16px; --bn-lh:1.5;
+  --font:Lato,"proxima-nova","Helvetica Neue",Arial,sans-serif;
+  --head:Lato,"proxima-nova","Helvetica Neue",Arial,sans-serif;  /* headings: Lato bold (the docs use Roboto Slab) */
+  --mono:SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
+  --ink:#404040; --muted:#6b6b6b; --line:#e1e4e5; --line-mid:#d6d9dc; --white:#ffffff;
+  --page:#fcfcfc; --outer:#edf0f2;
+  --purple:#6a4fb3; --purple-dark:#563c9c; --purple-line:#c9bbef; --purple-wash:#f6f3fc;
+  --green-dark:#22704a; --green-mid:#3cb371; --green-wash:#f1f9f4;
+  --amber-dark:#9a5d12; --amber:#d68a2e; --amber-wash:#fdf6ec;
+  --code-bg:#fffeee; --code-line:#e6e1cd;
+  --sidebar:#343131; --sidebar-link:#d9d9d9; --sidebar-head:#fffddd; --sidebar-label:#fffddd;
 }
-body{font-family:var(--bn-font) !important;color:var(--bn-text);background:var(--bn-bg) !important;
-  font-size:var(--bn-fs) !important;line-height:var(--bn-lh) !important;}
-.nav-brand,.nav-section,.nav-section-title,.nav-search,button,input,select,textarea,h1,h2,h3,h4,.help-text,.advanced-toggle{
-  font-family:var(--bn-font) !important;}
-.yaml-output textarea,code,pre,kbd,samp{font-family:var(--bn-mono) !important;}
-.nav-sidebar{background:var(--bn-surface) !important;border-right:1px solid var(--bn-border) !important;}
-.nav-section-title{color:var(--bn-muted) !important;}
-.nav-section a{color:var(--bn-text) !important;border-radius:6px;padding:5px 10px !important;margin:1px 0;}
-.nav-section a:hover{background:var(--bn-bg) !important;color:var(--bn-ink) !important;text-decoration:none !important;}
-.main-content{max-width:760px !important;}
-h1{border-bottom:3px solid var(--bn-accent) !important;color:var(--bn-ink) !important;font-weight:600 !important;}
-h2{border-bottom:1px solid var(--bn-border) !important;color:var(--bn-ink) !important;font-weight:600 !important;text-transform:none !important;}
-h3,h4{color:var(--bn-ink) !important;}
-.param-control select,.param-control input[type="text"],.param-control input[type="number"],
-input[type="text"],textarea,select,.nav-search{
-  border:1px solid var(--bn-border-mid) !important;border-radius:var(--bn-r-inset) !important;
-  background:var(--bn-inset) !important;color:var(--bn-text);padding:8px 10px !important;
-  transition:border-color .12s, box-shadow .12s;}
-.param-control select:focus,input:focus,textarea:focus,.nav-search:focus{
-  outline:none !important;border-color:var(--bn-link) !important;
-  box-shadow:0 0 0 3px rgba(255,242,122,.55) !important;}
-.param-row label{color:var(--bn-ink) !important;}
-.help-text,.error,.advanced-toggle{color:var(--bn-muted) !important;}
-.help-text strong{color:var(--bn-ink) !important;font-weight:600;}
-.step{border-bottom:1px solid var(--bn-border) !important;}
-.step:last-child{border-bottom:none !important;}
-.section > .param-block + .step{border-top:1px solid var(--bn-border) !important;}
-.generator-section{border-top:3px solid var(--bn-accent) !important;}
-.save-location,.yaml-output{background:var(--bn-surface) !important;border:1px solid var(--bn-border) !important;
-  border-radius:var(--bn-r-card) !important;}
-.yaml-output textarea{border:1px solid var(--bn-border) !important;border-radius:var(--bn-r-inset) !important;}
-.success{background:var(--bn-ok-bg) !important;border:1px solid var(--bn-ok-border) !important;
-  color:var(--bn-ok) !important;border-radius:var(--bn-r-inset) !important;}
-button{background:var(--bn-btn-bg) !important;border:1px solid var(--bn-btn-bg) !important;color:#fff !important;
-  border-radius:var(--bn-r-inset) !important;}
-button:hover{background:var(--bn-btn-bg-hover) !important;border-color:var(--bn-btn-bg-hover) !important;}
-button#generate{color:var(--bn-ink) !important;background:var(--bn-accent) !important;border-color:var(--bn-accent) !important;}
-button#generate:hover{filter:brightness(.95);}
-.copy-button{background:var(--bn-muted) !important;border-color:var(--bn-muted) !important;color:#fff !important;}
-.copy-button:hover{background:var(--bn-ink) !important;}
-</style>
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;font-family:var(--font);font-size:16px;line-height:24px;color:var(--ink);background:var(--outer)}
+a{color:var(--purple);text-decoration:none}
+a:hover{color:var(--purple-dark);text-decoration:underline}
+:focus-visible{outline:2px solid var(--purple-line);outline-offset:1px}
+.hidden{display:none !important}
+
+/* ---- layout: dark sidebar + near-white page, like the docs ---- */
+.app-layout{display:flex;min-height:100vh}
+.nav-sidebar{width:300px;flex-shrink:0;background:var(--sidebar);position:sticky;top:0;height:100vh;overflow-y:auto;padding-bottom:24px}
+.nav-head{background:var(--sidebar-head);padding:14px 16px 12px;text-align:center}
+.nav-logo{display:block;width:100%;max-width:252px;height:auto;margin:0 auto}
+.nav-app{margin-top:10px;font-family:var(--head);font-size:19px;font-weight:700;line-height:1.25;color:#333}
+.nav-back{display:inline-block;margin-top:6px;font-size:14px;color:#333}
+.nav-back:hover{color:#333}
+.nav-section{margin-top:12px}
+.nav-section-title{color:var(--sidebar-label);font-weight:700;font-size:85%;text-transform:uppercase;line-height:32px;padding:0 1.618em}
+.nav-section a{display:block;color:var(--sidebar-link);padding:.4045em 1.618em;line-height:18px;font-size:90%}
+.nav-section a:hover{background:var(--sidebar-head);color:#333;text-decoration:none}
+.nav-section a.current{background:var(--page);color:var(--ink);font-weight:700}
+.main-content{flex:1;min-width:0;max-width:800px;background:var(--page);padding:1.618em 3.236em 4em}
+
+/* ---- headings ---- */
+h1,h2,h3{font-family:var(--head);font-weight:700;color:var(--ink);line-height:1.25}
+h1{font-size:175%;margin:0 0 24px}
+h2{font-size:150%;margin:40px 0 16px;scroll-margin-top:16px}
+h2:first-of-type{margin-top:0}
+h2 code,.nav-section a code{font-family:var(--mono);font-size:55%;font-weight:400;color:var(--green-dark);background:var(--white);border:1px solid var(--line);padding:1px 6px;vertical-align:4px;margin-left:8px}
+h3{font-size:125%;margin:24px 0 12px}
+
+/* ---- hierarchy: section (h2) > card > option row > subgroup label ----
+   Every direct child of a section is a card (a plain option or a module with a checkbox);
+   options inside a card's advanced settings are rows. One treatment per level. */
+.section{margin:0 0 28px}
+
+/* Option row: name + help on the left, control in a fixed right column, hairline between
+   rows. .param-row is display:contents so its children join the .param-block grid. */
+.param-block{display:grid;grid-template-columns:22px minmax(0,1fr) 250px;grid-template-areas:"chk name ctl" ". help ctl";
+  column-gap:12px;row-gap:3px;align-items:start;padding:12px 0;margin:0;border-top:1px solid var(--line)}
+.advanced-settings > .param-block:first-child,.advanced-subgroup-title + .param-block,.advanced-subgroup > .help-text + .param-block{border-top:0}
+.param-block > .param-row{display:contents}
+.param-block .param-check{grid-area:chk}
+.param-row label{font-family:var(--mono);font-size:13.5px;font-weight:600;color:var(--ink);overflow-wrap:anywhere}
+.param-block .param-row label{grid-area:name;padding-top:5px}
+.param-block .param-control{grid-area:ctl;min-width:0}
+.param-block .param-control:has(input[type="checkbox"]){justify-self:end;padding-top:6px}
+.param-block > .help-text{grid-area:help}
+input[type="checkbox"]{accent-color:var(--purple);width:16px;height:16px;margin:0}
+input[type="text"],input[type="number"],select,textarea{font-family:var(--font);font-size:15px;color:var(--ink);background:var(--white);border:1px solid var(--line-mid);border-radius:3px;padding:5px 8px;box-shadow:inset 0 1px 2px rgba(0,0,0,.04)}
+.param-control select,.param-control input[type="text"],.param-control input[type="number"]{width:100%}
+input:focus,select:focus,textarea:focus{border-color:var(--purple);outline:2px solid var(--purple-line);outline-offset:0}
+textarea{width:100%}
+.help-text{display:block;margin:0;font-size:14px;line-height:20px;color:var(--muted)}
+/* option values named inside help text: plain literals, not bold headings */
+.help-text strong{font-family:var(--mono);font-size:12.5px;font-weight:400;color:var(--ink)}
+/* one option per line, hanging-indented under the opening line */
+.help-text-list{padding-left:1.2em;text-indent:-1.2em}
+
+/* Module card: header (checkbox, name, help, advanced toggle); advanced settings open
+   inside the same card on a slightly darker band. */
+.step{display:grid;grid-template-columns:22px minmax(0,1fr);column-gap:10px;row-gap:2px;
+  background:var(--white);border:1px solid var(--line);border-radius:6px;padding:14px 18px;margin:0 0 14px}
+.step:last-child{margin-bottom:0}
+/* a plain option at section level gets the same card */
+.section > .param-block{background:var(--white);border:1px solid var(--line);border-radius:6px;padding:14px 18px;margin:0 0 14px}
+.section > .param-block:last-child{margin-bottom:0}
+.section > .param-block .param-row label{font-size:14.5px;font-weight:700;padding-top:4px}
+.step > .param-row{display:contents}
+.step > .param-row .param-check{grid-column:1;padding-top:3px}
+.step > .param-row label{grid-column:2;font-size:14.5px;font-weight:700}
+.step > .param-row .param-control{display:none}
+.step > .help-text{grid-column:2}
+.advanced-toggle{grid-column:2;justify-self:start;margin:8px 0 0;font-size:14.5px;font-weight:700;color:var(--purple);cursor:pointer;user-select:none}
+.advanced-toggle:hover{color:var(--purple-dark);text-decoration:underline}
+.advanced-toggle::before{content:"\25B8\00a0";display:inline-block;width:1em}
+.advanced-toggle.open::before{content:"\25BE\00a0"}
+.advanced-settings{display:none}
+.advanced-settings.visible{display:block}
+.step > .advanced-settings{grid-column:1 / -1;margin:12px -18px -14px;padding:0 18px 4px;border-top:1px solid var(--line);background:var(--page);border-radius:0 0 6px 6px}
+.advanced-settings .advanced-settings{margin:8px 0 0}
+
+/* Subgroup inside a card: small muted key label over a hairline, no extra indent. */
+.advanced-subgroup{margin-top:4px;padding-top:12px;border-top:1px solid var(--line)}
+.advanced-subgroup-title{font-family:var(--mono);font-size:12.5px;font-weight:600;color:var(--muted);margin:0 0 2px}
+.advanced-subgroup > .help-text{margin:0 0 4px}
+
+/* ---- generate, messages, YAML output ---- */
+.generator-section{margin-top:40px;padding-top:24px;border-top:1px solid var(--line)}
+button{font-family:var(--font);font-size:15px;font-weight:700;line-height:20px;padding:8px 16px;border-radius:4px;cursor:pointer;margin-top:16px;background:var(--white);color:var(--purple);border:1px solid var(--purple)}
+button:hover{background:var(--purple-wash)}
+button#generate{display:block;margin:16px auto 0;background:var(--sidebar-head);color:#333;border-color:var(--code-line);font-size:16px;padding:10px 20px}
+button#generate:hover{background:var(--sidebar-head);color:var(--purple-dark);border-color:var(--purple)}
+.copy-button{margin-right:8px}
+#errorMessages:empty{display:none}
+.error,.success{margin-top:16px;padding:10px 14px;border-left:3px solid;font-size:15px;line-height:22px}
+.error{background:var(--amber-wash);border-color:var(--amber);color:var(--ink)}
+.error strong{color:var(--amber-dark)}
+.error ul{margin:6px 0 0;padding-left:1.4em}
+.success{background:var(--green-wash);border-color:var(--green-mid);color:var(--green-dark)}
+.yaml-output{margin-top:24px}
+.yaml-output h3{margin-top:0}
+.yaml-output textarea{min-height:400px;font-family:var(--mono);font-size:13px;line-height:1.5;background:var(--code-bg);border:1px solid var(--code-line);border-radius:0;box-shadow:none;padding:12px}
+
+/* ---- narrow screens: sidebar on top ---- */
+@media (max-width:768px){
+  .app-layout{display:block}
+  .nav-sidebar{width:auto;height:auto;position:static}
+  .main-content{padding:1.2em 16px 3em;max-width:none}
+  .param-block{grid-template-columns:22px minmax(0,1fr);grid-template-areas:"chk name" ". help" ". ctl"}
+  .param-block .param-control{margin-top:6px}
+  .param-block .param-control:has(input[type="checkbox"]){justify-self:start}
+}
+    </style>
 </head>
 <body>
     <div class="app-layout">
         <nav class="nav-sidebar">
-            <img src="brainana_logo.png" alt="Brainana" class="nav-logo">
-            <div class="nav-brand">BRAINANA</div>
-            <input type="text" class="nav-search" placeholder="Search options..." aria-label="Search">
+            <div class="nav-head">
+                <img src="brainana_logo_side.png" alt="Brainana" class="nav-logo">
+                <div class="nav-app">Configuration generator</div>
+                <a class="nav-back" href="../config_generator.html">&larr; Brainana docs</a>
+            </div>
             <div class="nav-section">
                 <div class="nav-section-title">Configuration</div>
                 <a href="#general">General</a>
@@ -352,13 +161,12 @@ button#generate:hover{filter:brightness(.95);}
             </div>
         </nav>
         <main class="main-content">
-    <h1>Configuration Generator</h1>
     
     <form id="configForm">
         <!-- Layout: .param-block = flat keys; .step = nested pipeline modules. Dividers
              separate top-level entries: one per module, one closing a section's leading flat keys. -->
         <!-- General Settings -->
-        <h2 id="general">general</h2>
+        <h2 id="general">General<code>general</code></h2>
         <div class="section">
             <div class="param-block">
                 <div class="param-row">
@@ -372,10 +180,10 @@ button#generate:hover{filter:brightness(.95);}
                         </select>
                     </span>
                 </div>
-                <span class="help-text help-text-list">(logging level:<br>
+                <span class="help-text help-text-list">logging level:<br>
                     <strong>0</strong> = errors only;<br>
                     <strong>1</strong> = normal progress;<br>
-                    <strong>2</strong> = debug detail)</span>
+                    <strong>2</strong> = debug detail</span>
             </div>
             <div class="param-block">
                 <div class="param-row">
@@ -383,7 +191,7 @@ button#generate:hover{filter:brightness(.95);}
                     <label for="general_anat_only">anat_only</label>
                     <span class="param-control"><input type="checkbox" id="general_anat_only" name="general_anat_only"></span>
                 </div>
-                <span class="help-text">(process anatomical data only; skip functional)</span>
+                <span class="help-text">process anatomical data only; skip functional</span>
             </div>
             <div class="param-block">
                 <div class="param-row">
@@ -393,12 +201,12 @@ button#generate:hover{filter:brightness(.95);}
                         <input type="text" id="general_gpu_device" name="general_gpu_device" value="auto">
                     </span>
                 </div>
-                <span class="help-text">(GPU use for the whole run: "auto" = every GPU the container sees, else CPU; -1 or "cpu" = CPU only; 0, 1, … or cuda:N = only that GPU, numbered as nvidia-smi lists them. GPU steps: skull stripping and segmentation, the functional brain mask, FireANTs SyN registration)</span>
+                <span class="help-text">GPU use for the whole run: "auto" = every GPU the container sees, else CPU; -1 or "cpu" = CPU only; 0, 1, … or cuda:N = only that GPU, numbered as nvidia-smi lists them. GPU steps: skull stripping and segmentation, the functional brain mask, FireANTs SyN registration</span>
             </div>
         </div>
 
         <!-- BIDS Filtering -->
-        <h2 id="bids_filtering">bids_filtering</h2>
+        <h2 id="bids_filtering">BIDS filtering<code>bids_filtering</code></h2>
         <div class="section">
             <div class="param-block">
                 <div class="param-row">
@@ -408,7 +216,7 @@ button#generate:hover{filter:brightness(.95);}
                         <input type="text" id="bids_filtering_subjects" name="bids_filtering_subjects" placeholder='e.g., "01", "02"'>
                     </span>
                 </div>
-                <span class="help-text">(comma-separated list; leave empty for all)</span>
+                <span class="help-text">comma-separated list; leave empty for all</span>
             </div>
             <div class="param-block">
                 <div class="param-row">
@@ -418,7 +226,7 @@ button#generate:hover{filter:brightness(.95);}
                         <input type="text" id="bids_filtering_sessions" name="bids_filtering_sessions" placeholder='e.g., "01", "02"'>
                     </span>
                 </div>
-                <span class="help-text">(comma-separated list; leave empty for all)</span>
+                <span class="help-text">comma-separated list; leave empty for all</span>
             </div>
             <div class="param-block">
                 <div class="param-row">
@@ -428,7 +236,7 @@ button#generate:hover{filter:brightness(.95);}
                         <input type="text" id="bids_filtering_tasks" name="bids_filtering_tasks" placeholder='e.g., "rest", "task"'>
                     </span>
                 </div>
-                <span class="help-text">(comma-separated list; leave empty for all)</span>
+                <span class="help-text">comma-separated list; leave empty for all</span>
             </div>
             <div class="param-block">
                 <div class="param-row">
@@ -438,12 +246,12 @@ button#generate:hover{filter:brightness(.95);}
                         <input type="text" id="bids_filtering_runs" name="bids_filtering_runs" placeholder='e.g., "01", "02"'>
                     </span>
                 </div>
-                <span class="help-text">(comma-separated list; leave empty for all)</span>
+                <span class="help-text">comma-separated list; leave empty for all</span>
             </div>
         </div>
 
         <!-- Template -->
-        <h2 id="template">template</h2>
+        <h2 id="template">Template<code>template</code></h2>
         <div class="section">
             <div class="param-block">
                 <div class="param-row">
@@ -463,12 +271,12 @@ button#generate:hover{filter:brightness(.95);}
                         </select>
                     </span>
                 </div>
-                <span class="help-text">(output space: TEMPLATE_NAME[:DESCRIPTION])</span>
+                <span class="help-text">output space: TEMPLATE_NAME[:DESCRIPTION]</span>
             </div>
         </div>
 
         <!-- Anatomical Processing -->
-        <h2 id="anat">anat</h2>
+        <h2 id="anat">Anatomical<code>anat</code></h2>
         <div class="section">
             <div class="param-block">
                 <div class="param-row">
@@ -482,10 +290,10 @@ button#generate:hover{filter:brightness(.95);}
                         </select>
                     </span>
                 </div>
-                <span class="help-text help-text-list">(T1w/T2w synthesis when multiple images exist:<br>
+                <span class="help-text help-text-list">T1w/T2w synthesis when multiple images exist:<br>
                     <strong>"subject"</strong> = cross-session — one shared T1w per subject;<br>
                     <strong>"session"</strong> = within-session — each session is independent;<br>
-                    <strong>"session_longitudinal"</strong> = same anatomical choice as <strong>"session"</strong>, plus a within-subject common (base) template and base-seeded longitudinal surfaces; needs surface_reconstruction.enabled and &gt;=2 sessions)</span>
+                    <strong>"session_longitudinal"</strong> = same anatomical choice as <strong>"session"</strong>, plus a within-subject common (base) template and base-seeded longitudinal surfaces; needs surface_reconstruction.enabled and &gt;=2 sessions</span>
             </div>
             <div class="step">
                 <div class="param-row">
@@ -493,7 +301,7 @@ button#generate:hover{filter:brightness(.95);}
                     <label for="anat_conform_enabled">conform</label>
                     <span class="param-control"></span>
                 </div>
-                <span class="help-text">(HIGHLY RECOMMENDED: conform input to template space via FLIRT rigid registration)</span>
+                <span class="help-text">HIGHLY RECOMMENDED: conform input to template space via FLIRT rigid registration</span>
             </div>
             <div class="step">
                 <div class="param-row">
@@ -501,7 +309,7 @@ button#generate:hover{filter:brightness(.95);}
                     <label for="anat_skullstripping_segmentation_enabled">skullstripping_segmentation</label>
                     <span class="param-control"></span>
                 </div>
-                <span class="help-text">(HIGHLY RECOMMENDED: brain extraction and segmentation)</span>
+                <span class="help-text">HIGHLY RECOMMENDED: brain extraction and segmentation</span>
                 <div class="advanced-toggle" onclick="toggleAdvanced(this)">advanced settings</div>
                 <div class="advanced-settings" id="anat_skullstripping_segmentation_advanced">
                     <div class="param-block">
@@ -525,7 +333,7 @@ button#generate:hover{filter:brightness(.95);}
                                     <input type="number" id="anat_skullstripping_segmentation_fastSurferCNN_batch_size" name="anat_skullstripping_segmentation_fastSurferCNN_batch_size" value="8" min="1">
                                 </span>
                             </div>
-                            <span class="help-text">(inference batch size, ≥1)</span>
+                            <span class="help-text">inference batch size, ≥1</span>
                         </div>
                         <div class="param-block">
                             <div class="param-row">
@@ -535,7 +343,7 @@ button#generate:hover{filter:brightness(.95);}
                                     <input type="number" id="anat_skullstripping_segmentation_fastSurferCNN_plane_weight_coronal" name="anat_skullstripping_segmentation_fastSurferCNN_plane_weight_coronal" value="0.4" step="0.1" min="0" max="1">
                                 </span>
                             </div>
-                            <span class="help-text">(coronal plane weight, 0–1)</span>
+                            <span class="help-text">coronal plane weight, 0–1</span>
                         </div>
                         <div class="param-block">
                             <div class="param-row">
@@ -545,7 +353,7 @@ button#generate:hover{filter:brightness(.95);}
                                     <input type="number" id="anat_skullstripping_segmentation_fastSurferCNN_plane_weight_axial" name="anat_skullstripping_segmentation_fastSurferCNN_plane_weight_axial" value="0.4" step="0.1" min="0" max="1">
                                 </span>
                             </div>
-                            <span class="help-text">(axial plane weight, 0–1)</span>
+                            <span class="help-text">axial plane weight, 0–1</span>
                         </div>
                         <div class="param-block">
                             <div class="param-row">
@@ -555,7 +363,7 @@ button#generate:hover{filter:brightness(.95);}
                                     <input type="number" id="anat_skullstripping_segmentation_fastSurferCNN_plane_weight_sagittal" name="anat_skullstripping_segmentation_fastSurferCNN_plane_weight_sagittal" value="0.2" step="0.1" min="0" max="1">
                                 </span>
                             </div>
-                            <span class="help-text">(sagittal plane weight, 0–1)</span>
+                            <span class="help-text">sagittal plane weight, 0–1</span>
                         </div>
                         <div class="param-block">
                             <div class="param-row">
@@ -569,7 +377,7 @@ button#generate:hover{filter:brightness(.95);}
                                     </select>
                                 </span>
                             </div>
-                            <span class="help-text">(fill missing thin V1 white matter from the template's V1 white matter registered to the subject; "auto" = only when tessellated surfaces are built: surface_reconstruction on and template_surface off)</span>
+                            <span class="help-text">fill missing thin V1 white matter from the template's V1 white matter registered to the subject; "auto" = only when tessellated surfaces are built: surface_reconstruction on and template_surface off</span>
                         </div>
                         <div class="param-block">
                             <div class="param-row">
@@ -579,11 +387,11 @@ button#generate:hover{filter:brightness(.95);}
                                     <input type="number" id="anat_skullstripping_segmentation_fastSurferCNN_label_island_min_volume_mm3" name="anat_skullstripping_segmentation_fastSurferCNN_label_island_min_volume_mm3" value="0" step="0.5" min="0">
                                 </span>
                             </div>
-                            <span class="help-text">(relabel detached label fragments smaller than this volume, in mm³, to the surrounding label; the largest piece of each label is kept; 0 = off, 2.5 is a sensible value)</span>
+                            <span class="help-text">relabel detached label fragments smaller than this volume, in mm³, to the surrounding label; the largest piece of each label is kept; 0 = off, 2.5 is a sensible value</span>
                         </div>
                         <div id="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_options" class="advanced-subgroup">
                             <h4 class="advanced-subgroup-title">pre_inference_n4</h4>
-                            <span class="help-text">(second segmentation pass on an N4-corrected input, used only as network input; kept only if it agrees with the registered template at least as well as the first)</span>
+                            <span class="help-text">second segmentation pass on an N4-corrected input, used only as network input; kept only if it agrees with the registered template at least as well as the first</span>
                             <div class="param-block">
                                 <div class="param-row">
                                     <span class="param-check"></span>
@@ -596,7 +404,7 @@ button#generate:hover{filter:brightness(.95);}
                                         </select>
                                     </span>
                                 </div>
-                                <span class="help-text">("auto" = when template_prior finds more than min_missed_cm3 of brain the first pass missed (a smaller miss also counts when the first mask is under 80% of the template brain), or, with template_prior off, when the first mask is under 80% of the template brain; true = always run it. Either way the second pass is kept only if it agrees with the template at least as well as the first)</span>
+                                <span class="help-text">"auto" = when template_prior finds more than min_missed_cm3 of brain the first pass missed (a smaller miss also counts when the first mask is under 80% of the template brain), or, with template_prior off, when the first mask is under 80% of the template brain; true = always run it. Either way the second pass is kept only if it agrees with the template at least as well as the first</span>
                             </div>
                             <div class="param-block">
                                 <div class="param-row">
@@ -606,7 +414,7 @@ button#generate:hover{filter:brightness(.95);}
                                         <input type="number" id="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_shrink_factor" name="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_shrink_factor" value="4" step="1" min="1">
                                     </span>
                                 </div>
-                                <span class="help-text">(N4 shrink factor for this pass)</span>
+                                <span class="help-text">N4 shrink factor for this pass</span>
                             </div>
                             <div class="param-block">
                                 <div class="param-row">
@@ -616,19 +424,19 @@ button#generate:hover{filter:brightness(.95);}
                                         <input type="number" id="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_bspline_fitting" name="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_bspline_fitting" value="60" step="10" min="1">
                                     </span>
                                 </div>
-                                <span class="help-text">(N4 B-spline spline distance for this pass, mm; finer than bias_correction's 150, which is one span across a macaque head)</span>
+                                <span class="help-text">N4 B-spline spline distance for this pass, mm; finer than bias_correction's 150, which is one span across a macaque head</span>
                             </div>
                         </div>
                         <div id="anat_skullstripping_segmentation_fastSurferCNN_template_prior_options" class="advanced-subgroup">
                             <h4 class="advanced-subgroup-title">template_prior</h4>
-                            <span class="help-text">(register the template to the subject and measure how much brain the first-pass mask missed; decides the second pass, never edits the segmentation)</span>
+                            <span class="help-text">register the template to the subject and measure how much brain the first-pass mask missed; decides the second pass, never edits the segmentation</span>
                             <div class="param-block">
                                 <div class="param-row">
                                     <span class="param-check"></span>
                                     <label for="anat_skullstripping_segmentation_fastSurferCNN_template_prior_enabled">enabled</label>
                                     <span class="param-control"><input type="checkbox" id="anat_skullstripping_segmentation_fastSurferCNN_template_prior_enabled" name="anat_skullstripping_segmentation_fastSurferCNN_template_prior_enabled" checked></span>
                                 </div>
-                                <span class="help-text">(off skips the registration, about 30 s on a GPU; the mask volume alone then decides the second pass)</span>
+                                <span class="help-text">off skips the registration, about 30 s on a GPU; the mask volume alone then decides the second pass</span>
                             </div>
                             <div class="param-block">
                                 <div class="param-row">
@@ -638,7 +446,7 @@ button#generate:hover{filter:brightness(.95);}
                                         <input type="number" id="anat_skullstripping_segmentation_fastSurferCNN_template_prior_min_missed_cm3" name="anat_skullstripping_segmentation_fastSurferCNN_template_prior_min_missed_cm3" value="0.5" step="0.1" min="0">
                                     </span>
                                 </div>
-                                <span class="help-text">(missed brain volume, cm³, above which "auto" runs the second pass)</span>
+                                <span class="help-text">missed brain volume, cm³, above which "auto" runs the second pass</span>
                             </div>
                         </div>
                     </div>
@@ -650,7 +458,7 @@ button#generate:hover{filter:brightness(.95);}
                     <label for="anat_bias_correction_enabled">bias_correction</label>
                     <span class="param-control"></span>
                 </div>
-                <span class="help-text">(apply N4 bias field correction)</span>
+                <span class="help-text">apply N4 bias field correction</span>
                 <div class="advanced-toggle" onclick="toggleAdvanced(this)">advanced settings</div>
                 <div class="advanced-settings" id="anat_bias_correction_advanced">
                     <div class="param-block">
@@ -663,7 +471,7 @@ button#generate:hover{filter:brightness(.95);}
                                 </select>
                             </span>
                         </div>
-                        <span class="help-text">(algorithm; currently only N4BiasFieldCorrection)</span>
+                        <span class="help-text">algorithm; currently only N4BiasFieldCorrection</span>
                     </div>
                     <div class="param-block">
                         <div class="param-row">
@@ -673,7 +481,7 @@ button#generate:hover{filter:brightness(.95);}
                                 <input type="number" id="anat_bias_correction_shrink_factor" name="anat_bias_correction_shrink_factor" value="2" step="0.1" min="0.1">
                             </span>
                         </div>
-                        <span class="help-text">(shrink factor for speed, >0)</span>
+                        <span class="help-text">shrink factor for speed, >0</span>
                     </div>
                     <div class="param-block">
                         <div class="param-row">
@@ -683,7 +491,7 @@ button#generate:hover{filter:brightness(.95);}
                                 <input type="number" id="anat_bias_correction_bspline_fitting" name="anat_bias_correction_bspline_fitting" value="150" min="1" step="1">
                             </span>
                         </div>
-                        <span class="help-text">(N4 B-spline mesh resolution, integer)</span>
+                        <span class="help-text">N4 B-spline mesh resolution, integer</span>
                     </div>
                     <div class="param-block">
                         <div class="param-row">
@@ -691,7 +499,7 @@ button#generate:hover{filter:brightness(.95);}
                             <label for="anat_bias_correction_rescale_mean_to_100">rescale_mean_to_100</label>
                             <span class="param-control"><input type="checkbox" id="anat_bias_correction_rescale_mean_to_100" name="anat_bias_correction_rescale_mean_to_100" checked></span>
                         </div>
-                        <span class="help-text">(rescale mean intensity to 100)</span>
+                        <span class="help-text">rescale mean intensity to 100</span>
                     </div>
                 </div>
             </div>
@@ -701,7 +509,7 @@ button#generate:hover{filter:brightness(.95);}
                     <label for="anat_surface_reconstruction_enabled">surface_reconstruction</label>
                     <span class="param-control"></span>
                 </div>
-                <span class="help-text">(run surface reconstruction)</span>
+                <span class="help-text">run surface reconstruction</span>
                 <div class="advanced-toggle" onclick="toggleAdvanced(this)">advanced settings</div>
                 <div class="advanced-settings" id="anat_surface_reconstruction_advanced">
                     <div class="param-block">
@@ -710,7 +518,7 @@ button#generate:hover{filter:brightness(.95);}
                             <label for="anat_surface_reconstruction_use_t1wt2wcombined">use_t1wt2wcombined</label>
                             <span class="param-control"><input type="checkbox" id="anat_surface_reconstruction_use_t1wt2wcombined" name="anat_surface_reconstruction_use_t1wt2wcombined"></span>
                         </div>
-                        <span class="help-text">(use T1w and T2w combined (enhanced T1w) image if available)</span>
+                        <span class="help-text">use T1w and T2w combined (enhanced T1w) image if available</span>
                     </div>
                     <div class="param-block">
                         <div class="param-row">
@@ -718,18 +526,18 @@ button#generate:hover{filter:brightness(.95);}
                             <label for="anat_surface_reconstruction_template_surface_enabled">template_surface</label>
                             <span class="param-control"><input type="checkbox" id="anat_surface_reconstruction_template_surface_enabled" name="anat_surface_reconstruction_template_surface_enabled" checked></span>
                         </div>
-                        <span class="help-text">(start from the NMT2Sym template's white surface carried into the subject, and keep V1's white surface at the template; off = tessellate the white-matter segmentation as in v3.0.0)</span>
+                        <span class="help-text">start from the NMT2Sym template's white surface carried into the subject, and keep V1's white surface at the template; off = tessellate the white-matter segmentation as in v3.0.0</span>
                     </div>
                     <div id="anat_surface_reconstruction_longitudinal_options" class="advanced-subgroup">
                         <h4 class="advanced-subgroup-title">longitudinal</h4>
-                        <span class="help-text">(the within-subject longitudinal stream; requires synthesis_level "session_longitudinal")</span>
+                        <span class="help-text">the within-subject longitudinal stream; requires synthesis_level "session_longitudinal"</span>
                         <div class="param-block">
                             <div class="param-row">
                                 <span class="param-check"></span>
                                 <label for="anat_surface_reconstruction_longitudinal_iscale">iscale</label>
                                 <span class="param-control"><input type="checkbox" id="anat_surface_reconstruction_longitudinal_iscale" name="anat_surface_reconstruction_longitudinal_iscale"></span>
                             </div>
-                            <span class="help-text">(model intensity scaling between timepoints when building the base template)</span>
+                            <span class="help-text">model intensity scaling between timepoints when building the base template</span>
                         </div>
                         <div class="param-block">
                             <div class="param-row">
@@ -739,7 +547,7 @@ button#generate:hover{filter:brightness(.95);}
                                     <input type="number" id="anat_surface_reconstruction_longitudinal_subsample" name="anat_surface_reconstruction_longitudinal_subsample" value="" step="1" min="1" placeholder="null">
                                 </span>
                             </div>
-                            <span class="help-text">(subsample threshold for large volumes; blank = off)</span>
+                            <span class="help-text">subsample threshold for large volumes; blank = off</span>
                         </div>
                         <div class="param-block">
                             <div class="param-row">
@@ -749,7 +557,7 @@ button#generate:hover{filter:brightness(.95);}
                                     <input type="number" id="anat_surface_reconstruction_longitudinal_max_cbv_dist" name="anat_surface_reconstruction_longitudinal_max_cbv_dist" value="3.5" step="0.1" min="0">
                                 </span>
                             </div>
-                            <span class="help-text">(how far a timepoint's surface may move from the base; lower reduces variance but damps real change)</span>
+                            <span class="help-text">how far a timepoint's surface may move from the base; lower reduces variance but damps real change</span>
                         </div>
                         <div class="param-block">
                             <div class="param-row">
@@ -759,7 +567,7 @@ button#generate:hover{filter:brightness(.95);}
                                     <input type="number" id="anat_surface_reconstruction_longitudinal_pial_blend_weight" name="anat_surface_reconstruction_longitudinal_pial_blend_weight" value="0.25" step="0.05" min="0" max="1">
                                 </span>
                             </div>
-                            <span class="help-text">(blend of the longitudinal pial pass toward this timepoint's own white surface)</span>
+                            <span class="help-text">blend of the longitudinal pial pass toward this timepoint's own white surface</span>
                         </div>
                         <div class="param-block">
                             <div class="param-row">
@@ -769,7 +577,7 @@ button#generate:hover{filter:brightness(.95);}
                                     <input type="text" id="anat_surface_reconstruction_longitudinal_time_column" name="anat_surface_reconstruction_longitudinal_time_column" value="" placeholder="null (auto: age, then acq_time)">
                                 </span>
                             </div>
-                            <span class="help-text">(column in sub-XX_sessions.tsv giving each session's time; blank = auto-detect. Without one, rates are per scan, not per unit time)</span>
+                            <span class="help-text">column in sub-XX_sessions.tsv giving each session's time; blank = auto-detect. Without one, rates are per scan, not per unit time</span>
                         </div>
                     </div>
                 </div>
@@ -777,7 +585,7 @@ button#generate:hover{filter:brightness(.95);}
         </div>
 
         <!-- Functional Processing -->
-        <h2 id="func">func</h2>
+        <h2 id="func">Functional<code>func</code></h2>
         <div class="section">
             <div class="param-block">
                 <div class="param-row">
@@ -785,7 +593,7 @@ button#generate:hover{filter:brightness(.95);}
                     <label for="func_coreg_runs_within_session">coreg_runs_within_session</label>
                     <span class="param-control"><input type="checkbox" id="func_coreg_runs_within_session" name="func_coreg_runs_within_session" checked></span>
                 </div>
-                <span class="help-text">(coregister all runs within each session before other steps)</span>
+                <span class="help-text">coregister all runs within each session before other steps</span>
             </div>
             <div class="step">
                 <div class="param-row">
@@ -793,7 +601,7 @@ button#generate:hover{filter:brightness(.95);}
                     <label for="func_conform_enabled">conform</label>
                     <span class="param-control"></span>
                 </div>
-                <span class="help-text">(HIGHLY RECOMMENDED: conform functional image to target space via FLIRT rigid registration)</span>
+                <span class="help-text">HIGHLY RECOMMENDED: conform functional image to target space via FLIRT rigid registration</span>
             </div>
             <div class="step">
                 <div class="param-row">
@@ -801,7 +609,7 @@ button#generate:hover{filter:brightness(.95);}
                     <label for="func_slice_timing_correction_enabled">slice_timing_correction</label>
                     <span class="param-control"></span>
                 </div>
-                <span class="help-text">(apply slice timing correction)</span>
+                <span class="help-text">apply slice timing correction</span>
                 <div class="advanced-toggle" onclick="toggleAdvanced(this)">advanced settings</div>
                 <div class="advanced-settings" id="func_slice_timing_correction_advanced">
                     <div class="param-block">
@@ -812,7 +620,7 @@ button#generate:hover{filter:brightness(.95);}
                                 <input type="number" id="func_slice_timing_correction_repetition_time" name="func_slice_timing_correction_repetition_time" step="0.001" min="0" placeholder="auto-detect from metadata">
                             </span>
                         </div>
-                        <span class="help-text">(repetition time in seconds; leave empty to use metadata)</span>
+                        <span class="help-text">repetition time in seconds; leave empty to use metadata</span>
                     </div>
                     <div class="param-block">
                         <div class="param-row">
@@ -822,7 +630,7 @@ button#generate:hover{filter:brightness(.95);}
                                 <input type="text" id="func_slice_timing_correction_slice_timing" name="func_slice_timing_correction_slice_timing" placeholder="auto-detect from metadata">
                             </span>
                         </div>
-                        <span class="help-text">(slice acquisition times in seconds; leave empty to use metadata)</span>
+                        <span class="help-text">slice acquisition times in seconds; leave empty to use metadata</span>
                     </div>
                     <div class="param-block">
                         <div class="param-row">
@@ -832,7 +640,7 @@ button#generate:hover{filter:brightness(.95);}
                                 <input type="number" id="func_slice_timing_correction_tzero" name="func_slice_timing_correction_tzero" step="0.001" placeholder="auto-calculate from metadata">
                             </span>
                         </div>
-                        <span class="help-text">(reference time in seconds; leave empty to compute from metadata)</span>
+                        <span class="help-text">reference time in seconds; leave empty to compute from metadata</span>
                     </div>
                     <div class="param-block">
                         <div class="param-row">
@@ -842,7 +650,7 @@ button#generate:hover{filter:brightness(.95);}
                                 <input type="number" id="func_slice_timing_correction_slice_time_ref" name="func_slice_timing_correction_slice_time_ref" value="0.5" step="0.1" min="0" max="1">
                             </span>
                         </div>
-                        <span class="help-text">(reference slice position, 0–1; 0.5 = middle slice)</span>
+                        <span class="help-text">reference slice position, 0–1; 0.5 = middle slice</span>
                     </div>
                     <div class="param-block">
                         <div class="param-row">
@@ -860,7 +668,7 @@ button#generate:hover{filter:brightness(.95);}
                                 </select>
                             </span>
                         </div>
-                        <span class="help-text">(slice encoding axis; leave empty to use metadata)</span>
+                        <span class="help-text">slice encoding axis; leave empty to use metadata</span>
                     </div>
                 </div>
             </div>
@@ -870,7 +678,7 @@ button#generate:hover{filter:brightness(.95);}
                     <label for="func_motion_correction_enabled">motion_correction</label>
                     <span class="param-control"></span>
                 </div>
-                <span class="help-text">(apply motion correction / realignment)</span>
+                <span class="help-text">apply motion correction / realignment</span>
                 <div class="advanced-toggle" onclick="toggleAdvanced(this)">advanced settings</div>
                 <div class="advanced-settings" id="func_motion_correction_advanced">
                     <div class="param-block">
@@ -885,10 +693,10 @@ button#generate:hover{filter:brightness(.95);}
                                 </select>
                             </span>
                         </div>
-                        <span class="help-text help-text-list">(degrees of freedom for the within-run realignment:<br>
+                        <span class="help-text help-text-list">degrees of freedom for the within-run realignment:<br>
                             <strong>6</strong> = rigid (translation + rotation);<br>
                             <strong>9</strong> = rigid + scaling;<br>
-                            <strong>12</strong> = full affine)</span>
+                            <strong>12</strong> = full affine</span>
                     </div>
                     <div class="param-block">
                         <div class="param-row">
@@ -905,10 +713,10 @@ button#generate:hover{filter:brightness(.95);}
                                 </select>
                             </span>
                         </div>
-                        <span class="help-text help-text-list">(cost function for realignment:<br>
+                        <span class="help-text help-text-list">cost function for realignment:<br>
                             <strong>mutualinfo</strong>, <strong>normmi</strong> = information-based, robust across contrasts;<br>
                             <strong>corratio</strong>, <strong>normcorr</strong>, <strong>woods</strong> = intensity-ratio based;<br>
-                            <strong>leastsq</strong> = for images of identical contrast only)</span>
+                            <strong>leastsq</strong> = for images of identical contrast only</span>
                     </div>
                     <div class="param-block">
                         <div class="param-row">
@@ -918,7 +726,7 @@ button#generate:hover{filter:brightness(.95);}
                                 <input type="number" id="func_motion_correction_smooth" name="func_motion_correction_smooth" value="1.0" step="0.1" min="0">
                             </span>
                         </div>
-                        <span class="help-text">(smoothing factor)</span>
+                        <span class="help-text">smoothing factor</span>
                     </div>
                     <div class="param-block">
                         <div class="param-row">
@@ -928,10 +736,10 @@ button#generate:hover{filter:brightness(.95);}
                                 <input type="text" id="func_motion_correction_ref_vol" name="func_motion_correction_ref_vol" value="mid">
                             </span>
                         </div>
-                        <span class="help-text help-text-list">(volume every other volume is aligned to:<br>
+                        <span class="help-text help-text-list">volume every other volume is aligned to:<br>
                             <strong>mid</strong> = the middle volume;<br>
                             <strong>Tmean</strong> = the run's temporal mean;<br>
-                            <strong>an integer</strong> = that volume index)</span>
+                            <strong>an integer</strong> = that volume index</span>
                     </div>
                     <div class="param-block">
                         <div class="param-row">
@@ -941,7 +749,7 @@ button#generate:hover{filter:brightness(.95);}
                                 <input type="number" id="func_motion_correction_cost_tolerance" name="func_motion_correction_cost_tolerance" value="0.01" step="0.001" min="0">
                             </span>
                         </div>
-                        <span class="help-text">(cost convergence tolerance)</span>
+                        <span class="help-text">cost convergence tolerance</span>
                     </div>
                     <div class="param-block">
                         <div class="param-row">
@@ -951,7 +759,7 @@ button#generate:hover{filter:brightness(.95);}
                                 <input type="number" id="func_motion_correction_parameter_tolerance" name="func_motion_correction_parameter_tolerance" value="0.01" step="0.001" min="0">
                             </span>
                         </div>
-                        <span class="help-text">(parameter convergence tolerance)</span>
+                        <span class="help-text">parameter convergence tolerance</span>
                     </div>
                 </div>
             </div>
@@ -961,7 +769,7 @@ button#generate:hover{filter:brightness(.95);}
                     <label for="func_despike_enabled">despike</label>
                     <span class="param-control"></span>
                 </div>
-                <span class="help-text">(remove temporal outliers / despiking)</span>
+                <span class="help-text">remove temporal outliers / despiking</span>
                 <div class="advanced-toggle" onclick="toggleAdvanced(this)">advanced settings</div>
                 <div class="advanced-settings" id="func_despike_advanced">
                     <div class="param-block">
@@ -972,7 +780,7 @@ button#generate:hover{filter:brightness(.95);}
                                 <input type="number" id="func_despike_c1" name="func_despike_c1" value="5" step="0.1" min="0.1">
                             </span>
                         </div>
-                        <span class="help-text">(first cutoff, >0, must be &lt; c2)</span>
+                        <span class="help-text">first cutoff, >0, must be &lt; c2</span>
                     </div>
                     <div class="param-block">
                         <div class="param-row">
@@ -982,7 +790,7 @@ button#generate:hover{filter:brightness(.95);}
                                 <input type="number" id="func_despike_c2" name="func_despike_c2" value="10" step="0.1" min="0.1">
                             </span>
                         </div>
-                        <span class="help-text">(second cutoff, >0, must be > c1)</span>
+                        <span class="help-text">second cutoff, >0, must be > c1</span>
                     </div>
                     <div class="param-block">
                         <div class="param-row">
@@ -990,7 +798,7 @@ button#generate:hover{filter:brightness(.95);}
                             <label for="func_despike_localedit">localedit</label>
                             <span class="param-control"><input type="checkbox" id="func_despike_localedit" name="func_despike_localedit" checked></span>
                         </div>
-                        <span class="help-text">(use local editing)</span>
+                        <span class="help-text">use local editing</span>
                     </div>
                     <div class="param-block">
                         <div class="param-row">
@@ -1000,7 +808,7 @@ button#generate:hover{filter:brightness(.95);}
                                 <input type="number" id="func_despike_ignore_first_volumes" name="func_despike_ignore_first_volumes" value="0" min="0">
                             </span>
                         </div>
-                        <span class="help-text">(number of initial volumes to exclude, ≥0)</span>
+                        <span class="help-text">number of initial volumes to exclude, ≥0</span>
                     </div>
                 </div>
             </div>
@@ -1010,7 +818,7 @@ button#generate:hover{filter:brightness(.95);}
                     <label for="func_confounds_enabled">confounds</label>
                     <span class="param-control"></span>
                 </div>
-                <span class="help-text">(fMRIPrep-style nuisance regressors; regressors only, the BOLD image is never modified. Motion-derived columns require motion_correction)</span>
+                <span class="help-text">fMRIPrep-style nuisance regressors; regressors only, the BOLD image is never modified. Motion-derived columns require motion_correction</span>
                 <div class="advanced-toggle" onclick="toggleAdvanced(this)">advanced settings</div>
                 <div class="advanced-settings" id="func_confounds_advanced">
                     <div class="param-block">
@@ -1021,7 +829,7 @@ button#generate:hover{filter:brightness(.95);}
                                 <input type="number" id="func_confounds_fd_outlier_threshold_mm" name="func_confounds_fd_outlier_threshold_mm" value="0.25" step="0.01" min="0">
                             </span>
                         </div>
-                        <span class="help-text">(framewise displacement above this flags a motion outlier; macaque-scaled)</span>
+                        <span class="help-text">framewise displacement above this flags a motion outlier; macaque-scaled</span>
                     </div>
                     <div class="param-block">
                         <div class="param-row">
@@ -1031,7 +839,7 @@ button#generate:hover{filter:brightness(.95);}
                                 <input type="number" id="func_confounds_std_dvars_outlier_threshold" name="func_confounds_std_dvars_outlier_threshold" value="1.5" step="0.1" min="0">
                             </span>
                         </div>
-                        <span class="help-text">(standardized DVARS above this flags a motion outlier)</span>
+                        <span class="help-text">standardized DVARS above this flags a motion outlier</span>
                     </div>
                     <div class="param-block">
                         <div class="param-row">
@@ -1041,7 +849,7 @@ button#generate:hover{filter:brightness(.95);}
                                 <input type="number" id="func_confounds_fd_radius_mm" name="func_confounds_fd_radius_mm" value="27.0" step="0.5" min="0">
                             </span>
                         </div>
-                        <span class="help-text">(sphere radius converting rotations to mm for FD and rmsd; 27 mm macaque head. Change only for another species &mdash; FD values are comparable only at a fixed radius)</span>
+                        <span class="help-text">sphere radius converting rotations to mm for FD and rmsd; 27 mm macaque head. Change only for another species &mdash; FD values are comparable only at a fixed radius</span>
                     </div>
                 </div>
             </div>
@@ -1051,7 +859,7 @@ button#generate:hover{filter:brightness(.95);}
                     <label for="func_bias_correction_enabled">bias_correction</label>
                     <span class="param-control"></span>
                 </div>
-                <span class="help-text">(bias correction on mean functional image, for registration only)</span>
+                <span class="help-text">bias correction on mean functional image, for registration only</span>
                 <div class="advanced-toggle" onclick="toggleAdvanced(this)">advanced settings</div>
                 <div class="advanced-settings" id="func_bias_correction_advanced">
                     <div class="param-block">
@@ -1064,7 +872,7 @@ button#generate:hover{filter:brightness(.95);}
                                 </select>
                             </span>
                         </div>
-                        <span class="help-text">(algorithm; currently only N4BiasFieldCorrection)</span>
+                        <span class="help-text">algorithm; currently only N4BiasFieldCorrection</span>
                     </div>
                     <div class="param-block">
                         <div class="param-row">
@@ -1074,7 +882,7 @@ button#generate:hover{filter:brightness(.95);}
                                 <input type="number" id="func_bias_correction_shrink_factor" name="func_bias_correction_shrink_factor" value="2" step="0.1" min="0.1">
                             </span>
                         </div>
-                        <span class="help-text">(shrink factor for speed, >0)</span>
+                        <span class="help-text">shrink factor for speed, >0</span>
                     </div>
                     <div class="param-block">
                         <div class="param-row">
@@ -1084,7 +892,7 @@ button#generate:hover{filter:brightness(.95);}
                                 <input type="number" id="func_bias_correction_bspline_fitting" name="func_bias_correction_bspline_fitting" value="100" min="1" step="1">
                             </span>
                         </div>
-                        <span class="help-text">(N4 B-spline mesh resolution, integer)</span>
+                        <span class="help-text">N4 B-spline mesh resolution, integer</span>
                     </div>
                     <div class="param-block">
                         <div class="param-row">
@@ -1092,7 +900,7 @@ button#generate:hover{filter:brightness(.95);}
                             <label for="func_bias_correction_rescale_mean_to_100">rescale_mean_to_100</label>
                             <span class="param-control"><input type="checkbox" id="func_bias_correction_rescale_mean_to_100" name="func_bias_correction_rescale_mean_to_100" checked></span>
                         </div>
-                        <span class="help-text">(rescale mean intensity to 100)</span>
+                        <span class="help-text">rescale mean intensity to 100</span>
                     </div>
                 </div>
             </div>
@@ -1102,12 +910,12 @@ button#generate:hover{filter:brightness(.95);}
                     <label for="func_skullstripping_enabled">skullstripping</label>
                     <span class="param-control"></span>
                 </div>
-                <span class="help-text">(HIGHLY RECOMMENDED: brain extraction on functional data)</span>
+                <span class="help-text">HIGHLY RECOMMENDED: brain extraction on functional data</span>
             </div>
         </div>
 
         <!-- Registration -->
-        <h2 id="registration">registration</h2>
+        <h2 id="registration">Registration<code>registration</code></h2>
         <div class="section">
             <div class="param-block">
                 <div class="param-row">
@@ -1122,11 +930,11 @@ button#generate:hover{filter:brightness(.95);}
                         </select>
                     </span>
                 </div>
-                <span class="help-text help-text-list">(anatomical to template &mdash; transform model:<br>
+                <span class="help-text help-text-list">anatomical to template &mdash; transform model:<br>
                     <strong>translation</strong> = shift only;<br>
                     <strong>rigid</strong> = shift + rotation;<br>
                     <strong>affine</strong> = rigid + scaling and shearing;<br>
-                    <strong>syn</strong> = affine followed by nonlinear SyN)</span>
+                    <strong>syn</strong> = affine followed by nonlinear SyN</span>
             </div>
             <div class="param-block">
                 <div class="param-row">
@@ -1141,11 +949,11 @@ button#generate:hover{filter:brightness(.95);}
                         </select>
                     </span>
                 </div>
-                <span class="help-text help-text-list">(functional to anatomical &mdash; transform model:<br>
+                <span class="help-text help-text-list">functional to anatomical &mdash; transform model:<br>
                     <strong>translation</strong> = shift only;<br>
                     <strong>rigid</strong> = shift + rotation;<br>
                     <strong>affine</strong> = rigid + scaling and shearing;<br>
-                    <strong>syn</strong> = affine followed by nonlinear SyN)</span>
+                    <strong>syn</strong> = affine followed by nonlinear SyN</span>
             </div>
             <div class="param-block">
                 <div class="param-row">
@@ -1160,11 +968,11 @@ button#generate:hover{filter:brightness(.95);}
                         </select>
                     </span>
                 </div>
-                <span class="help-text help-text-list">(functional to template &mdash; transform model:<br>
+                <span class="help-text help-text-list">functional to template &mdash; transform model:<br>
                     <strong>translation</strong> = shift only;<br>
                     <strong>rigid</strong> = shift + rotation;<br>
                     <strong>affine</strong> = rigid + scaling and shearing;<br>
-                    <strong>syn</strong> = affine followed by nonlinear SyN)</span>
+                    <strong>syn</strong> = affine followed by nonlinear SyN</span>
             </div>
             <div class="param-block">
                 <div class="param-row">
@@ -1185,9 +993,9 @@ button#generate:hover{filter:brightness(.95);}
                         </select>
                     </span>
                 </div>
-                <span class="help-text help-text-list">(resampling interpolation:<br>
+                <span class="help-text help-text-list">resampling interpolation:<br>
                     <strong>Linear</strong>, <strong>BSpline</strong>, <strong>Gaussian</strong>, the <strong>*WindowedSinc</strong> kernels = continuous data (images);<br>
-                    <strong>NearestNeighbor</strong>, <strong>GenericLabel</strong>, <strong>MultiLabel</strong> = label data, which must not be blended)</span>
+                    <strong>NearestNeighbor</strong>, <strong>GenericLabel</strong>, <strong>MultiLabel</strong> = label data, which must not be blended</span>
             </div>
             <div class="param-block">
                 <div class="param-row">
@@ -1195,7 +1003,7 @@ button#generate:hover{filter:brightness(.95);}
                     <label for="registration_enable_fireants">enable_fireants</label>
                     <span class="param-control"><input type="checkbox" id="registration_enable_fireants" name="registration_enable_fireants" checked></span>
                 </div>
-                <span class="help-text">(attempt FireANTs for syn registration; fallback to ANTs if unavailable)</span>
+                <span class="help-text">attempt FireANTs for syn registration; fallback to ANTs if unavailable</span>
             </div>
             <div class="param-block">
                 <div class="param-row">
@@ -1203,7 +1011,7 @@ button#generate:hover{filter:brightness(.95);}
                     <label for="registration_keep_func_resolution">keep_func_resolution</label>
                     <span class="param-control"><input type="checkbox" id="registration_keep_func_resolution" name="registration_keep_func_resolution" checked></span>
                 </div>
-                <span class="help-text">(preserve native functional resolution when resampling)</span>
+                <span class="help-text">preserve native functional resolution when resampling</span>
             </div>
         </div>
 
@@ -1839,6 +1647,20 @@ button#generate:hover{filter:brightness(.95);}
             errorDiv.innerHTML = '<div class="success">✓ Configuration file generated successfully!<br>Use "Copy to Clipboard" or "Download Config File" to save it.</div>';
         }
     </script>
+    <script>
+        // Sidebar: mark the section in view. Presentation only; the generator logic is above.
+        (function () {
+            const links = Array.from(document.querySelectorAll('.nav-section a'));
+            const targets = links.map(a => document.getElementById(a.getAttribute('href').slice(1)));
+            function update() {
+                let current = 0;
+                targets.forEach((t, k) => { if (t && t.getBoundingClientRect().top < 120) current = k; });
+                if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2) current = targets.length - 1;
+                links.forEach((a, k) => a.classList.toggle('current', k === current));
+            }
+            window.addEventListener('scroll', update, { passive: true });
+            update();
+        })();
+    </script>
 </body>
-</html>
 </html>

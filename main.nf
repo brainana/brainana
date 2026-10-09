@@ -240,11 +240,13 @@ workflow.onComplete {
     }
 
     // --- Failure summary ------------------------------------------------------
-    // Report on failed/ignored tasks (typically surface reconstruction failures)
+    // Report on failed/ignored tasks: surface reconstruction failures, and
+    // subjects skipped because skull stripping found no brain
     if (ignoredCount > 0 || failedCount > 0) {
         println ""
         println "WARNING: Some tasks failed (${failedCount + ignoredCount} total)."
-        println "This may include surface reconstruction jobs that failed due to image quality issues."
+        println "This may include surface reconstruction jobs that failed due to image quality issues,"
+        println "or subjects skipped because skull stripping found no brain (ANAT_SKULLSTRIPPING)."
         println ""
         println "To see details, check the trace file:"
         println "  ${params.output_dir}/nextflow_reports/nextflow_trace.txt"

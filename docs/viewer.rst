@@ -13,25 +13,36 @@ and WebGL2, it runs on macOS, Windows, and Linux, and lets you inspect anatomica
 volumes, 3D cortical surfaces, brain atlases, and functional maps for each processed
 subject (``sub-*``) in a single integrated interface.
 
-.. image:: _static/brainana_viewer_big.png
+.. figure:: _static/brainana_viewer_big.png
    :alt: Brainana Viewer showing macaque brain surfaces, atlas overlays, and functional maps
    :align: center
    :width: 100%
 
-|
+   Brainana Viewer with cortical surfaces, an atlas overlay and functional maps.
 
 Features
 --------
 
-- **Volumes and surfaces** — volume slicing and rotatable 3D cortical surface rendering.
-- **Surface morphometry** — curvature, sulcal depth, and thickness maps on the surface.
-- **Atlas overlays** — automatic brain-atlas overlays with region identification.
-- **Functional maps** — display functional results such as retinotopy and somatotopy.
-- **Local or remote data** — open outputs on your machine or over SSH/SFTP.
-- **Multi-subject comparison** — view and compare several subjects side by side.
+Volumes and surfaces
+   Volume slicing and rotatable 3D cortical surface rendering.
 
-The Viewer consumes Brainana derivatives directly — preprocessed anatomical data,
-FreeSurfer-derived surfaces, atlas parcellations, and functional maps — so no manual
+Surface morphometry
+   Curvature, sulcal depth, and thickness maps on the surface.
+
+Atlas overlays
+   Automatic brain-atlas overlays with region identification.
+
+Functional maps
+   Display functional results such as retinotopy and somatotopy.
+
+Local or remote data
+   Open outputs on your machine or over SSH/SFTP.
+
+Multi-subject comparison
+   View and compare several subjects side by side.
+
+The Viewer reads Brainana derivatives directly (preprocessed anatomical data,
+FreeSurfer-derived surfaces, atlas parcellations, and functional maps), so no manual
 conversion is required.
 
 Get the viewer

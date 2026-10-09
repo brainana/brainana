@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [3.2.0] - 2026-10-09
+
+### Added
+
+- **Every atlas in every template space**: D99, MacBNA, retinotopy, somatotopy, FuncNetwork, CortHierarchy and FuncConnGrad are now provided in NMT2Sym, NMT2Asym, MEBRAINS, Yerkes19 and D99. Runs with any of these as `output_space` get the extra maps in `anat/atlas_space-fsnative/` and the matching volume outputs. FuncNetwork, CortHierarchy and FuncConnGrad cover the left hemisphere only.
+
+### Fixed
+
+- **DataLad / git-annex datasets**: discovery found no subjects, because every NIfTI is a symlink into `.git/annex`. Symlinked files are now found where they sit in the dataset.
+- **Scans that include the neck or body**: the anatomical conform could align the brain upside down or tilted, and every later step failed while the run still reported success. Conform now registers only the region around the brain found by its skull strip; outputs keep the full field of view. Cropping scans by hand is no longer needed.
+- **Conform could align background noise instead of the brain**: when the skull-strip model also marked a brain-sized patch of background, conform could keep that patch, and every later step then ran on noise. The model's most confident region is now kept, not the largest; the same applies to the functional brain mask.
+- **A skull strip that finds no brain now stops that subject**: a brain mask under 10% of the template brain fails `ANAT_SKULLSTRIPPING` for that subject only, and the rest of the run continues. Previously later steps ran on an empty mask and the first error came from surface reconstruction. Check the subject's conform QC figure first. The QC report now lists failed tasks by name.
+- **`desc-conformFullFOV` kept only the standard field of view** for scans that include the neck or body, and for high-resolution scans (about 0.3 mm or finer). It now always holds the whole input, up to 512 voxels per axis; a longer axis keeps its central 512 voxels. The sidecar's `FullFOVPadding.status` reads `clipped` when that happens.
+- **Atlas surface maps had unlabelled cortex** (`anat/atlas_space-fsnative/*.func.gii`): up to about 9% of cortex vertices had no label, and labels spilled past the cortex. Vertices are now sampled across cortical depth, maps are limited to the cortex, and unlabelled cortex in label atlases takes its neighbours' label. Each map moves by about 1–2% of vertices at area borders. Continuous maps (retinotopy, somatotopy, cortical hierarchy) are not filled.
+
 ## [3.1.0] - 2026-09-30
 
 ### Upgrading from 3.0.0

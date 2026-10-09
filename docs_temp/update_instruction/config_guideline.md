@@ -100,6 +100,7 @@ Workflow-only params (not in YAML) live only in `nextflow.config` `params{}`:
 | `nextflow.config` | `params{}`, executor/profiles, process resources. |
 | `src/nhp_mri_prep/nextflow_scripts/discover_bids_for_nextflow.py` | Pre-flight: BIDS structure check + `validate_config()` + job discovery. |
 | `docs/_static/config_generator.html` | Interactive config builder (mirrors `defaults.yaml`). |
+| `docs/config_generator.rst` | RTD page introducing the builder (screenshot `docs/_static/pipeline_details/config_generator.png` + feature list); refresh both when the builder's groups or features change. |
 | `docs/usage_notes.rst` / `docs/processing.rst` | User-facing CLI + processing docs. |
 | `tests/test_config_consistency.py` | Drift guard: defaults validate + generator covers every default key. |
 

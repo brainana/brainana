@@ -353,3 +353,24 @@ def test_the_config_default_publish_dir_still_has_no_path():
         "nextflow.config's default publishDir now sets a path; "
         "test_every_process_declares_a_publish_dir may no longer be needed"
     )
+
+
+# Nextflow keeps each workflow body's source as one Java string constant, which the
+# class file caps at 65535 UTF-16 units; a longer body fails with "Module compilation
+# error ... String too long" before the run starts. ANAT_WF sits close to it.
+_WORKFLOW_BODY_LIMIT = 65535
+
+
+@pytest.mark.parametrize(
+    "path", sorted((REPO / "workflows").glob("*.nf")) + [REPO / "main.nf"], ids=lambda p: p.name
+)
+def test_workflow_bodies_fit_in_a_java_string_constant(path):
+    text = path.read_text()
+    for match in re.finditer(r"^workflow\b[^\n{]*\{", text, re.M):
+        end = text.find("\n}\n", match.start())
+        body = text[match.start() : end if end != -1 else len(text)]
+        units = len(body.encode("utf-16-le")) // 2
+        assert units < _WORKFLOW_BODY_LIMIT, (
+            f"{path.name}: `{match.group(0)}` body is {units} chars; Nextflow refuses "
+            f"over {_WORKFLOW_BODY_LIMIT}. Move logic into a sub-workflow or helper."
+        )

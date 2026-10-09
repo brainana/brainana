@@ -79,12 +79,15 @@ def _is_top_level_subject_path(
     """
     Return True iff the file lives under bids_dir/sub-{subject_id}/ (top-level subject only).
 
-    Used to exclude nested subject dirs (e.g. bids_dir/badQC/sub-aaa). Paths are resolved
-    so symlinks and relative components do not affect the check.
+    Used to exclude nested subject dirs (e.g. bids_dir/badQC/sub-aaa). Directories are
+    resolved so a symlinked dataset root or relative components do not affect the check,
+    but the file itself is not: in DataLad/git-annex datasets every NIfTI is a symlink
+    into .git/annex/objects, and following it would drop every subject.
     """
     try:
         root = bids_dir.resolve()
-        path = Path(file_path).resolve()
+        file_path = Path(file_path)
+        path = file_path.parent.resolve() / file_path.name
         rel = path.relative_to(root)
     except (ValueError, OSError):
         return False

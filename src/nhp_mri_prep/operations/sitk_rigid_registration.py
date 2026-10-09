@@ -1425,11 +1425,12 @@ def apply_sitk_affine(
 # every voxel of the moving image, so the extra output is a super-volume of the
 # standard conformed image rather than a differently-gridded sibling.
 
-# Guard rails for the enlarged grid. The conform resolution is min(input spacing)
-# applied to *all three* axes, so an anisotropic scan over a whole-head FOV can
-# explode: 0.2x0.2x2.0 mm at 1024x1024x40 becomes ~4.2e8 voxels (1.7 GB float32).
-DEFAULT_FULL_FOV_MAX_VOXELS = 512**3  # ~1.34e8 voxels, ~537 MB as float32
-DEFAULT_FULL_FOV_MAX_GROWTH = 3.0  # per-axis cap on (pad_left + pad_right) / size
+# Size cap for the enlarged grid. The conform resolution is min(input spacing)
+# applied to *all three* axes, so a high-resolution or anisotropic scan over a
+# whole-head FOV can explode: 0.2x0.2x2.0 mm at 1024x1024x40 becomes ~4.2e8 voxels.
+# An axis longer than this is clipped to it, keeping the centre (see
+# clip_padding_to_max_dim), so the grid is at most 512^3 (~537 MB as float32).
+DEFAULT_FULL_FOV_MAX_DIM = 512
 
 
 def fsl_mat_to_world_affine(
@@ -1504,13 +1505,35 @@ def fsl_mat_for_new_reference(
     introduces an x error of ``spacing * (pad_left_x - pad_right_x)`` on exactly the
     templates this pipeline ships. Compute it through S/A instead.
     """
-    m = (
-        np.asarray(mat, dtype=np.float64)
-        if isinstance(mat, np.ndarray)
-        else np.loadtxt(str(validate_input_file(mat, logger)))
-    )
-    old = _sitk_ensure_3d(sitk.ReadImage(str(validate_input_file(old_reff, logger))))
-    new = _sitk_ensure_3d(sitk.ReadImage(str(validate_input_file(new_reff, logger))))
+    return _fsl_change_of_frame(old_reff, new_reff) @ _load_fsl_mat(mat)
+
+
+def fsl_mat_for_new_moving(
+    mat: "np.ndarray | Path | str", old_movingf: "Path | str", new_movingf: "Path | str"
+) -> np.ndarray:
+    """Re-express an FSL matrix for a moving grid with a different FOV.
+
+    The moving-side mirror of :func:`fsl_mat_for_new_reference`: a matrix estimated
+    on a cropped (or padded) moving image, ``old_movingf``, becomes valid for
+    ``new_movingf`` on the same voxel lattice. FLIRT's matrix maps moving-FSL-mm ->
+    reference-FSL-mm, so the change of frame goes on the right:
+
+        mat_new = mat_old @ S_old @ inv(A_old) @ A_new @ inv(S_new)
+    """
+    return _load_fsl_mat(mat) @ _fsl_change_of_frame(new_movingf, old_movingf)
+
+
+def _load_fsl_mat(mat: "np.ndarray | Path | str") -> np.ndarray:
+    if isinstance(mat, np.ndarray):
+        return np.asarray(mat, dtype=np.float64)
+    return np.loadtxt(str(validate_input_file(mat, logger)))
+
+
+def _fsl_change_of_frame(old_f: "Path | str", new_f: "Path | str") -> np.ndarray:
+    """FSL-mm of grid ``old_f`` -> FSL-mm of grid ``new_f``, for two grids on the
+    same voxel lattice (same spacing and direction; one a crop or pad of the other)."""
+    old = _sitk_ensure_3d(sitk.ReadImage(str(validate_input_file(old_f, logger))))
+    new = _sitk_ensure_3d(sitk.ReadImage(str(validate_input_file(new_f, logger))))
 
     change_of_frame = (
         _sitk_fsl_scale(new)
@@ -1520,10 +1543,10 @@ def fsl_mat_for_new_reference(
     )
     if not np.allclose(change_of_frame[:3, :3], np.eye(3), atol=1e-9):
         raise ValueError(
-            "Reference grids differ by more than a translation (spacing or direction "
-            "changed); the FSL matrix cannot be re-expressed by padding alone."
+            "Grids differ by more than a translation (direction changed); "
+            "the FSL matrix cannot be re-expressed by cropping or padding alone."
         )
-    return change_of_frame @ np.asarray(m, dtype=np.float64)
+    return change_of_frame
 
 
 def reference_padding_to_cover(
@@ -1532,7 +1555,6 @@ def reference_padding_to_cover(
     ref_shape: "tuple[int, int, int]",
     *,
     margin: int = 1,
-    max_growth: float = DEFAULT_FULL_FOV_MAX_GROWTH,
 ) -> "tuple[np.ndarray, np.ndarray]":
     """Voxel padding of the reference grid needed to contain the whole moving image.
 
@@ -1555,15 +1577,15 @@ def reference_padding_to_cover(
         margin: Extra voxels per face. One by default: it costs almost nothing, covers
             FLIRT's zero-pad ramp (nonzero support out to a full voxel, wider than
             SimpleITK's edge clamp) and absorbs the floor/ceil rounding.
-        max_growth: Per-axis sanity cap on total padding as a multiple of the reference
-            size. A NaN or garbage transform yields an absurd hull; this catches it
-            before anything is allocated.
+
+    The result is the full cover, however large; size it with
+    :func:`clip_padding_to_max_dim` before allocating anything.
 
     Returns:
         ``(pad_left, pad_right)``, non-negative int arrays of shape ``(3,)``.
 
     Raises:
-        ValueError: If ``vox2vox`` is not finite, or the padding exceeds ``max_growth``.
+        ValueError: If ``vox2vox`` is not finite.
     """
     vox2vox = np.asarray(vox2vox, dtype=np.float64)
     if not np.isfinite(vox2vox).all():
@@ -1592,12 +1614,41 @@ def reference_padding_to_cover(
 
     pad_left = np.maximum(0, -lo).astype(int)
     pad_right = np.maximum(0, hi - (ref_shape - 1)).astype(int)
-
-    growth = (pad_left + pad_right) / np.maximum(ref_shape, 1)
-    if np.any(growth > max_growth):
-        raise ValueError(
-            f"Implausible full-FOV padding (left={list(pad_left)}, right={list(pad_right)}) "
-            f"for reference shape {list(ref_shape)}: grows by up to {growth.max():.1f}x, "
-            f"cap is {max_growth}x. The rigid transform is probably wrong."
-        )
     return pad_left, pad_right
+
+
+def clip_padding_to_max_dim(
+    pad_left: np.ndarray,
+    pad_right: np.ndarray,
+    ref_shape: "tuple[int, int, int]",
+    max_dim: int = DEFAULT_FULL_FOV_MAX_DIM,
+) -> "tuple[np.ndarray, np.ndarray, bool]":
+    """Clip the enlarged grid to at most ``max_dim`` voxels per axis, keeping the centre.
+
+    On an axis whose padded size ``ref + pad_left + pad_right`` exceeds the cap, the
+    kept window of ``max(max_dim, ref)`` voxels is centred on the centre of the
+    requested grid, then shifted only as far as needed to keep the whole reference box
+    inside it. Pads stay non-negative integers, so the result is still a voxel-aligned
+    superset of the reference. An axis whose reference already exceeds ``max_dim`` gets
+    no padding at all.
+
+    Returns:
+        ``(pad_left, pad_right, clipped)``; ``clipped`` is True if any axis was cut.
+    """
+    pad_left = np.asarray(pad_left, dtype=np.int64).copy()
+    pad_right = np.asarray(pad_right, dtype=np.int64).copy()
+    ref_shape = np.asarray(ref_shape, dtype=np.int64)[:3]
+    clipped = False
+    for axis in range(3):
+        requested = ref_shape[axis] + pad_left[axis] + pad_right[axis]
+        size = max(int(max_dim), int(ref_shape[axis]))
+        if requested <= size:
+            continue
+        clipped = True
+        total = size - ref_shape[axis]
+        # Requested grid spans [-pad_left, ref + pad_right) in reference voxels; centre
+        # the kept window on it, then clamp so it still holds [0, ref).
+        start = (-pad_left[axis] + ref_shape[axis] + pad_right[axis]) / 2.0 - size / 2.0
+        left = int(np.clip(-np.round(start), 0, total))
+        pad_left[axis], pad_right[axis] = left, total - left
+    return pad_left.astype(int), pad_right.astype(int), clipped

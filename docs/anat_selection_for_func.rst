@@ -15,82 +15,57 @@ based on what data are available for the subject and on the
 Overview
 --------
 
+The chart below shows how the reference is chosen; the sections after it
+describe each case.
+
 .. mermaid::
+   :caption: T1w reference selection. Purple: one of the subject's own T1w images; green: the template T1w, used when the subject has none.
 
-   %%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#eef2ff', 'primaryBorderColor': '#6366f1', 'primaryTextColor': '#1e1b4b', 'lineColor': '#6b7280', 'edgeLabelBackground': '#f8fafc'}, 'flowchart': {'curve': 'basis', 'htmlLabels': true, 'padding': 4, 'diagramPadding': 2, 'useMaxWidth': false}}}%%
-   flowchart LR
-       A{"Subject<br/>has T1w?"}
+   %%{init: {'theme': 'base', 'themeVariables': {'fontFamily': 'Lato, Helvetica Neue, Arial, sans-serif', 'fontSize': '13px', 'primaryColor': '#ffffff', 'primaryBorderColor': '#b4b9c1', 'primaryTextColor': '#333333', 'lineColor': '#777777', 'edgeLabelBackground': '#ffffff'}, 'flowchart': {'curve': 'basis', 'htmlLabels': true, 'padding': 10, 'diagramPadding': 2, 'nodeSpacing': 28, 'rankSpacing': 32, 'useMaxWidth': false}}}%%
+   flowchart TB
+       A{"Subject<br/>has a T1w?"}
        A -->|No| B(["Template T1w"])
-       A -->|Yes| SYNTH["<b>SYNTH</b>: multiple T1w<br/>runs per ses<br/>→ one T1w"]
-       SYNTH --> D{"T1w in how<br/>many sess?"}
-       D -->|one ses only| E(["That ses's T1w"])
-       D -->|multiple ses| H{"anat.<br/>synthesis_level?"}
-       H -->|"subject (default)"| I(["Subject-level T1w<br/><i>shared by all func ses</i>"])
-       H -->|"session<br/>session_longitudinal"| J(["Same-ses T1w<br/><i>or lexicographically first<br/>other ses, if absent</i>"])
+       A -->|Yes| SYNTH["<b>Synthesis</b><br/>multiple T1w runs<br/>per session → one T1w"]
+       SYNTH --> D{"T1w in how<br/>many sessions?"}
+       D -->|one session| E(["That session's T1w"])
+       D -->|multiple sessions| H{"anat.<br/>synthesis_level?"}
+       H -->|"subject (default)"| I(["Subject-level T1w<br/><i>shared by all<br/>functional sessions</i>"])
+       H -->|"session<br/>session_longitudinal"| J(["Same-session T1w<br/><i>or, if absent, the<br/>lexicographically first<br/>other session</i>"])
 
-       classDef result fill:#ecfdf5,stroke:#059669,color:#064e3b
-       classDef proc   fill:#eff6ff,stroke:#3b82f6,color:#1e3a8a
-       classDef decision fill:#eef2ff,stroke:#6366f1,color:#1e1b4b
-       class A,D,H decision
-       class B,E,I,J result
-       class SYNTH proc
-
-.. .. code-block:: text
-
-..    Subject has T1w?
-..    │
-..    ├─ No ──────────────────────────────────────────────► Template T1w
-..    │
-..    └─ Yes
-..       │
-..       │  [auto] multiple T1w runs in a session → synthesized to one T1w
-..       │
-..       T1w present in how many sessions?
-..       │
-..       ├─ One session only
-..       │   ├─ Func session  = that session ─────────────► Same-session T1w
-..       │   └─ Func session != that session ─────────────► That session's T1w
-..       │
-..       └─ Multiple sessions
-..              │
-..              anat.synthesis_level?
-..              │
-..              ├─ "subject"  (default) ─────────────────► Subject-level T1w
-..              │                                           (synthesized across sessions;
-..              │                                            shared by all func sessions)
-..              └─ "session" ───────────────────────────► Same-session T1w
-..                                                         (or lexicographically first
-..                                                          other session, if absent)
+       classDef neutral fill:#ffffff,stroke:#b4b9c1,color:#333333,stroke-width:1.3px
+       classDef purple  fill:#f1ecfb,stroke:#9370db,color:#333333,stroke-width:1.3px
+       classDef green   fill:#e8f6ee,stroke:#3cb371,color:#333333,stroke-width:1.3px
+       class A,D,H,SYNTH neutral
+       class E,I,J purple
+       class B green
 
 
-Scenario 1 — No T1w for the subject
------------------------------------
+No T1w for the subject
+----------------------
 
 When no T1w image exists for the subject, all functional sessions
-automatically use the specified **template T1w**.
+automatically use the specified template T1w.
 
 
-Scenario 2 — T1w available for the subject
-------------------------------------------
+T1w available for the subject
+-----------------------------
 
-.. note::
-
-   **Within-session synthesis** — when a session contains more than one T1w
-   run, they are always synthesized into a single T1w before anything else.
-   This step is automatic and applies to all cases below.
+When a session contains more than one T1w run, they are always synthesized
+into a single T1w before anything else. This within-session synthesis is
+automatic and applies to both cases below.
 
 .. _anat-sel-case21:
 
-Scenario 2.1 — T1w in only one session
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+T1w in only one session
+~~~~~~~~~~~~~~~~~~~~~~~
 
-- Functional runs **in the same session** as the T1w use it directly.
-- Functional runs **in any other session** also use that session's T1w as the anatomical reference.
+- Functional runs in the same session as the T1w use it directly.
+- Functional runs in any other session also use that session's T1w as the anatomical reference.
 
 .. _anat-sel-case22:
 
-Scenario 2.2 — T1w in multiple sessions
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+T1w in multiple sessions
+~~~~~~~~~~~~~~~~~~~~~~~~
 
 When T1w images exist across multiple sessions, the
 ``anat.synthesis_level`` config option controls what happens:
@@ -101,23 +76,22 @@ When T1w images exist across multiple sessions, the
      synthesis_level: "subject"   # default — or "session", "session_longitudinal"
 
 
-- ``synthesis_level: "subject"`` **(default)**
+The levels select the reference as follows:
 
-  All T1w images across sessions are combined into a single
-  **subject-level** T1w, and every functional session of the subject uses that
-  one shared T1w.
+``synthesis_level: "subject"`` (default)
+   All T1w images across sessions are combined into a single subject-level
+   T1w, and every functional session of the subject uses that one shared T1w.
 
-- ``synthesis_level: "session"``
+``synthesis_level: "session"``
+   Each session retains its own T1w. Functional runs in a session that has a
+   T1w use it directly. Functional runs in a session without a T1w fall back
+   to the T1w from the lexicographically first other session of the same
+   subject.
 
-  Each session retains its own T1w. Functional runs in a session that has a T1w
-  use it directly. Functional runs in a session without a T1w fall back to the
-  T1w from the lexicographically first other session of the same subject.
-
-- ``synthesis_level: "session_longitudinal"``
-
-  Anatomical selection is **identical to** ``"session"`` — every row in the
-  chart above resolves the same way, and the functional stream is unaffected.
-  What it adds happens later, inside surface reconstruction.
+``synthesis_level: "session_longitudinal"``
+   Anatomical selection is identical to ``"session"`` — every row in the
+   chart above resolves the same way, and the functional stream is
+   unaffected. What it adds happens later, inside surface reconstruction.
 
 For what each level produces, and when to choose which, see
 :doc:`synthesis_level`.

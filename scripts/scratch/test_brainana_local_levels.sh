@@ -16,7 +16,7 @@
 #   setsid nohup scripts/scratch/test_brainana_local_levels.sh > levels.log 2>&1 < /dev/null &
 set -u
 
-version=3.1.0
+version=3.2.0
 
 bids_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/dataset_devtest
 preproc=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc
