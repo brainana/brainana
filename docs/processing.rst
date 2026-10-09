@@ -115,7 +115,8 @@ findings**; section omitted if empty):
 
   1. Skull-strip the input with a UNet-based skull-stripping model, or,
      when skull stripping is disabled, assume the input is already
-     skull-stripped.
+     skull-stripped. If the model marks more than one separate region,
+     the one it is most confident in is kept.
   2. Resample the template to match the input resolution if needed.
   3. Run FSL FLIRT (rigid, 6 DOF) from the brain-extracted input,
      cropped to the brain plus a margin, to the template. The crop
@@ -166,6 +167,10 @@ findings**; section omitted if empty):
   volume, how many passes ran and why (``SegmentationPasses``), and the
   template comparison (``TemplatePrior``). A mask much smaller than the
   template brain is logged as a warning (``MaskUndersized``).
+- **No brain found:** A mask under 10% of the template brain stops that
+  subject: ``ANAT_SKULLSTRIPPING`` is listed as failed in the QC report,
+  and the rest of the run continues. Check the subject's conform QC
+  figure first; a conform that cropped to background is the usual cause.
 - **Label fragments (optional):** Detached label pieces smaller than
   ``fastSurferCNN.label_island_min_volume_mm3`` take the surrounding label.
   Off by default; 2.5 mm³ is a sensible value.
@@ -409,7 +414,8 @@ temporal mean.
   transform (optionally composed with anatomical transforms).
 - **Skull stripping:** A UNet-based functional (EPI) skull-stripping
   model, derived from NHP-BrainExtraction/DeepBet, is run on the
-  temporal mean to obtain a brain mask. The mask is resampled with the
+  temporal mean to obtain a brain mask (the region the model is most
+  confident in, if it marks more than one). The mask is resampled with the
   same transforms as the 4D fMRI and published alongside it; the fMRI
   itself is not masked.
 

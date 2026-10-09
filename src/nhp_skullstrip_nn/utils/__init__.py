@@ -11,6 +11,7 @@ from .plot import plot_slice, plot_volume
 from .log import setup_logging, get_logger, MacacaLogger
 from .morphology import (
     extract_largest_component,
+    select_confident_component,
     fill_label_holes,
     morphological_erosion_dilation,
     get_bounding_box,
@@ -33,6 +34,7 @@ __all__ = [
     "MacacaLogger",
     # Morphology functions
     "extract_largest_component",
+    "select_confident_component",
     "fill_label_holes",
     "morphological_erosion_dilation",
     "get_bounding_box",

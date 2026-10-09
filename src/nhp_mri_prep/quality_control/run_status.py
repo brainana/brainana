@@ -1,7 +1,7 @@
 """Pipeline run-status tier logic and HTML for QC reports."""
 
 import html
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 def resolve_run_status(run_status: Dict[str, Any]) -> Dict[str, str]:
@@ -27,8 +27,8 @@ def resolve_run_status(run_status: Dict[str, Any]) -> Dict[str, str]:
             "badge": "Pass with warnings",
             "headline": f"Completed with {tolerated_failures} failed {task_word}",
             "guidance": (
-                "One or more optional steps failed. "
-                "Check the execution trace for details."
+                "The run finished, but the tasks listed below failed and were "
+                "skipped. Check the execution trace for details."
             ),
         }
 
@@ -38,6 +38,26 @@ def resolve_run_status(run_status: Dict[str, Any]) -> Dict[str, str]:
         "badge": "Pass",
         "headline": "Completed successfully",
     }
+
+
+def failed_task_names(trace_file: Optional[str]) -> List[str]:
+    """Names of FAILED tasks in a Nextflow trace, e.g. ``ANAT_SKULLSTRIPPING (12_01)``."""
+    if not trace_file:
+        return []
+    try:
+        with open(trace_file, encoding="utf-8") as f:
+            header = f.readline().rstrip("\n").split("\t")
+            name_col, status_col = header.index("name"), header.index("status")
+            rows = [line.rstrip("\n").split("\t") for line in f]
+    except (OSError, ValueError):
+        return []
+    rows = [r for r in rows if len(r) > max(name_col, status_col)]
+    # A task retried after running out of memory leaves a FAILED row too.
+    done = {r[name_col] for r in rows if r[status_col] in ("COMPLETED", "CACHED")}
+    failed = dict.fromkeys(
+        r[name_col] for r in rows if r[status_col] == "FAILED" and r[name_col] not in done
+    )
+    return [name.rsplit(":", 1)[-1] for name in failed]
 
 
 def run_status_log_label(run_status: Dict[str, Any]) -> str:
@@ -122,6 +142,14 @@ some sections may be missing or incomplete.</p>
 
     guidance = resolved.get("guidance")
     guidance_block = f"<p>{guidance}</p>" if guidance else ""
+    if resolved["tier"] == "pass_with_warnings":
+        failed = failed_task_names(run_status.get("trace_file"))
+        if failed:
+            guidance_block += (
+                '<ul class="meta">'
+                + "".join(f"<li><code>{html.escape(n)}</code></li>" for n in failed)
+                + "</ul>"
+            )
 
     return f"""<div class="status {resolved["css_class"]}">
 <p class="headline"><span class="badge">{resolved["badge"]}</span>{resolved["headline"]}</p>

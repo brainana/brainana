@@ -19,7 +19,8 @@ import torch.nn.functional as F
 from matplotlib import pyplot as plt
 
 from ..utils.morphology import (
-    extract_largest_component,
+    NEAR_TIE_RATIO,
+    select_confident_component,
     fill_label_holes,
     morphological_erosion_dilation,
 )
@@ -98,6 +99,21 @@ def _resample_file_to_native(path: str, native_ref_img, order: int) -> None:
 # (outputs were read through .data, so results were unaffected, but memory was not).
 # no_grad rather than inference_mode: the returned tensors stay ordinary tensors.
 @torch.no_grad()
+def _keep_brain_component(label: np.ndarray, prob: np.ndarray) -> np.ndarray:
+    """``select_confident_component``, warning when the choice was close."""
+    mask, info = select_confident_component(label, prob)
+    runner_up = info.get("runner_up_voxels", 0)
+    if runner_up and runner_up >= NEAR_TIE_RATIO * info["kept_voxels"]:
+        swapped = info["kept_voxels"] < info["largest_voxels"]
+        logging.getLogger(__name__).warning(
+            f"QC: skull-strip mask had {info['components']} components; kept "
+            f"{info['kept_voxels']} voxels (selected by {info['by']}), runner-up "
+            f"{runner_up} voxels"
+            + (" -- the largest component was dropped as low-confidence" if swapped else "")
+        )
+    return mask
+
+
 def predict_volumes(
     model: torch.nn.Module,
     rescale_dim: int = 256,
@@ -420,7 +436,9 @@ def predict_volumes(
             final_prediction_np = final_prediction.numpy()
 
             # Apply thresholding and morphological operations for binary case
-            binary_prediction = extract_largest_component(final_prediction_np > 0.5)
+            binary_prediction = _keep_brain_component(
+                final_prediction_np > 0.5, final_prediction_np
+            )
             binary_prediction = fill_label_holes(binary_prediction)
             if erosion_dilation_iterations > 0:
                 binary_prediction = morphological_erosion_dilation(
@@ -445,7 +463,9 @@ def predict_volumes(
                     continue
                 class_mask = final_prediction_np == class_idx
                 if class_mask.sum() > 0:  # Only process if class is present
-                    processed_mask = extract_largest_component(class_mask)
+                    processed_mask = _keep_brain_component(
+                        class_mask, prob_map_np[class_idx]
+                    )
                     processed_mask = fill_label_holes(processed_mask)
                     if erosion_dilation_iterations > 0:
                         processed_mask = morphological_erosion_dilation(

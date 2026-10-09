@@ -47,6 +47,70 @@ def extract_largest_component(label: np.ndarray) -> np.ndarray:
     return (labels == largest_component).astype(label.dtype)
 
 
+# A brain-sized blob the network half-believes in can sit in the background
+# noise beside the head (PRIME-DE carmenlyon sub-12: 578k voxels at mean
+# probability 0.61 against a 552k-voxel brain at 0.95). Its voxels never pass
+# this probability; the brain's mostly do (88% there).
+CONFIDENT_CORE_THRESHOLD = 0.9
+
+# A runner-up at least this fraction of the kept component's size is a near-tie
+# worth a warning.
+NEAR_TIE_RATIO = 0.5
+
+
+def select_confident_component(
+    label: np.ndarray,
+    prob: np.ndarray,
+    core_threshold: float = CONFIDENT_CORE_THRESHOLD,
+) -> tuple:
+    """Keep the connected component of ``label`` holding the most confident voxels.
+
+    The component with the most voxels above ``core_threshold`` in ``prob`` wins,
+    not the largest one, so a faint background blob cannot outvote the brain by
+    size alone. Without any voxel above the threshold this falls back to the
+    largest component. The kept component's voxels are unchanged: only which
+    component is kept differs.
+
+    Args:
+        label: Binary label array (``prob`` thresholded)
+        prob: Foreground probability, same shape as ``label``
+        core_threshold: Probability a voxel needs to count as confident
+
+    Returns:
+        ``(mask, info)``: the kept component with ``label``'s dtype, and a dict
+        with ``components``, ``kept_voxels``, ``largest_voxels``,
+        ``runner_up_voxels`` and ``by`` ("core", "size" or "empty").
+    """
+    if label.shape != prob.shape:
+        raise ValueError(f"label {label.shape} and prob {prob.shape} differ in shape")
+    if not np.all(np.isin(label, [0, 1])):
+        raise ValueError("Input label must be binary (containing only 0s and 1s)")
+
+    labels, num_labels = snd.label(label)
+    if num_labels == 0:
+        return label, {"components": 0, "by": "empty"}
+
+    sizes = np.bincount(labels.reshape(-1), minlength=num_labels + 1)
+    sizes[0] = 0
+    core = np.bincount(
+        labels[prob > core_threshold], minlength=num_labels + 1
+    )
+    core[0] = 0
+    if core.any():
+        kept, by = int(core.argmax()), "core"
+    else:
+        kept, by = int(sizes.argmax()), "size"
+    others = np.delete(sizes, [0, kept])
+    info = {
+        "components": int(num_labels),
+        "kept_voxels": int(sizes[kept]),
+        "largest_voxels": int(sizes.max()),
+        "runner_up_voxels": int(others.max()) if others.size else 0,
+        "by": by,
+    }
+    return (labels == kept).astype(label.dtype), info
+
+
 def fill_label_holes(label: np.ndarray) -> np.ndarray:
     """
     Fill holes in a binary label by extracting the largest background

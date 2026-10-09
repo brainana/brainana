@@ -1663,6 +1663,8 @@ def apply_segmentation(
     # Validate brain mask
     validate_output_file(brain_mask_path, logger)
     logger.info(f"Output: brain mask generated - {os.path.basename(brain_mask_path)}")
+    if modal == "anat":
+        _require_nonempty_mask(brain_mask_path, logger)
 
     # Validate optional outputs (segmentation and hemimask from fastsurfer_nn)
     if brain_segmentation_path is not None and os.path.exists(brain_segmentation_path):
@@ -1726,6 +1728,20 @@ def apply_segmentation(
 # (the NMT2Sym template brain is 92.5 cm^3, so the cut sits at ~74 cm^3).
 MASK_UNDERSIZED_RATIO = 0.8
 
+# Below this the mask is not a brain at all (an empty or near-empty mask, e.g.
+# from a conform step that cropped to background). Unlike an undersized mask
+# there is nothing downstream steps can use, so the subject stops here.
+MASK_EMPTY_RATIO = 0.1
+# Fallback reference when the NMT2Sym template cannot be read.
+TEMPLATE_BRAIN_VOLUME_FALLBACK_MM3 = 92_500.0
+# Exit status the ANAT_SKULLSTRIPPING process uses for EmptyBrainMaskError.
+# nextflow.config ignores it, so the rest of the run continues.
+EMPTY_BRAIN_MASK_EXIT_CODE = 3
+
+
+class EmptyBrainMaskError(RuntimeError):
+    """The brain mask is too small to be a brain; this subject cannot continue."""
+
 # Pre-inference N4. The spline distance is in mm: the pipeline's 150 mm is one
 # span across a ~70 mm macaque head, too smooth for a surface coil's fall-off.
 PRE_INFERENCE_N4_SHRINK = 4
@@ -1759,6 +1775,24 @@ def _template_brain_volume_mm3() -> Optional[float]:
         return None
     data = np.asanyarray(img.dataobj)
     return float(np.count_nonzero(data) * np.prod(img.header.get_zooms()[:3]))
+
+
+def _require_nonempty_mask(mask_path: Union[str, Path], logger: logging.Logger) -> None:
+    """Raise EmptyBrainMaskError when the final mask is not a brain."""
+    img = nib.load(str(mask_path))
+    mask_mm3 = float(
+        np.count_nonzero(np.asanyarray(img.dataobj)) * np.prod(img.header.get_zooms()[:3])
+    )
+    template_mm3 = _template_brain_volume_mm3() or TEMPLATE_BRAIN_VOLUME_FALLBACK_MM3
+    if mask_mm3 < MASK_EMPTY_RATIO * template_mm3:
+        message = (
+            f"brain mask is {mask_mm3 / 1000:.1f} cm^3, under "
+            f"{MASK_EMPTY_RATIO:.0%} of the template brain ({template_mm3 / 1000:.1f} cm^3): "
+            "skull stripping found no brain. Check this subject's conform QC figure "
+            "first -- a conform that cropped to background is the usual cause."
+        )
+        logger.error(f"QC: {message}")
+        raise EmptyBrainMaskError(message)
 
 
 def _mask_volume_check(
