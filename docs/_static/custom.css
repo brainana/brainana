@@ -295,18 +295,22 @@
 .rst-content .bn-button {
   margin: 16px 0 0;
 }
+/* Cream --bn-surface with dark text, like the sidebar header and the generator's
+   Generate button; the border turns purple on hover. */
 .rst-content .bn-button a,
 .rst-content .bn-button a:visited {
   display: inline-block;
-  background: #6a4fb3;
-  color: #fff;
+  background: #fffddd;
+  color: #333;
+  border: 1px solid #e6e1cd;
   font-weight: 700;
   padding: 8px 16px;
   border-radius: 4px;
 }
 .rst-content .bn-button a:hover {
-  background: #563c9c;
-  color: #fff;
+  background: #fffddd;
+  color: #563c9c;
+  border-color: #6a4fb3;
   text-decoration: none;
 }
 

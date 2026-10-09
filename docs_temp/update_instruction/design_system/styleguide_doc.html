@@ -22,8 +22,8 @@
 .bn-h1,.bn-h2{font-family:var(--bn-head);font-weight:700;color:var(--bn-ink);line-height:1.25}
 .bn-h1{font-size:175%;margin:0 0 24px}
 .bn-h2{font-size:150%;margin:40px 0 16px}
-.topbar{background:#6a4fb3;color:#fff;font-family:var(--bn-font);font-weight:700;padding:10px 32px;font-size:15px}
-.topbar span{opacity:.75;font-weight:400;margin-left:8px}
+.topbar{background:#fffddd;color:#333;border-bottom:1px solid #e6e1cd;font-family:var(--bn-font);font-weight:700;padding:10px 32px;font-size:15px}
+.topbar span{color:#6b6b6b;font-weight:400;margin-left:8px}
 .wrap{background:var(--bn-page);box-shadow:0 0 0 1px var(--bn-border)}
 body{margin:0;font-family:var(--bn-font);color:var(--bn-text);background:var(--bn-bg);
   font-size:var(--bn-fs);line-height:var(--bn-lh)}
@@ -83,8 +83,8 @@ table.t th{font-weight:700;color:var(--bn-ink);background:var(--bn-surface)}
 .shot .nav i{display:block;height:6px;margin:10px 8px 0;background:#cdc9b0;border-radius:3px}
 .shot .row{position:absolute;left:70px;right:10px;height:12px;display:flex;gap:6px}
 .shot .row b{flex:0 0 48px;background:#e6e1cd;border-radius:2px} .shot .row s{flex:1;border:1px solid #cdc9b0;border-radius:2px;background:#fff}
-.btn{display:inline-block;background:#6a4fb3;color:#fff !important;font-weight:700;font-size:15px;padding:8px 16px;border-radius:4px;text-decoration:none !important}
-.btn:hover{background:#563c9c}
+.btn{display:inline-block;background:#fffddd;color:#333 !important;border:1px solid #e6e1cd;font-weight:700;font-size:15px;padding:8px 16px;border-radius:4px;text-decoration:none !important}
+.btn:hover{color:#563c9c !important;border-color:#6a4fb3}
 .check li{list-style:none;margin-left:-1.2em}
 .check li::before{content:"☐ ";color:var(--bn-muted)}
 .pill{display:inline-block;font-family:var(--bn-font);font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px;border:1px solid var(--bn-border-mid);color:var(--bn-muted);margin-left:6px;vertical-align:2px}
@@ -178,6 +178,8 @@ Names describe the color, not a concept (§1). In this guide <code>-wash</code> 
   <div class="tok"><span class="chip" style="background:#d6d9dc"></span><span class="nm"><code>--bn-line-mid</code><span class="hx">#d6d9dc</span><span class="role">Widget borders, screenshot frame</span></span></div>
   <div class="tok"><span class="chip" style="background:#e1e4e5"></span><span class="nm"><code>--bn-line</code><span class="hx">#e1e4e5</span><span class="role">Hairlines, feature-card border (RTD default)</span></span></div>
   <div class="tok"><span class="chip" style="background:#ffffff"></span><span class="nm"><code>--bn-white</code><span class="hx">#ffffff</span><span class="role">Page body, neutral diagram fill</span></span></div>
+  <div class="tok"><span class="chip" style="background:#fcfcfc"></span><span class="nm"><code>--bn-page</code><span class="hx">#fcfcfc</span><span class="role">Content area background (RTD default), advanced-settings band in generator cards</span></span></div>
+  <div class="tok"><span class="chip" style="background:#edf0f2"></span><span class="nm"><code>--bn-outer</code><span class="hx">#edf0f2</span><span class="role">Background outside the content column (RTD default)</span></span></div>
 </div>
 <h3>Code</h3>
 <div class="tokgrid">
@@ -484,13 +486,12 @@ Do not use <code>important</code>, <code>caution</code>, <code>attention</code>,
 
 <!-- ============================================================ -->
 <h2 class="bn-h2" id="interactive">11. Interactive pages</h2>
-<p>Two interactive surfaces live in the docs: the <strong>configuration generator</strong> (<code>_static/config_generator.html</code>, standalone, on the brand
-system from <a href="styleguide.html">styleguide.html</a>) and the <strong>transform-command builder</strong> (<code>raw:: html</code> inside
+<p>Two interactive surfaces live in the docs: the <strong>configuration generator</strong> (<code>_static/config_generator.html</code>, a standalone page) and the <strong>transform-command builder</strong> (<code>raw:: html</code> inside
 <code>spaces_and_transforms.rst</code>).</p>
 <ul class="rules">
 <li>Widgets embedded <em>inside</em> an RTD page follow this guide: neutral greys (<code>#f6f7f8</code> panels, <code>#d6d9dc</code> borders), purple for interactive accents, and the §4 code surface for code output.
  <strong>No dark code panel</strong> (the builder's <code>#1e1e2e</code>/<code>#cdd6f4</code>), no GitHub grey (<code>#f6f8fa</code>/<code>#d0d7de</code>) and no amber hint box (<code>#fff8e1</code>/<code>#f9a825</code>). Hints use the §6 note style.</li>
-<li>The standalone config generator currently uses the cream/yellow brand system. <strong>Open decision:</strong> leave it as its own surface, or bring its accents to purple/green so it matches the site the button opens from. Either way it changes in a separate step, not as part of this docs pass.</li>
+<li>The standalone configuration generator follows this guide too: the dark sidebar with the cream logo header and a "← Brainana docs" link, Lato bold section titles (unlike the docs' Roboto Slab) with the config key as a chip; every direct child of a section is a white card (a plain option, or a pipeline module with its checkbox and its advanced settings opening inside the card); each option inside a card is a settings row (name and help on the left, control in a fixed right column, hairline between rows); subgroups are small muted key labels; purple controls, a cream <code>--bn-surface</code> <strong>Generate</strong> button (dark text, <code>#e6e1cd</code> border, purple border on hover), amber validation errors, green success notes, and YAML output in the code surface. Its stylesheet is a single <code>&lt;style&gt;</code> block built from the §2 tokens.</li>
 <li>Inline <code>&lt;style&gt;</code> in a widget is scoped under one wrapper class, so it can't leak into the theme.</li>
 </ul>
 
@@ -534,7 +535,7 @@ It is one of the most useful things in the docs: 70+ options grouped by stage, a
 </div>
 <p class="note">The screenshot placeholder becomes a real PNG of the generator (<code>_static/pipeline_details/config_generator.png</code>, about 1200px wide, cropped to the nav plus the first sections).
 In RST: <code>.. container:: bn-feature</code> wrapping a <code>figure</code> and a definition list, with the button as <code>.. rst-class:: bn-button</code> on the link paragraph.
-<code>custom.css</code> styles <code>.bn-feature</code> (1px <code>#e1e4e5</code> border, 6px radius, 2-column grid that stacks on mobile) and <code>.bn-button a</code> (RTD blue fill, white bold text, 4px radius).
+<code>custom.css</code> styles <code>.bn-feature</code> (1px <code>#e1e4e5</code> border, 6px radius, 2-column grid that stacks on mobile) and <code>.bn-button a</code> (cream <code>--bn-surface</code> fill, dark bold text, <code>#e6e1cd</code> border that turns purple on hover, 4px radius; the same treatment as the generator's Generate button).
 <strong>This card is the only button-style link on the site.</strong> The pattern is reusable for a future feature, such as the Viewer, but use it sparingly.</p>
 
 <h3>Choice cards</h3>
