@@ -113,6 +113,29 @@ def test_nextflow_ignores_the_empty_mask_exit_code():
     assert "sys.exit(EMPTY_BRAIN_MASK_EXIT_CODE)" in process
 
 
+def test_ignored_skull_strip_does_not_continue_on_dummies():
+    """An ignored session must leave the mask channel, not fall back to the dummy,
+    and bias correction (hence registration onwards) must read the kept channel."""
+    wf = (REPO / "workflows" / "anatomical_workflow.nf").read_text()
+    skull = wf[wf.index("if (anat_skullstripping_enabled) {") :]
+    skull = skull[: skull.index("\n    }\n")]
+    assert ".filter { sub, ses, mask -> mask != null }" in skull
+    assert "real_mask ?: mask_list[0]" not in skull
+    assert "anat_after_conform_kept = anat_after_conform.join(skull_stripped_keys" in skull
+
+    bias = wf[wf.index("// BIAS CORRECTION") : wf.index("// PUBLISH PHASE 1 OUTPUTS")]
+    code = "\n".join(l for l in bias.splitlines() if not l.strip().startswith("//"))
+    assert "anat_after_conform_kept" in code
+    assert not re.search(r"\banat_after_conform\b", code)
+
+
+def test_skull_strip_inference_runs_without_autograd():
+    source = (
+        REPO / "src" / "nhp_skullstrip_nn" / "inference" / "prediction.py"
+    ).read_text()
+    assert "@torch.no_grad()\ndef predict_volumes(" in source
+
+
 def _trace(tmp_path, rows):
     path = tmp_path / "trace.txt"
     lines = ["task_id\thash\tname\tstatus\texit"]

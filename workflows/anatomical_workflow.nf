@@ -325,6 +325,8 @@ workflow ANAT_WF {
     // Atlas LUT (optional): only when skullstripping + multi-class atlas; empty when disabled.
     // No `def`: workflow-scoped so it can be emitted.
     anat_skull_seg_lut = Channel.empty()
+    // Sessions past skull stripping (an ignored one, exit 3, stops here)
+    def anat_after_conform_kept = anat_after_conform
     
     if (anat_skullstripping_enabled) {
         // GPU slot only when workflow-level GPU scheduling is enabled (use_gpu).
@@ -334,17 +336,18 @@ workflow ANAT_WF {
         // Principle: anat_after_skull = full head (not skullstripped), anat_after_skull_brain = brain (skullstripped)
         anat_after_skull = ANAT_SKULLSTRIPPING.out.output  // Full head version (_T1w)
         anat_after_skull_brain = ANAT_SKULLSTRIPPING.out.brain  // Brain-only version (_T1w_brain)
-        // Create a channel that prefers process output but falls back to dummy
-        // Use groupTuple to handle cases where both exist, then prefer non-dummy
+        // brain_mask is required: no real mask = task ignored, so drop the session
         def skull_mask_with_fallback = ANAT_SKULLSTRIPPING.out.brain_mask
             .mix(anat_skull_mask_dummy)
             .groupTuple(by: [0, 1])
             .map { sub, ses, mask_list ->
-                // Prefer real mask (non-dummy) if available, otherwise use first item
                 def real_mask = mask_list.find { mask -> !mask.toString().contains('.dummy') }
-                [sub, ses, real_mask ?: mask_list[0]]
+                [sub, ses, real_mask]
             }
+            .filter { sub, ses, mask -> mask != null }
         anat_skull_mask = skull_mask_with_fallback
+        def skull_stripped_keys = skull_mask_with_fallback.map { sub, ses, mask -> [sub, ses] }
+        anat_after_conform_kept = anat_after_conform.join(skull_stripped_keys, by: [0, 1])
         // Use real segmentation when available, otherwise keep dummy
         def skull_seg_with_fallback = ANAT_SKULLSTRIPPING.out.brain_segmentation
             .mix(anat_skull_seg_dummy)
@@ -354,6 +357,7 @@ workflow ANAT_WF {
                 def real_seg = seg_list.find { seg -> !seg.toString().contains('.dummy') }
                 [sub, ses, real_seg ?: seg_list[0]]
             }
+            .join(skull_stripped_keys, by: [0, 1])
         anat_skull_seg = skull_seg_with_fallback
         anat_skull_seg_lut = ANAT_SKULLSTRIPPING.out.brain_segmentation_lut
     }
@@ -363,17 +367,17 @@ workflow ANAT_WF {
     // ============================================
     // Correct intensity non-uniformity (bias field) using brain mask
     // Input: anat_after_conform: [sub, ses, anat_file, bids_name] (full head T1w)
-    //        anat_skull_mask: [sub, ses, brain_mask] (may be dummy)
+    //        anat_skull_mask: [sub, ses, brain_mask] (dummy when skull stripping is off)
     // Output: anat_after_bias: [sub, ses, anat_file, bids_name] (bias-corrected full head _T1w)
     //         anat_after_bias_brain: [sub, ses, brain_file, bids_name] (bias-corrected brain _T1w_brain, always available - real or dummy)
     // Principle: anat_after_xxxstep = full head (_T1w), anat_after_xxxstep_brain = brain (_T1w_brain)
     // ============================================
-    anat_after_bias = anat_after_conform.map(passThroughAnat)
+    anat_after_bias = anat_after_conform_kept.map(passThroughAnat)
     anat_after_bias_brain = Channel.empty()
     if (anat_bias_correction_enabled) {
         // Join conformed T1w with mask (both have [sub, ses] as first two elements)
         // Now that structures are consistent with dummies, we can use join() for exact matching
-        def bias_correction_input = anat_after_conform
+        def bias_correction_input = anat_after_conform_kept
             .join(anat_skull_mask, by: [0, 1])
         
         // Split into cases with real mask vs dummy mask
@@ -441,11 +445,11 @@ workflow ANAT_WF {
     } else {
         // If bias correction is disabled, use passthrough to maintain channel structure
         // Passthrough always outputs dummy brain for consistent structure
-        // Extract bids_name lookup BEFORE consuming anat_after_conform in process call
-        def bias_passthrough_bids_lookup = anat_after_conform
+        // Extract bids_name lookup BEFORE consuming it in process call
+        def bias_passthrough_bids_lookup = anat_after_conform_kept
             .map { sub, ses, anat_file, bids_name -> [sub, ses, bids_name] }
         
-        ANAT_BIAS_CORRECTION_PASSTHROUGH(anat_after_conform, config_file)
+        ANAT_BIAS_CORRECTION_PASSTHROUGH(anat_after_conform_kept, config_file)
         anat_after_bias = ANAT_BIAS_CORRECTION_PASSTHROUGH.out.output
         // Join brain output with bids_template to match anat_after_skull structure [sub, ses, brain_file, bids_name]
         anat_after_bias_brain = ANAT_BIAS_CORRECTION_PASSTHROUGH.out.brain

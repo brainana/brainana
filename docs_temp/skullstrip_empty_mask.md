@@ -64,6 +64,13 @@ misses the second pass can recover and stay warnings.
 - `ANAT_SKULLSTRIPPING` catches it and exits `EMPTY_BRAIN_MASK_EXIT_CODE = 3`;
   `nextflow.config` maps 3 → `ignore` (OOM → retry, else terminate). The subject's later
   steps never start; the rest of the run continues.
+- That needs the channel side too (`anatomical_workflow.nf`): the mask/seg channels used to
+  mix in a dummy per conformed session, so an ignored session got the dummy mask, went
+  through the no-mask bias passthrough and reached `ANAT_REGISTRATION` (terminate) on a
+  dummy brain. Now a session without a real mask is filtered out (`brain_mask` is a required
+  output, so that only happens when the task was ignored), seg is joined to the kept keys,
+  and bias correction reads `anat_after_conform_kept`. Conform QC still reads
+  `anat_after_conform`, so the skipped session keeps its conform figure.
 - Missing-subject safety: no `groupKey` with a size anywhere; func sessions fall back to
   another session's anat or the template (`performFuncAnatomicalSelection`).
 - The longitudinal base calls `apply_segmentation` too; there the error exits 1, and the
