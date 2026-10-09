@@ -10,8 +10,9 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
-from typing import Dict, Any, NamedTuple, Optional, List
+from typing import Dict, Any, NamedTuple, Optional, List, Sequence
 
 import nibabel as nib
 import numpy as np
@@ -752,6 +753,174 @@ def _atlas_name_from_filename(filename: str) -> str:
     return stem[:idx] if idx != -1 else stem
 
 
+# Cortical depths sampled per vertex (0 = white, 1 = pial).
+_SURF_PROJFRACS = tuple(round(0.1 * i, 1) for i in range(11))
+# A hemisphere is filled only if at least this fraction of its cortex is labelled
+# after sampling; below it the atlas does not cover that hemisphere (e.g. lh-only
+# atlases), and filling would spread a few midline samples over the whole surface.
+_SURF_FILL_MIN_COVERAGE = 0.5
+
+
+def _combine_depth_samples(
+    samples: np.ndarray, projfracs: Sequence[float], is_label: bool
+) -> np.ndarray:
+    """Collapse per-depth surface samples to one value per vertex.
+
+    Only nonzero, finite samples count; for label atlases only positive ids do
+    (negative ids mark non-cortical tissue such as white matter or CSF in ARM).
+    Label atlases take the most common label across depths, ties going to the depth nearest mid-thickness. Continuous maps
+    take the sample nearest mid-thickness (never an average, so values such as
+    polar angle are not blended); frame 0 picks the depth and every frame is read
+    from that depth, so paired frames (e.g. estimate and statistic) stay paired.
+
+    Args:
+        samples: Array of shape (n_vert, n_depth, n_frame).
+        projfracs: Depth of each sample, length n_depth.
+        is_label: True for a label atlas, False for a continuous map.
+
+    Returns:
+        Array of shape (n_vert, n_frame); 0 where no depth had a value.
+    """
+    order = np.argsort(np.abs(np.asarray(projfracs, dtype=float) - 0.5), kind="stable")
+    ordered = samples[:, order, :]
+    out = np.zeros((ordered.shape[0], ordered.shape[2]), dtype=samples.dtype)
+
+    if not is_label:
+        valid = np.isfinite(ordered[:, :, 0]) & (ordered[:, :, 0] != 0)
+        has_value = valid.any(axis=1)
+        first = np.argmax(valid, axis=1)
+        out[has_value] = ordered[has_value, first[has_value], :]
+        return out
+
+    for frame in range(ordered.shape[2]):
+        values = ordered[:, :, frame]
+        valid = np.isfinite(values) & (values > 0)
+        for vertex in np.flatnonzero(valid.any(axis=1)):
+            vals = values[vertex, valid[vertex]]
+            uniq, counts = np.unique(vals, return_counts=True)
+            tied = uniq[counts == counts.max()]
+            # vals is ordered by distance to mid-thickness, so the first tied label wins
+            out[vertex, frame] = vals[np.isin(vals, tied)][0]
+    return out
+
+
+def _fill_label_holes_in_cortex(
+    faces: np.ndarray, labels: np.ndarray, cortex_mask: np.ndarray
+) -> np.ndarray:
+    """Fill unlabelled cortex vertices from their labelled neighbours.
+
+    Repeats a 1-ring mode filter on label-0 vertices until nothing changes, then
+    zeroes everything outside cortex. Labelled vertices are never changed.
+    """
+    from scipy import sparse
+    from fastsurfer_surfrecon.processing.parcellation import (
+        get_adjacency_matrix,
+        mode_filter,
+    )
+
+    n_vertices = len(labels)
+    adj = get_adjacency_matrix(faces, n_vertices) + sparse.eye(n_vertices, dtype=bool)
+    adj = adj.tocsr()
+    filled = labels.copy()
+    filled[~cortex_mask] = 0
+    n_unknown = int(np.sum((filled == 0) & cortex_mask))
+    while n_unknown:
+        filled = mode_filter(adj, filled, fill_label=0, no_vote_labels=[0])
+        filled[~cortex_mask] = 0
+        n_now = int(np.sum((filled == 0) & cortex_mask))
+        if n_now == n_unknown:
+            break  # what is left has no labelled neighbour path within cortex
+        n_unknown = n_now
+    return filled
+
+
+def _project_volume_to_hemi(
+    volume: Path,
+    out_gii: Path,
+    fs_subject_directory: Path,
+    hemi: str,
+    is_label: bool,
+    env: Dict[str, str],
+) -> float:
+    """Sample a volume onto one hemisphere at several depths and write a .func.gii.
+
+    Each depth is one ``mri_vol2surf --interp nearest`` call; the samples are
+    combined by :func:`_combine_depth_samples`, masked to ``label/{hemi}.cortex.label``
+    and, for label atlases covering the hemisphere, holes inside cortex are filled
+    from neighbouring labels on the white surface.
+
+    Returns the fraction of cortex vertices labelled before filling (NaN when the
+    cortex label is missing). Raises FileNotFoundError / CalledProcessError from
+    ``mri_vol2surf`` for the caller to handle.
+    """
+    with tempfile.TemporaryDirectory(prefix="atlas_surf_") as tmp:
+        depth_samples = []
+        ref_img = None
+        for frac in _SURF_PROJFRACS:
+            depth_gii = Path(tmp) / f"projfrac-{frac:.1f}.func.gii"
+            subprocess.run(
+                [
+                    "mri_vol2surf",
+                    "--mov",
+                    str(volume),
+                    "--regheader",
+                    fs_subject_directory.name,
+                    "--hemi",
+                    hemi,
+                    "--projfrac",
+                    str(frac),
+                    "--interp",
+                    "nearest",
+                    "--out_type",
+                    "gii",
+                    "--o",
+                    str(depth_gii),
+                ],
+                check=True,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            img = nib.load(str(depth_gii))
+            depth_samples.append(
+                np.stack([np.asarray(da.data).ravel() for da in img.darrays], axis=1)
+            )
+            if frac == 0.5:
+                ref_img = img
+        samples = np.stack(depth_samples, axis=1)  # (n_vert, n_depth, n_frame)
+
+    combined = _combine_depth_samples(samples, _SURF_PROJFRACS, is_label)
+
+    coverage = float("nan")
+    cortex_label = fs_subject_directory / "label" / f"{hemi}.cortex.label"
+    if cortex_label.is_file():
+        cortex_mask = np.zeros(combined.shape[0], dtype=bool)
+        cortex_mask[nib.freesurfer.read_label(str(cortex_label))] = True
+        combined[~cortex_mask] = 0
+        coverage = float(np.mean(combined[cortex_mask, 0] != 0))
+        if is_label and combined.shape[1] == 1:
+            if coverage < _SURF_FILL_MIN_COVERAGE:
+                logger.info(
+                    f"atlas surf: {out_gii.name} covers {coverage:.0%} of {hemi} cortex; "
+                    "not filling holes"
+                )
+            else:
+                faces = nib.freesurfer.read_geometry(
+                    str(fs_subject_directory / "surf" / f"{hemi}.white")
+                )[1]
+                labels = np.rint(combined[:, 0]).astype(np.int64)
+                combined[:, 0] = _fill_label_holes_in_cortex(faces, labels, cortex_mask)
+    else:
+        logger.warning(
+            f"atlas surf: {cortex_label} missing; {out_gii.name} not masked or filled"
+        )
+
+    for frame, da in enumerate(ref_img.darrays):
+        da.data = combined[:, frame].astype(da.data.dtype)
+    ref_img.to_filename(str(out_gii))
+    return coverage
+
+
 def anat_project_atlases_to_surface(
     atlas_files: List[Path],
     fs_subject_dir: Path,
@@ -766,9 +935,13 @@ def anat_project_atlases_to_surface(
          (``mri/T1.mgz``) with ``mri_vol2vol --regheader --interp nearest``. T1w and
          FastSurfer-conformed space share the same scanner-RAS frame, so this is a
          grid-only resample with no transform file.
-      2. Sample the FastSurfer-space volume onto the lh/rh surfaces at mid-thickness
-         with ``mri_vol2surf --projfrac 0.5 --interp nearest`` (no ``--surf-fwhm``),
-         writing one ``.func.gii`` per hemisphere.
+      2. Sample the FastSurfer-space volume onto the lh/rh surfaces at 11 depths
+         (projfrac 0.0-1.0) with ``mri_vol2surf --interp nearest`` and combine them
+         per vertex (:func:`_combine_depth_samples`): the most common label for label
+         atlases (those with an ``atlas-{name}.tsv``), the value nearest mid-thickness
+         for continuous maps. The result is masked to ``label/{hemi}.cortex.label``;
+         for label atlases that cover the hemisphere, remaining holes inside cortex
+         are filled from neighbouring labels. One ``.func.gii`` per hemisphere.
 
     ``fs_subject_dir`` is the FastSurfer subject folder (``SUBJECTS_DIR`` is its parent;
     FreeSurfer subject id is ``fs_subject_dir.name``). The directory existing is how
@@ -789,6 +962,10 @@ def anat_project_atlases_to_surface(
     metadata: Dict[str, Any] = {
         "step": "project_atlases_to_surface",
         "space": "fsnative",
+        "depths": list(_SURF_PROJFRACS),
+        "surface_fill": "label atlases: cortex holes filled from neighbouring labels",
+        # Fraction of cortex vertices labelled before hole filling, per atlas/hemi.
+        "cortex_coverage": {},
     }
 
     fs_subject_directory = Path(fs_subject_dir)
@@ -891,33 +1068,24 @@ def anat_project_atlases_to_surface(
             seen_atlas_names.add(atlas_name)
             sidecars.extend(copy_atlas_sidecars(atlas_name, atlas_dir))
 
-        # Step 2: FastSurfer volume -> lh/rh surfaces (nearest neighbor, mid-thickness).
+        # Step 2: FastSurfer volume -> lh/rh surfaces (nearest neighbor at several
+        # depths, masked to cortex; label atlases get their cortex holes filled).
+        # A label atlas is one with a LUT sidecar; anything else is a continuous map.
+        is_label = (atlas_dir / f"atlas-{atlas_name}.tsv").is_file()
         hemi_projected = False
         for hemi_code in ("L", "R"):
             surf_gii = (
                 atlas_dir
                 / f"atlas-{atlas_name}_space-fsnative_hemi-{hemi_code}_{output_stem}.func.gii"
             )
-            vol2surf_cmd = [
-                "mri_vol2surf",
-                "--mov",
-                str(fsnative_vol),
-                "--regheader",
-                freesurfer_subject_id,
-                "--hemi",
-                _SURF_HEMI_MAP[hemi_code],
-                "--projfrac",
-                "0.5",
-                "--interp",
-                "nearest",
-                "--out_type",
-                "gii",
-                "--o",
-                str(surf_gii),
-            ]
             try:
-                subprocess.run(
-                    vol2surf_cmd, check=True, env=env, capture_output=True, text=True
+                coverage = _project_volume_to_hemi(
+                    fsnative_vol,
+                    surf_gii,
+                    fs_subject_directory,
+                    _SURF_HEMI_MAP[hemi_code],
+                    is_label,
+                    env,
                 )
             except FileNotFoundError:
                 logger.warning(
@@ -941,6 +1109,9 @@ def anat_project_atlases_to_surface(
                 )
                 surf_gii.unlink(missing_ok=True)
                 continue
+            metadata["cortex_coverage"][f"{atlas_name}_hemi-{hemi_code}"] = (
+                None if np.isnan(coverage) else round(coverage, 4)
+            )
             additional_files[surf_gii.name] = surf_gii
             hemi_projected = True
         # Count the atlas only if at least one hemisphere surface was produced; both

@@ -65,6 +65,14 @@ session has one; otherwise it is registered to the template directly (dotted).
   maps ``atlas-<name>_space-fsnative_hemi-<L|R>_<prefix>.func.gii``, published
   under ``anat/atlas_space-fsnative/``.
 
+  Each surface vertex is sampled at 11 depths from the white to the pial
+  surface.  Label atlases (those with an ``atlas-<name>.tsv``) keep the most
+  common label; continuous maps (e.g. retinotopy) keep the value closest to
+  mid-thickness.  Surface maps cover the cortex label only.  Vertices of a
+  label atlas still unlabelled inside cortex take the label of their
+  neighbours, unless the atlas covers less than half of that hemisphere
+  (left-hemisphere-only atlases stay empty on the right).
+
 
 Transform file reference
 ------------------------
