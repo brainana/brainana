@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Every atlas in every template space**: D99, MacBNA, retinotopy, somatotopy, FuncNetwork, CortHierarchy and FuncConnGrad are now provided in NMT2Sym, NMT2Asym, MEBRAINS, Yerkes19 and D99. Runs with any of these as `output_space` get the extra maps in `anat/atlas_space-fsnative/` and the matching volume outputs. FuncNetwork, CortHierarchy and FuncConnGrad cover the left hemisphere only.
+
 ### Fixed
 
 - **DataLad / git-annex datasets**: discovery found no subjects, because every NIfTI is a symlink into `.git/annex`. Symlinked files are now found where they sit in the dataset.

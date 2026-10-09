@@ -57,16 +57,12 @@ Download: `template_zoo/atlas <https://github.com/brainana/brainana/tree/main/te
   **FuncNetwork** (resting-state networks) and **FuncConnGrad** (functional connectivity
   gradients) — see the download directory above for references.
 
-Atlases are backprojected only in the template spaces they are provided in:
-
-- **NMT2Sym:** ARM1–6, CortHierarchy, D99, FuncNetwork, MacBNA, retinotopy, somatotopy
-- **NMT2Asym:** ARM1–6, MacBNA, retinotopy
-- **MEBRAINS:** ARM1–6, D99, retinotopy
-- **Yerkes19:** ARM1–6, CortHierarchy, FuncConnGrad, FuncNetwork
-- **D99:** ARM1–6, D99
+Every atlas above is provided in all five template spaces (NMT2Sym, NMT2Asym,
+MEBRAINS, Yerkes19, D99) and is backprojected for whichever one you choose.
+FuncNetwork, CortHierarchy and FuncConnGrad cover the left hemisphere only.
 
 
 .. note::
 
-   FreeSurfer-format surfaces and atlases for NMT2Sym, NMT2Asym, and MEBRAINS
+   FreeSurfer- and GIfTI-format surfaces with all of these atlases for NMT2Sym, NMT2Asym, MEBRAINS, Yerkes19 and D99
    are available at `macaque_template_surfaces <https://github.com/xingyu-liu/macaque_template_surfaces>`_.

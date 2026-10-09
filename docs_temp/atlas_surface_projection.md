@@ -75,3 +75,16 @@ where several depths now vote. Runtime: about 80 s per subject for 12 atlases (2
 PRIME-DE v3.1.0 outputs were re-projected with
 `scripts/scratch/surf_recon/backfill_atlas_surface_projection.py`; see
 `atlas/dataset_information/PRIME-DE/NOTE.txt`.
+
+## Zoo atlases in every template space (2026-10-09)
+
+Before: most atlases existed in only one or two zoo spaces (see the old list in
+`docs/template_atlas_zoo.rst`). Missing atlas × space volumes were warped with
+`/home/star/github/macaque/propogate_atlases_across_space/` (`1_warp_atlases.py`):
+NMT2Sym zoo volume → `from-NMT2Sym_to-<T>_desc-syn_xfm` (`atlas/macaque/xfm`), nearest
+neighbour, onto `tpl-<T>_res-05_T1w_brain`; FuncConnGrad from Yerkes19 through NMT2Sym in one
+resampling. Volumes already in the zoo were kept (D99 res-025 in D99, D99 res-04 and
+retinotopy res-1 in MEBRAINS, MacBNA in NMT2Asym). xfm direction checked by warping the
+NMT2Sym T1w: r ≈ 0.95 as named vs ≈ 0 reversed. On the template surfaces, label area shares
+match NMT2Sym (r ≥ 0.985 for D99, MacBNA, FuncNetwork). `discover_atlases` picks the new
+files up with no code change.
