@@ -1,7 +1,7 @@
 <!DOCTYPE html><html lang="en"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Brainana docs style guide</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lato:ital,wght@0,400;0,700;1,400&family=Roboto+Slab:wght@400;700&display=swap"/>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lato:ital,wght@0,400;0,700;1,400&family=Roboto+Slab:wght@400;700&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap"/>
 <style>
 /* Page chrome previews the target: sphinx_rtd_theme layout + type, with the RTD blue swapped for brainana purple. */
 :root{
@@ -95,11 +95,42 @@ table.t th{font-weight:700;color:var(--bn-ink);background:var(--bn-surface)}
 .tok .nm code{background:none;border:0;padding:0;color:var(--bn-ink);font-weight:700;font-size:12px}
 .tok .hx{font-family:var(--bn-mono);color:var(--bn-muted);font-size:11.5px}
 .tok .role{color:var(--bn-text);margin-top:2px}
+
+/* ---- §14 brand previews: brand tokens scoped to .brand so they never touch the guide's own chrome.
+   Values mirror brainana-tokens.css (canonical). ---- */
+.brand{--bn-bg:#fffeee;--bn-surface:#fffddd;--bn-inset:#ffffff;--bn-ink:#1b1b16;--bn-text:#333333;--bn-muted:#6b6651;
+  --bn-border:#e6e1cd;--bn-border-mid:#cdc9b0;--bn-code-bg:#f7f6ef;--bn-accent:#fff27a;--bn-link:#8a7a00;--bn-link-hover:#6f6300;
+  --bn-btn-bg:#111111;--bn-btn-bg-hover:#333333;--bn-btn-fg:#ffffff;
+  --bn-ok:#3f6b46;--bn-ok-bg:#eef3ea;--bn-ok-border:#cdddc2;--bn-fail:#9c4636;--bn-fail-bg:#f8ece8;--bn-fail-border:#e7c8bd;
+  --bn-warn:#8a6400;--bn-warn-bg:#fdf3d6;--bn-warn-border:#e6d8a0;
+  --bn-r-card:10px;--bn-r-inset:8px;--bn-r-chip:6px;--bn-r-pill:999px;
+  --bn-bfont:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --bn-bmono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-family:var(--bn-bfont);color:var(--bn-text);background:var(--bn-bg);border:1px solid var(--bn-border);border-radius:var(--bn-r-card);padding:18px 20px;margin:10px 0}
+.brand .b-h1{font-family:var(--bn-bfont);font-size:1.5em;font-weight:600;color:var(--bn-ink);border-bottom:3px solid var(--bn-accent);padding-bottom:.3em;margin:0 0 14px}
+.brand .b-h2{font-family:var(--bn-bfont);font-size:1.2em;font-weight:600;color:var(--bn-ink);border-bottom:1px solid var(--bn-border);padding-bottom:.3em;margin:16px 0 12px}
+.brand a{color:var(--bn-link)} .brand a:hover{color:var(--bn-link-hover)}
+.brand .bn-card{background:var(--bn-inset);border:1px solid var(--bn-border-mid);border-radius:var(--bn-r-card);padding:1em 1.2em;box-shadow:0 1px 2px rgba(60,50,0,.06)}
+.brand .bn-callout{background:var(--bn-bg);border:1px solid var(--bn-border-mid);border-left:3px solid var(--bn-accent);border-radius:var(--bn-r-card);padding:.9em 1.15em}
+.brand .bn-code{font-family:var(--bn-bmono);font-size:85%;background:var(--bn-code-bg);border:0;border-radius:var(--bn-r-chip);padding:.2em .4em;color:var(--bn-text)}
+.brand .bn-tag{font-family:var(--bn-bmono);font-size:.85em;background:var(--bn-surface);border:1px solid var(--bn-border-mid);border-radius:var(--bn-r-chip);padding:.08em .4em;color:var(--bn-text)}
+.brand .bn-btn{font-family:inherit;font-size:.95rem;background:var(--bn-btn-bg);color:var(--bn-btn-fg);border:1px solid var(--bn-btn-bg);border-radius:var(--bn-r-inset);padding:.5em 1.1em}
+.brand .bn-btn.ghost{background:var(--bn-muted);border-color:var(--bn-muted)}
+.brand .bn-badge{display:inline-block;font-size:.7rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;padding:2px 8px;border-radius:var(--bn-r-pill);border:1px solid currentColor;line-height:1.5}
+.brand .bn-badge.ok{color:var(--bn-ok)} .brand .bn-badge.fail{color:var(--bn-fail)} .brand .bn-badge.warn{color:var(--bn-warn)}
+.brand .bn-status{border:1px solid var(--bn-border-mid);border-left:3px solid var(--bn-border-mid);border-radius:var(--bn-r-card);padding:.9em 1.15em;background:var(--bn-inset);margin-top:10px}
+.brand .bn-status.ok{border-left-color:var(--bn-ok)} .brand .bn-status.warn{border-left-color:var(--bn-warn)} .brand .bn-status.fail{border-left-color:var(--bn-fail)}
+.brand .bn-status .head{display:flex;align-items:center;gap:8px;font-weight:600;margin:0 0 .4em;color:var(--bn-ink)}
+.brand .bn-status .meta{display:flex;flex-wrap:wrap;gap:6px 18px;list-style:none;padding:0;margin:10px 0 0;font-size:.9em;color:var(--bn-muted)}
+.brand .bn-status .meta b{color:var(--bn-text);font-weight:600}
+.brand .bn-status .bnote{margin:8px 0 0;font-size:.95em;color:var(--bn-text)}
+.brand .row{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start;margin-top:12px}
+.brand .row>*{flex:1 1 240px}
 </style></head>
 <body class="bn-root">
 <div class="topbar">Brainana docs<span>style guide for Read the Docs</span></div>
 <div class="wrap">
-<p class="back"><a href="styleguide.html">← Brainana design system (QC report, config generator, notebook)</a></p>
+<p class="back">QC report and notebook use the cream/yellow brand system instead: see <a href="#brand">§14 Brand surfaces</a>.</p>
 <h1 class="bn-h1">Brainana docs style guide</h1>
 <p class="lead">How the Read the Docs site at <code>docs/*.rst</code> should look and read. Brainana keeps the stock
 <code>sphinx_rtd_theme</code> and makes it quieter. Content changes happen in markup and wording. CSS stays a thin layer in
@@ -119,6 +150,7 @@ table.t th{font-weight:700;color:var(--bn-ink);background:var(--bn-surface)}
 <a href="#interactive">11. Interactive pages</a>
 <a href="#feature">12. Feature card: the config generator</a>
 <a href="#checklist">13. Review checklist</a>
+<a href="#brand">14. Brand surfaces: QC report and notebook</a>
 </nav>
 
 <!-- ============================================================ -->
@@ -281,7 +313,7 @@ map to <code>neutral</code>, <code>neutral</code>, <code>purple</code> and <code
 <table class="t">
 <tr><th>Element</th><th>Rule</th></tr>
 <tr><td>Theme</td><td><code>sphinx_rtd_theme</code> layout and type (Lato body, Roboto Slab headings, dark <code>#343131</code> sidebar). Only its accent changes: every RTD blue <code>#2980b9</code> becomes purple.</td></tr>
-<tr><td>Accent swap in <code>custom.css</code></td><td>Links and visited links <code>#6a4fb3</code>, hover <code>#563c9c</code> (6.2:1 contrast on white). Purple links are for the page body only; the dark sidebar keeps RTD's light-grey links. The sidebar uses the brand cream <code>--bn-surface</code> <code>#fffddd</code> for the logo header <code>.wy-side-nav-search</code>, the hover/active rows and the mobile top bar (all with dark <code>#333</code> text), and for the section labels. This is the one place the yellow brand family appears on RTD, next to the cream code blocks.</td></tr>
+<tr><td>Accent swap in <code>custom.css</code></td><td>Links and visited links <code>#6a4fb3</code>, hover <code>#563c9c</code> (6.2:1 contrast on white). Purple links are for the page body only; the dark sidebar keeps RTD's light-grey links. The sidebar uses the brand cream <code>--bn-surface</code> <code>#fffddd</code> for the logo header <code>.wy-side-nav-search</code>, the hover/active rows and the mobile top bar (all with dark <code>#333</code> text), and for the section labels. The search box in the header uses the cream hairline <code>#e6e1cd</code> (purple on focus) instead of the theme's blue border. This is the one place the yellow brand family appears on RTD, next to the cream code blocks.</td></tr>
 <tr><td>Amber</td><td>The only color outside the brand pair: <code>#d68a2e</code> rule / <code>#9a5d12</code> title, on <code>warning</code> boxes only. RTD's other oranges (the version badge and the default admonition bars) are recolored.</td></tr>
 <tr><td>Code blocks</td><td>Use the brand page cream <code>--bn-bg</code> (<code>#fffeee</code> fill) with the brand hairline <code>#e6e1cd</code> border. It is the same yellow family as the cream sidebar, light enough to stay calm, and the border defines the block against the near-white page. Use it for every block and for widget output.</td></tr>
 <tr><td>Headings</td><td>Theme default color everywhere. <strong>Remove the blue FAQ question headings</strong>: blue on a heading reads as a link.</td></tr>
@@ -491,7 +523,7 @@ Do not use <code>important</code>, <code>caution</code>, <code>attention</code>,
 <ul class="rules">
 <li>Widgets embedded <em>inside</em> an RTD page follow this guide: neutral greys (<code>#f6f7f8</code> panels, <code>#d6d9dc</code> borders), purple for interactive accents, and the §4 code surface for code output.
  <strong>No dark code panel</strong> (the builder's <code>#1e1e2e</code>/<code>#cdd6f4</code>), no GitHub grey (<code>#f6f8fa</code>/<code>#d0d7de</code>) and no amber hint box (<code>#fff8e1</code>/<code>#f9a825</code>). Hints use the §6 note style.</li>
-<li>The standalone configuration generator follows this guide too: the dark sidebar with the cream logo header and a "← Brainana docs" link, Lato bold section titles (unlike the docs' Roboto Slab) with the config key as a chip; every direct child of a section is a white card (a plain option, or a pipeline module with its checkbox and its advanced settings opening inside the card); each option inside a card is a settings row (name and help on the left, control in a fixed right column, hairline between rows); subgroups are small muted key labels; purple controls, a cream <code>--bn-surface</code> <strong>Generate</strong> button (dark text, <code>#e6e1cd</code> border, purple border on hover), amber validation errors, green success notes, and YAML output in the code surface. Its stylesheet is a single <code>&lt;style&gt;</code> block built from the §2 tokens.</li>
+<li>The standalone configuration generator follows this guide too: the dark sidebar whose cream header carries the logo, the app name "Configuration generator" (so the page reads as a tool, not a docs page; the main area has no page title) and a "← Brainana docs" link; Lato bold section titles (unlike the docs' Roboto Slab) with the config key as a chip; every direct child of a section is a white card (a plain option, or a pipeline module with its checkbox and its advanced settings opening inside the card); each option inside a card is a settings row (name and help on the left, control in a fixed right column, hairline between rows); subgroups are small muted key labels; purple controls, the cream <code>--bn-surface</code> <strong>Generate</strong> button (dark text, <code>#e6e1cd</code> border, purple border on hover), amber validation errors, green success notes, and YAML output in the code surface. Its stylesheet is a single <code>&lt;style&gt;</code> block built from the §2 tokens.</li>
 <li>Inline <code>&lt;style&gt;</code> in a widget is scoped under one wrapper class, so it can't leak into the theme.</li>
 </ul>
 
@@ -572,5 +604,69 @@ and, optionally, a <code>:bn-tag:`Recommended`</code> pill. The second option ge
 <li>Links to the configuration generator go to <code>:doc:`config_generator`</code>.</li>
 <li>Local build (<code>docs/build_rtd_local.sh</code>, <code>.rtd-venv</code>) shows no new warnings.</li>
 </ul>
+
+<!-- ============================================================ -->
+<h2 class="bn-h2" id="brand">14. Brand surfaces: QC report and notebook</h2>
+<p>The HTML <strong>QC report</strong> and the <strong>Brainana Lite notebook header</strong> use the cream/yellow brand system with IBM Plex, not the docs look above.
+Its canonical values are in <code>brainana-tokens.css</code> (this folder). Each surface carries its own copy by necessity:</p>
+<table class="t">
+<tr><th>Surface</th><th>Where the tokens live</th><th>Why</th></tr>
+<tr><td>QC report</td><td>inlined in <code>src/nhp_mri_prep/quality_control/reports.py</code> as <code>_REPORT_CSS</code> (+ the dropdown JS <code>_REPORT_JS</code>)</td><td>reports are portable single HTML files, with no sibling CSS</td></tr>
+<tr><td>Notebook header</td><td>inline <code>style="…"</code> in <code>examples/BrainanaLite.ipynb</code> cell 0</td><td>Colab sanitizes <code>&lt;style&gt;</code> and external CSS in markdown cells</td></tr>
+<tr><td>This guide</td><td>a <code>.brand</code>-scoped copy for the previews below</td><td>keeps brand variables away from the guide's docs chrome</td></tr>
+</table>
+<p class="note">When you change a brand token, update <code>brainana-tokens.css</code> and mirror the value into every surface above. More detail: <code>DESIGN_SYSTEM.md</code>.</p>
+
+<h3>Brand tokens</h3>
+<div class="tokgrid">
+  <div class="tok"><span class="chip" style="background:#fffeee"></span><span class="nm"><code>--bn-bg</code><span class="hx">#fffeee</span><span class="role">Page background (cream)</span></span></div>
+  <div class="tok"><span class="chip" style="background:#fffddd"></span><span class="nm"><code>--bn-surface</code><span class="hx">#fffddd</span><span class="role">Chips, nav, sidebars</span></span></div>
+  <div class="tok"><span class="chip" style="background:#ffffff"></span><span class="nm"><code>--bn-inset</code><span class="hx">#ffffff</span><span class="role">Inset white panels, report body</span></span></div>
+  <div class="tok"><span class="chip" style="background:#1b1b16"></span><span class="nm"><code>--bn-ink</code><span class="hx">#1b1b16</span><span class="role">Headings</span></span></div>
+  <div class="tok"><span class="chip" style="background:#333333"></span><span class="nm"><code>--bn-text</code><span class="hx">#333333</span><span class="role">Body text</span></span></div>
+  <div class="tok"><span class="chip" style="background:#6b6651"></span><span class="nm"><code>--bn-muted</code><span class="hx">#6b6651</span><span class="role">Secondary text</span></span></div>
+  <div class="tok"><span class="chip" style="background:#e6e1cd"></span><span class="nm"><code>--bn-border</code><span class="hx">#e6e1cd</span><span class="role">Airy hairlines</span></span></div>
+  <div class="tok"><span class="chip" style="background:#cdc9b0"></span><span class="nm"><code>--bn-border-mid</code><span class="hx">#cdc9b0</span><span class="role">Chips, inputs, figure frames</span></span></div>
+  <div class="tok"><span class="chip" style="background:#f7f6ef"></span><span class="nm"><code>--bn-code-bg</code><span class="hx">#f7f6ef</span><span class="role">Inline code and code blocks</span></span></div>
+  <div class="tok"><span class="chip" style="background:#fff27a"></span><span class="nm"><code>--bn-accent</code><span class="hx">#fff27a</span><span class="role">Signature yellow: heading underlines, brand chip, hover tints (decorative only)</span></span></div>
+  <div class="tok"><span class="chip" style="background:#8a7a00"></span><span class="nm"><code>--bn-link</code><span class="hx">#8a7a00</span><span class="role">Links and interactive text (hover #6f6300)</span></span></div>
+  <div class="tok"><span class="chip" style="background:#3f6b46"></span><span class="nm"><code>--bn-ok</code><span class="hx">#3f6b46</span><span class="role">Pass (on #eef3ea, border #cdddc2)</span></span></div>
+  <div class="tok"><span class="chip" style="background:#8a6400"></span><span class="nm"><code>--bn-warn</code><span class="hx">#8a6400</span><span class="role">Pass with warnings (on #fdf3d6, border #e6d8a0)</span></span></div>
+  <div class="tok"><span class="chip" style="background:#9c4636"></span><span class="nm"><code>--bn-fail</code><span class="hx">#9c4636</span><span class="role">Fail (on #f8ece8, border #e7c8bd)</span></span></div>
+</div>
+<p class="note">Radius: card 10px · inset 8px · chip 6px · pill 999px. Type: IBM Plex Sans for reading text, IBM Plex Mono for code, paths and values only;
+16px / line-height 1.5, headings line-height 1.25, prose measure about 760px.</p>
+
+<h3>Rules</h3>
+<ul class="rules">
+<li><strong>Sans everywhere</strong> (IBM Plex Sans). Monospace only for literal code, file paths and config values. Plex loads from Google Fonts with a system-sans fallback, so offline reports render in the system font.</li>
+<li><strong>Yellow is decorative</strong>: heading underlines, the brand chip, hover tints. Never body text, never a state signal.</li>
+<li><strong>State uses the earthy green / amber / red</strong>: green pass, amber pass with warnings (the workflow finished but tolerated task failures, <code>errorStrategy 'ignore'</code>), red fail.</li>
+<li><strong>One interactive accent</strong>: links and interactive text use <code>--bn-link</code> (mustard).</li>
+<li>QC report specifics: no yellow in dividers (section rules are <code>--bn-border-mid</code> grey; yellow appears only as the <code>brainana</code> chip in the top bar). Hierarchy reads by treatment, not indentation: section (H1, grey rule) › group (BIDS chips like <code>ses-001</code> <code>run-1</code>; subject-level anat → <code>subject-level</code>) › T1w/T2w (uppercase eyebrow) › figure (linked title, optional caption, borderless image). Run status is calm: neutral card, ink headline, color only on the badge and a thin left border. The top bar is fixed and flat; multi-group modalities use a native <code>&lt;details&gt;</code> dropdown.</li>
+</ul>
+
+<h3>Components</h3>
+<div class="brand">
+  <div class="b-h1">Heading 1 (yellow underline)</div>
+  <div class="b-h2">Heading 2 (hairline)</div>
+  <p style="margin:0">Body text in IBM Plex Sans with a <a href="#brand">mustard link</a>, inline <span class="bn-code">WORKING_DIR</span> and tags <span class="bn-tag">ses-001</span> <span class="bn-tag">run-1</span>.</p>
+  <div class="row">
+    <div class="bn-card"><strong>Card</strong><p style="margin:.5em 0 0">White inset, hairline border, soft shadow.</p></div>
+    <div class="bn-callout"><strong>Callout</strong>: cream with a yellow left accent, for notes and tips.</div>
+  </div>
+  <div class="row" style="align-items:center">
+    <div style="flex:0 0 auto"><button class="bn-btn" type="button">Primary</button> <button class="bn-btn ghost" type="button">Secondary</button></div>
+    <div>Badges: <span class="bn-badge ok">Pass</span> <span class="bn-badge warn">Pass with warnings</span> <span class="bn-badge fail">Fail</span></div>
+  </div>
+  <div class="bn-status ok"><p class="head"><span class="bn-badge ok">Pass</span>Completed successfully</p>
+    <ul class="meta"><li>Duration: <b>10m 30s</b></li><li>Tasks succeeded: <b>185</b></li></ul></div>
+  <div class="bn-status warn"><p class="head"><span class="bn-badge warn">Pass with warnings</span>Completed with 1 failed task</p>
+    <ul class="meta"><li>Duration: <b>10m 30s</b></li><li>Tasks succeeded: <b>185</b></li><li>Tasks ignored: <b>1</b></li></ul>
+    <p class="bnote">One or more optional steps failed (often surface reconstruction). Check the execution trace for details.</p></div>
+  <div class="bn-status fail"><p class="head"><span class="bn-badge fail">Fail</span>Early abort: the pipeline did not finish</p>
+    <ul class="meta"><li>Duration: <b>4m 12s</b></li><li>Tasks succeeded: <b>42</b></li><li>Tasks failed: <b>1</b></li></ul>
+    <p class="bnote">This report was generated from the steps that completed before the failure; some sections may be missing.</p></div>
+</div>
 </div>
 </body></html>

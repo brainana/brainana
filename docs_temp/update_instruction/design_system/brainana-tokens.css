@@ -1,7 +1,8 @@
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
-/* brainana design tokens — single source of truth.
-   Web surfaces link this file; the notebook (Colab can't link CSS) and reports.py
-   (portable single file) inline the same values. */
+/* brainana brand tokens — single source of truth for the QC report and notebook header.
+   reports.py (portable single file) and the notebook (Colab can't link CSS) inline these
+   values; styleguide_doc.html §14 previews them. The RTD docs and the configuration
+   generator use the docs tokens in styleguide_doc.html §2 instead. */
 :root{
   /* surfaces */
   --bn-bg:#fffeee; --bn-surface:#fffddd; --bn-inset:#ffffff;

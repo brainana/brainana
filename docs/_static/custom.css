@@ -30,6 +30,14 @@
 .wy-nav-top i {
   color: #333;
 }
+/* Search box: the theme's border is blue (#2472a4); use the cream hairline, purple on focus. */
+.wy-side-nav-search input[type="text"] {
+  border-color: #e6e1cd;
+  box-shadow: none;
+}
+.wy-side-nav-search input[type="text"]:focus {
+  border-color: #6a4fb3;
+}
 .wy-menu-vertical a:active,
 .wy-nav .wy-menu-vertical a:hover {
   background-color: #fffddd;

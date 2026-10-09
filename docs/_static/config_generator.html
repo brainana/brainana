@@ -36,7 +36,8 @@ a:hover{color:var(--purple-dark);text-decoration:underline}
 .nav-sidebar{width:300px;flex-shrink:0;background:var(--sidebar);position:sticky;top:0;height:100vh;overflow-y:auto;padding-bottom:24px}
 .nav-head{background:var(--sidebar-head);padding:14px 16px 12px;text-align:center}
 .nav-logo{display:block;width:100%;max-width:252px;height:auto;margin:0 auto}
-.nav-back{display:inline-block;margin-top:8px;font-size:14px;color:#333}
+.nav-app{margin-top:10px;font-family:var(--head);font-size:19px;font-weight:700;line-height:1.25;color:#333}
+.nav-back{display:inline-block;margin-top:6px;font-size:14px;color:#333}
 .nav-back:hover{color:#333}
 .nav-section{margin-top:12px}
 .nav-section-title{color:var(--sidebar-label);font-weight:700;font-size:85%;text-transform:uppercase;line-height:32px;padding:0 1.618em}
@@ -142,6 +143,7 @@ button#generate:hover{background:var(--sidebar-head);color:var(--purple-dark);bo
         <nav class="nav-sidebar">
             <div class="nav-head">
                 <img src="brainana_logo_side.png" alt="Brainana" class="nav-logo">
+                <div class="nav-app">Configuration generator</div>
                 <a class="nav-back" href="../config_generator.html">&larr; Brainana docs</a>
             </div>
             <div class="nav-section">
@@ -159,7 +161,6 @@ button#generate:hover{background:var(--sidebar-head);color:var(--purple-dark);bo
             </div>
         </nav>
         <main class="main-content">
-    <h1>Configuration generator</h1>
     
     <form id="configForm">
         <!-- Layout: .param-block = flat keys; .step = nested pipeline modules. Dividers
