@@ -4,7 +4,7 @@
 
 # Brainana: an end-to-end preprocessing framework for macaque neuroimaging
 
-[![Documentation](https://readthedocs.org/projects/brainana/badge/?version=stable)](https://brainana.readthedocs.io/en/stable/)
+[![Documentation](https://img.shields.io/readthedocs/brainana/stable?logo=readthedocs&label=docs)](https://brainana.readthedocs.io/en/stable/)
 [![Docker](https://img.shields.io/badge/docker-liuxingyu987%2Fbrainana-brightgreen.svg?logo=docker)](https://hub.docker.com/r/liuxingyu987/brainana/tags/)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL--v3-blue.svg)](LICENSE)
 
