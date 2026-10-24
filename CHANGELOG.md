@@ -9,8 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`--anat_from PATH`: functional-only runs.** Reuses the anatomical outputs of an earlier brainana run (same `--output_space`) instead of recomputing anatomy, for example to reprocess functional data after an update.
+- **`--anat_from PATH`: functional-only runs.** Reuses the anatomical outputs of an earlier brainana run (same `--output_space`) instead of recomputing anatomy, for example to reprocess functional data after an update. Write the run to a new `--output_dir`; in Docker, mount `PATH` into the container.
 - **`space-bold_desc-biascorrect_boldref`**: the functional reference after bias correction within the brain, which the brain mask and registration now use. For visual inspection.
+
+### Changed
+
+- **Inflated surfaces are less inflated** (`fastsurfer/*/surf/?h.inflated`, `?h.sulc`): the visualization inflation now runs 2 iterations instead of 3. Do not mix inflated surfaces from 3.2.0 and this release in one figure or analysis.
 
 ### Fixed
 
