@@ -146,7 +146,10 @@ start-up by `collect_reused_anat.py` → `nextflow_reports/reused_anat.json`):
 | `surf_actual_subject_id` | `fastsurfer/<id>`, linked into the new output (the tSNR projection reads it there) |
 | `anat_skull_seg`, LUT | `*_space-T1w_desc-brain_atlas*.{nii.gz,tsv}` |
 
-- **Output space:** the earlier run's `dataset_description.json` must name the same output
-  space.
+- **Output space:** the earlier run must have used the same output space. It is read from a
+  `*_from-T1w_to-*_xfm.json` sidecar (`TemplateSource.OutputSpace`), falling back to
+  `dataset_description.json`: every run rewrites that file at start, before the check runs,
+  so on its own it can name the new run's space instead of the earlier one.
+- **New output dir:** `--anat_from` equal to `--output_dir` is rejected.
 - **Missing anat:** subjects without anat fall back to the template, as in a full run.
 - **Not copied:** anat outputs and figures are not copied to the new output dir.

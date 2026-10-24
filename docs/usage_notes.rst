@@ -277,10 +277,12 @@ Processing options
 ``--anat_from PATH``
    Run only the functional pipeline, reusing the anatomical outputs of an
    earlier brainana run in ``PATH`` (its ``preprocessed`` output directory).
-   The earlier run must use the same ``--output_space``. Use it to reprocess
-   functional data without recomputing anatomy. Anatomical outputs and QC
-   figures are not copied to the new output directory; surface
-   reconstructions are linked there.
+   The earlier run must use the same ``--output_space``, and ``--output_dir``
+   must be a new directory. Use it to reprocess functional data without
+   recomputing anatomy. Anatomical outputs and QC figures are not copied to the
+   new output directory; surface reconstructions are linked there. In Docker,
+   mount ``PATH`` into the container (for example ``-v <path/to/earlier>:/anat_from``
+   with ``--anat_from /anat_from``).
 
    Default: (none)
 

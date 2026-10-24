@@ -32,12 +32,18 @@ def main() -> int:
     args = parser.parse_args()
 
     from nhp_mri_prep.utils.nextflow import load_config
-    from nhp_mri_prep.utils.anat_reuse import AnatReuseError, collect_anat_outputs, link_fastsurfer
+    from nhp_mri_prep.utils.anat_reuse import (
+        AnatReuseError,
+        collect_anat_outputs,
+        link_fastsurfer,
+    )
 
     config = load_config(args.config_file)
     output_space = config.get("template", {}).get("output_space", "NMT2Sym:res-05")
     try:
-        found = collect_anat_outputs(args.anat_from, output_space)
+        found = collect_anat_outputs(
+            args.anat_from, output_space, output_dir=args.output_dir
+        )
     except AnatReuseError as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
@@ -45,9 +51,13 @@ def main() -> int:
     out = Path(args.output_dir) / "nextflow_reports" / "reused_anat.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(found, indent=2))
-    linked = link_fastsurfer(args.anat_from, args.output_dir, [f["id"] for f in found["fastsurfer"]])
-    print(f"Reusing anatomy from {args.anat_from}: {len(found['anat'])} T1w session(s), "
-          f"{len(found['fastsurfer'])} surface subject(s) ({len(linked)} linked)")
+    linked = link_fastsurfer(
+        args.anat_from, args.output_dir, [f["id"] for f in found["fastsurfer"]]
+    )
+    print(
+        f"Reusing anatomy from {args.anat_from}: {len(found['anat'])} T1w session(s), "
+        f"{len(found['fastsurfer'])} surface subject(s) ({len(linked)} linked)"
+    )
     return 0
 
 

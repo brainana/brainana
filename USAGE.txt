@@ -48,7 +48,8 @@ PROCESSING OPTIONS
   --anat_only                  Run only the anatomical pipeline; skip functional. Default: False
   --anat_from PATH             Functional-only run: reuse the anatomical outputs (T1w brain,
                                transforms, atlas, surfaces) of an earlier brainana output dir
-                               made with the same --output_space. Default: (none)
+                               made with the same --output_space, into a new --output_dir.
+                               In Docker, mount PATH into the container. Default: (none)
   --output_space SPACE         Template space for registered outputs. Either a bundled template
                                spec TEMPLATE_NAME[:DESCRIPTION] (e.g. NMT2Sym:res-1 [1 mm],
                                NMT2Sym:res-05 [0.5 mm], MEBRAINS:res-05), OR a path to a CUSTOM
