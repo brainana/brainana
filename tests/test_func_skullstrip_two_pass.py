@@ -143,3 +143,6 @@ def test_process_publishes_biascorrect_boldref():
     assert "space-bold_desc-biascorrect_boldref}.{nii.gz,json}" in block
     assert '_space-bold_desc-biascorrect_boldref.nii.gz"' in block
     assert "extra=skullstrip_qc" in block
+    # publishDir only publishes declared outputs: the image must be one (optional: pass-1 fallback)
+    outputs = block[block.index("output:"): block.index("script:")]
+    assert 'path "*_space-bold_desc-biascorrect_boldref.nii.gz", optional: true' in outputs

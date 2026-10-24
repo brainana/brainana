@@ -807,8 +807,10 @@ process FUNC_COMPUTE_BRAIN_MASK {
     output:
     // Output: [sub, ses, run_identifier, masked_tmean, bids_template, brain_mask]
     tuple val(subject_id), val(session_id), val(run_identifier), path("*_boldref_brain.nii.gz"), val(bids_name), path("*desc-brain_mask.nii.gz"), emit: output
+    // Declared so publishDir picks it up; absent when the second pass fell back to the first
+    path "*_space-bold_desc-biascorrect_boldref.nii.gz", optional: true, emit: biascorrect
     path "*.json", emit: metadata
-    
+
     script:
     """
     # GPU step: take a GPU slot for this task (bin/brainana_gpu_slot.sh). Otherwise
@@ -816,7 +818,7 @@ process FUNC_COMPUTE_BRAIN_MASK {
     if [ "${use_gpu}" = "true" ]; then
         source brainana_gpu_slot.sh
     fi
-    
+
     \${PYTHON:-python3} <<EOF
     from nhp_mri_prep.steps.functional import func_skullstripping
     from nhp_mri_prep.steps.types import StepInput
