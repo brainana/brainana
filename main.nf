@@ -152,22 +152,59 @@ workflow {
     }
     
     // ============================================
-    // RUN ANATOMICAL WORKFLOW
+    // FUNC-ONLY RUN ON EARLIER ANATOMICAL OUTPUTS (--anat_from)
     // ============================================
-    ANAT_WF()
-
-    // ============================================
-    // RUN FUNCTIONAL WORKFLOW (conditionally)
-    // ============================================
-    if (!anat_only) {
+    // The functional workflow's six anatomical inputs are rebuilt from a previous brainana
+    // output directory (see src/nhp_mri_prep/utils/anat_reuse.py) and ANAT_WF is skipped.
+    if (params.anat_from) {
+        if (anat_only) {
+            error "--anat_from reuses earlier anatomical outputs for a functional-only run; " +
+                  "it cannot be combined with --anat_only"
+        }
+        def reuseScript = "${projectDir}/src/nhp_mri_prep/nextflow_scripts/collect_reused_anat.py"
+        def reuseProc = [params.python_exe ?: 'python3', reuseScript,
+                         '--anat-from', params.anat_from.toString(),
+                         '--output-dir', params.output_dir.toString(),
+                         '--config-file', effective_config_path.toString()].execute()
+        def reuseOut = new StringBuilder()
+        def reuseErr = new StringBuilder()
+        reuseProc.waitForProcessOutput(reuseOut, reuseErr)
+        if (reuseProc.exitValue() != 0) {
+            error "Cannot reuse anatomical outputs from ${params.anat_from}:\n${reuseErr}"
+        }
+        log.info reuseOut.toString().trim()
+        def reused = new groovy.json.JsonSlurper().parse(
+            new File("${params.output_dir}/nextflow_reports/reused_anat.json"))
+        def rows = reused.anat
+        def withXfm = rows.findAll { it.xfm_fwd && it.xfm_inv }
+        def withSeg = rows.findAll { it.seg && it.lut }
         FUNC_WF(
-            ANAT_WF.out.anat_after_bias_brain,  // Use brain version for functional registration
-            ANAT_WF.out.anat_reg_transforms,
-            ANAT_WF.out.anat_reg_reference,
-            ANAT_WF.out.surf_actual_subject_id,
-            ANAT_WF.out.anat_skull_seg,       // T1w-space segmentation (for confounds tissue regressors)
-            ANAT_WF.out.anat_skull_seg_lut    // atlas LUT (tissue classification)
+            Channel.fromList(rows.collect { [it.sub, it.ses, file(it.brain), it.bids_name] }),
+            Channel.fromList(withXfm.collect { [it.sub, it.ses, it.bids_name, file(it.xfm_fwd), file(it.xfm_inv)] }),
+            Channel.fromList(withXfm.collect { [it.sub, it.ses, file(reused.template)] }),
+            Channel.fromList(reused.fastsurfer.collect { [it.sub, it.ses, it.id] }),
+            Channel.fromList(withSeg.collect { [it.sub, it.ses, file(it.seg)] }),
+            Channel.fromList(withSeg.collect { [it.sub, it.ses, file(it.lut)] })
         )
+    } else {
+        // ============================================
+        // RUN ANATOMICAL WORKFLOW
+        // ============================================
+        ANAT_WF()
+
+        // ============================================
+        // RUN FUNCTIONAL WORKFLOW (conditionally)
+        // ============================================
+        if (!anat_only) {
+            FUNC_WF(
+                ANAT_WF.out.anat_after_bias_brain,  // Use brain version for functional registration
+                ANAT_WF.out.anat_reg_transforms,
+                ANAT_WF.out.anat_reg_reference,
+                ANAT_WF.out.surf_actual_subject_id,
+                ANAT_WF.out.anat_skull_seg,       // T1w-space segmentation (for confounds tissue regressors)
+                ANAT_WF.out.anat_skull_seg_lut    // atlas LUT (tissue classification)
+            )
+        }
     }
     
     // ============================================
