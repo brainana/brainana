@@ -54,7 +54,7 @@ processing:
 
   smooth2_iterations: 5     # Smoothing iterations for smooth2 (Stage 14, after topology fix, for visualization)
   inflate2_smooth_iterations: 50    # Smoothing iterations for inflate2 (Stage 14, after topology fix, for visualization)
-  inflate2_iterations: 3    # Inflation iterations for inflate2 (Stage 14, after topology fix, for visualization)
+  inflate2_iterations: 2    # Inflation iterations for inflate2 (Stage 14, after topology fix, for visualization)
 
 # Registration template (optional). Path relative to brainana repo root.
 registration_template: template_zoo/fastsurfer/sub-NMT2Sym

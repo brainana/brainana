@@ -9,9 +9,9 @@ import logging
 import nibabel.freesurfer.io as fs
 
 from .base import HemisphereStage
+from ..processing.inflate2_visualization import apply_inflate2_visualization
 from ..processing.parcellation import sample_parcellation, smooth_aparc_files
 from ..wrappers.base import run_recon_all
-from ..wrappers.mris import mris_smooth, mris_inflate
 
 logger = logging.getLogger(__name__)
 
@@ -115,108 +115,7 @@ class Parcellation(HemisphereStage):
         #   - Stage 15 (surface placement) uses white.preaparc, not smoothwm/inflated
         #   - These are visualization surfaces, not used for surface placement
         #
-        # Only apply if inflate2_iterations is explicitly set (not None), indicating
-        # that custom visualization parameters are desired.
-        if self.config.processing.inflate2_iterations is not None:
-            logger.info(
-                f"Applying post-processing adjustments for {self.hemi} (visualization smoothing/inflation)..."
-            )
-
-            smoothwm = self.hemi_path("smoothwm")
-            inflated = self.hemi_path("inflated")
-            white_preaparc = self.hemi_path("white.preaparc")
-
-            # Verify all required surfaces exist before proceeding
-            if (
-                not smoothwm.exists()
-                or not inflated.exists()
-                or not white_preaparc.exists()
-            ):
-                logger.warning(
-                    f"Cannot apply post-processing adjustments: missing surfaces. "
-                    f"smoothwm exists: {smoothwm.exists()}, "
-                    f"inflated exists: {inflated.exists()}, "
-                    f"white.preaparc exists: {white_preaparc.exists()}"
-                )
-            else:
-                # Re-smooth smoothwm with configured iterations (smooth2 for visualization)
-                # This creates a visualization-optimized smoothwm surface with custom
-                # smoothing iterations (typically 3 for monkey data vs default ~10)
-                logger.info(
-                    f"Re-smoothing {self.hemi}.smoothwm with {self.config.processing.smooth2_iterations} iterations (visualization smoothing)..."
-                )
-
-                # Create temporary smoothed version to avoid corrupting original if process fails
-                smoothwm_adjusted = self.hemi_path("smoothwm.adjusted")
-                mris_smooth(
-                    input_surf=white_preaparc,  # Start from white.preaparc for consistent smoothing
-                    output_surf=smoothwm_adjusted,
-                    n_iterations=self.config.processing.smooth2_iterations,
-                    nw=True,
-                    seed=1234,
-                    log_file=self.config.log_file,
-                    subject_dir=self.sd.subject_dir,
-                )
-
-                # Atomically replace original with adjusted version
-                # Using replace() ensures atomic operation (rename on Unix, copy+delete on Windows)
-                smoothwm_adjusted.replace(smoothwm)
-                logger.info(
-                    f"Replaced {self.hemi}.smoothwm with adjusted version ({self.config.processing.smooth2_iterations} iterations)"
-                )
-
-                # Update smoothwm path reference for inflation step
-                smoothwm = self.hemi_path("smoothwm")
-
-                # Optional extra smooth only for inflation input (smoothwm unchanged)
-                # When set, smooth smoothwm -> smoothwm.forinflate, inflate from that, then remove forinflate.
-                n_smooth = self.config.processing.inflate2_smooth_iterations
-                if n_smooth and n_smooth > 0:
-                    logger.info(
-                        f"Re-smoothing {self.hemi}.smoothwm with {n_smooth} iterations (inflation input only)..."
-                    )
-                    smoothwm_forinflate = self.hemi_path("smoothwm.forinflate")
-                    mris_smooth(
-                        input_surf=smoothwm,
-                        output_surf=smoothwm_forinflate,
-                        n_iterations=n_smooth,
-                        nw=True,
-                        seed=1234,
-                        log_file=self.config.log_file,
-                        subject_dir=self.sd.subject_dir,
-                    )
-                    inflate_input = smoothwm_forinflate
-                else:
-                    inflate_input = smoothwm
-
-                # Re-inflate inflated with configured iterations (inflate2 for visualization)
-                logger.info(
-                    f"Re-inflating {self.hemi}.inflated with {self.config.processing.inflate2_iterations} iterations (visualization inflation)..."
-                )
-                inflated_adjusted = self.hemi_path("inflated.adjusted")
-                mris_inflate(
-                    input_surf=inflate_input,
-                    output_surf=inflated_adjusted,
-                    n_iterations=self.config.processing.inflate2_iterations,
-                    no_save_sulc=False,  # For visualization, we want to keep sulc file
-                    log_file=self.config.log_file,
-                    subject_dir=self.sd.subject_dir,
-                )
-
-                # Atomically replace original with adjusted version
-                inflated_adjusted.replace(inflated)
-                logger.info(
-                    f"Replaced {self.hemi}.inflated with adjusted version ({self.config.processing.inflate2_iterations} iterations)"
-                )
-
-                # Remove temporary smoothwm.forinflate (used only for inflation)
-                if n_smooth and n_smooth > 0:
-                    smoothwm_forinflate = self.hemi_path("smoothwm.forinflate")
-                    if smoothwm_forinflate.exists():
-                        smoothwm_forinflate.unlink()
-                        logger.debug(
-                            f"Removed temporary {self.hemi}.smoothwm.forinflate"
-                        )
+        apply_inflate2_visualization(self.config, self.sd, self.hemi)
 
     def should_skip(self) -> bool:
         """Skip if mapped parcellation exists.

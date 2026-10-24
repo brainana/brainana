@@ -21,11 +21,16 @@ config_f=''
 # bids_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/dataset_example
 # output_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/dataset_example_docker_v${version}
 
+# # ------------------------------------------------------------
+# # # # 4. UNC-Wisconsin
+# bids_dir=/mnt/DataDrive2/macaque/data_raw/macaque_mri/UNC-Wisconsin/bids
+# output_dir=/mnt/DataDrive2/macaque/data_preproc/macaque_mri/UNC-Wisconsin_brainana_v${version}
+# config_f=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/config_ses.yaml
+
 # ------------------------------------------------------------
-# # # 4. UNC-Wisconsin
-bids_dir=/mnt/DataDrive2/macaque/data_raw/macaque_mri/UNC-Wisconsin/bids
-output_dir=/mnt/DataDrive2/macaque/data_preproc/macaque_mri/UNC-Wisconsin_brainana_v${version}
-config_f=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/config_ses.yaml
+# klink
+bids_dir=/mnt/DataDrive2/macaque/data_raw/macaque_mri/chris_klink/bids
+output_dir=/mnt/DataDrive2/macaque/data_preproc/macaque_mri/klink_brainana_v${version}
 
 # # ------------------------------------------------------------
 # # with custom template
