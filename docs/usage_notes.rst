@@ -202,7 +202,7 @@ The following options can be passed after the image name (or after ``bids_dir`` 
        [-w PATH | --work_dir PATH] [--no_resume] \
        [--subjects SUBJECT[,SUBJECT...]] [--sessions SESSION[,SESSION...]] \
        [--tasks TASK[,TASK...]] [--runs RUN[,RUN...]] \
-       [--anat_only] [--output_space SPACE] [-profile PROFILE] [-h | --help]
+       [--anat_only] [--anat_from PATH] [--output_space SPACE] [-profile PROFILE] [-h | --help]
 
 Positional arguments
 ^^^^^^^^^^^^^^^^^^^^
@@ -273,6 +273,16 @@ Processing options
    Run only the anatomical pipeline; skip functional processing.
 
    Default: ``False``
+
+``--anat_from PATH``
+   Run only the functional pipeline, reusing the anatomical outputs of an
+   earlier brainana run in ``PATH`` (its ``preprocessed`` output directory).
+   The earlier run must use the same ``--output_space``. Use it to reprocess
+   functional data without recomputing anatomy. Anatomical outputs and QC
+   figures are not copied to the new output directory; surface
+   reconstructions are linked there.
+
+   Default: (none)
 
 ``--output_space SPACE``
    Template space for registered outputs. Either a bundled template spec in

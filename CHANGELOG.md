@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`--anat_from PATH`: functional-only runs.** Reuses the anatomical outputs of an earlier brainana run (same `--output_space`) instead of recomputing anatomy, for example to reprocess functional data after an update.
+- **`space-bold_desc-biascorrect_boldref`**: the functional reference after bias correction within the brain, which the brain mask and registration now use. For visual inspection.
+
+### Fixed
+
+- **Functional brain mask cut off part of the brain under a strong receive-coil gradient** (often the frontal lobe): the darker end fell outside the mask. The mask is now computed in two passes, the second after bias correction within the first mask, and registration uses the corrected image. The mask sidecar flags a second pass that grew the mask by more than 10%.
+
 
 ## [3.2.0] - 2026-10-09
 

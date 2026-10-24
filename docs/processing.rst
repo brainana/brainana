@@ -424,8 +424,15 @@ transforms).
 For skull stripping, a UNet-based functional (EPI) skull stripping model,
 derived from NHP-BrainExtraction/DeepBet, is run on the temporal mean to
 obtain a brain mask (the region the model is most confident in, if it marks
-more than one). The mask is resampled with the same transforms as the 4D
-BOLD series and published alongside it; the BOLD data itself is not masked.
+more than one). A strong receive-coil gradient can leave one end of the
+brain too dark for the model, so the mask is computed in two passes: bias
+field correction is repeated inside the first mask (grown by 6 mm), and the
+model runs again on the corrected image. Registration uses this corrected
+image inside the final mask, and the corrected image is published as
+``desc-biascorrect_boldref`` for inspection. A second pass that grows the
+mask by more than 10% is flagged in the mask's sidecar; check that mask.
+The mask is resampled with the same transforms as the 4D BOLD series and
+published alongside it; the BOLD data itself is not masked.
 
 
 Registration
