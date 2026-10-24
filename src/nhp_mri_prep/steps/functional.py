@@ -16,7 +16,7 @@ from ..operations.preprocessing import (
     despike,
     bias_correction,
     conform_to_template,
-    apply_skullstripping,
+    func_skullstrip_two_pass,
 )
 from ..operations.registration import (
     ants_register,
@@ -474,10 +474,9 @@ def func_skullstripping(input: StepInput) -> StepOutput:
             metadata={"step": "skullstripping", "skipped": True},
         )
 
-    # Call operation
-    result = apply_skullstripping(
+    # Call operation (two passes: the second on an N4 image fitted inside the first mask)
+    result = func_skullstrip_two_pass(
         imagef=str(input.input_file),
-        modal="func",
         working_dir=str(input.working_dir),
         output_name=input.output_name or "func_brain.nii.gz",
         config=input.config,
@@ -489,6 +488,8 @@ def func_skullstripping(input: StepInput) -> StepOutput:
 
     if result.get("brain_mask"):
         additional_files["brain_mask"] = Path(result["brain_mask"])
+    if result.get("imagef_bias_corrected"):
+        additional_files["bias_corrected"] = Path(result["imagef_bias_corrected"])
 
     return StepOutput(
         output_file=output_file,
@@ -496,6 +497,7 @@ def func_skullstripping(input: StepInput) -> StepOutput:
             "step": "skullstripping",
             "modality": "func",
             "method": "nhp_skullstrip_nn",
+            "skullstrip_qc": result["skullstrip_qc"],
         },
         additional_files=additional_files,
     )

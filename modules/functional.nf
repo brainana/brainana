@@ -796,7 +796,7 @@ process FUNC_COMPUTE_BRAIN_MASK {
     
     publishDir "${params.output_dir}/sub-${subject_id}${session_id ? "/ses-${session_id}" : ""}/func",
         mode: 'copy',
-        pattern: '*desc-brain_mask.{nii.gz,json}'
+        pattern: '*{desc-brain_mask,space-bold_desc-biascorrect_boldref}.{nii.gz,json}'
 
     input:
     // Input: [sub, ses, run_identifier, conformed_tmean, bids_template]
@@ -848,20 +848,31 @@ process FUNC_COMPUTE_BRAIN_MASK {
         }
     )
     
-    # Run step (processes conformed tmean to create brain)
+    # Run step (two passes; brain = pass-2 N4 image x final mask, the registration input)
     result = func_skullstripping(input_obj)
-    
+    skullstrip_qc = result.metadata.get("skullstrip_qc")
+
     # Generate BIDS-compliant output filename for mask
     # Use get_bids_prefix helper to determine session-level vs run-level naming
     bids_prefix_wobold = get_bids_prefix(bids_name, run_identifier)
     bids_additional_name = f"{bids_prefix_wobold}_space-bold_desc-brain_mask.nii.gz"
-    
+
     # Create symlink for mask with BIDS-compliant name
     if "brain_mask" in result.additional_files:
         create_output_link(result.additional_files["brain_mask"], bids_additional_name)
         # Sidecar (brain mask, native bold space -> no template block)
-        write_derivative_sidecar(bids_additional_name, roi_type="Brain", sources=[str(Path('${conformed_tmean}'))])
-    
+        write_derivative_sidecar(bids_additional_name, roi_type="Brain", sources=[str(Path('${conformed_tmean}'))],
+                                 extra=skullstrip_qc)
+
+    # N4 image the second pass ran on: published for visual inspection only
+    if "bias_corrected" in result.additional_files:
+        bids_n4_name = f"{bids_prefix_wobold}_space-bold_desc-biascorrect_boldref.nii.gz"
+        create_output_link(result.additional_files["bias_corrected"], bids_n4_name)
+        write_derivative_sidecar(bids_n4_name, sources=[str(Path('${conformed_tmean}'))], extra={
+            "Description": "Conformed boldref after N4 within the dilated first-pass brain mask; "
+                           "the second skull-strip pass and func registration ran on it. For visual inspection.",
+        })
+
     # Create symlink for brain file (masked tmean)
     if result.output_file.exists():
         bids_brain_name = f"{bids_prefix_wobold}_space-bold_boldref_brain.nii.gz"
