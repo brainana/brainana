@@ -207,7 +207,24 @@ picked up automatically; runners with no `version=` line are skipped silently.
 | **RTD build (local)** | `sphinx-build` or `bash docs/build_rtd_local.sh` | After pyproject bump |
 | **Docker image** | `--build-arg BRAINANA_VERSION=${VERSION}` | Must match pyproject |
 
-**Dev PRs (before release):** only edit `CHANGELOG.md` under `[Unreleased]`. Do **not** bump `pyproject.toml` version until release day on `main`.
+**Dev PRs (before release):** only edit `CHANGELOG.md` under `[Unreleased]`. Do **not** bump `pyproject.toml` version until release day on `main` — except in a release PR (below).
+
+**Release PR: bumping on the branch.** The last PR before a release may carry the bump
+itself, which saves one CI run (`deps.yml` runs on the PR and again on every push to
+`main`, so bumping on `main` afterwards costs a third). Allowed when all of these hold:
+
+1. **The branch sits directly on `main`'s tip** (`git merge-base --is-ancestor origin/main HEAD`),
+   so the tree that passed the gates is the tree that lands. Rebase first if `main` moved.
+2. **Every pre-tag gate passes on the branch before merging** — pytest, ruff, Sphinx,
+   Docker smoke, Lite local (section 5). `main` reads `X.Y.Z` from the merge on; tag only
+   once it is good, and fix forward on `main` if not.
+3. **Merge without squashing** (fast-forward or merge commit), then tag the commit that
+   lands on `main` — never the branch commit.
+4. **The `CHANGELOG.md` date is the tag day**; re-date it if the merge slips.
+
+The bonus: CI installs the bumped package fresh, so `tests/test_version.py` checks the new
+version. The alternative — the bump on `main` as usual with `[skip ci]` in the release
+commit message — saves the same run but never tests the bump.
 
 **Quick grep before build:**
 

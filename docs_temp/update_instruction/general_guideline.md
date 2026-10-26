@@ -20,7 +20,7 @@ For Docker Hub publish, you also need a Docker Hub account and `docker login` be
 
 1. Dev on a feature branch: checks, optional **Brainana Lite** with `BRAINANA_REF = feat/<topic>`.
 2. Open PR; merge to `main` when CI is green.
-3. During feature PRs: only `CHANGELOG.md` → `[Unreleased]` (do not bump `pyproject.toml` version unless you are doing the release).
+3. During feature PRs: only `CHANGELOG.md` → `[Unreleased]` (do not bump `pyproject.toml` version unless you are doing the release). The last PR before a release may carry the bump under the conditions in [version_guideline.md — Release PR](version_guideline.md#4-what-to-update-on-release).
 
 ### Release path (after PR merge)
 
@@ -114,7 +114,7 @@ Use one `VERSION` (e.g. `1.1.0`) and update these **together on `main` before pr
 - **Docs only reach `stable` via a release tag.** RTD `stable` = highest semver tag; edits merged to `main` appear on `latest`/`dev` immediately but **not** on `stable` until you cut a new `v${VERSION}` tag. (This is why a docs-only change may still warrant a patch/minor release.)
 - **Google Search Console** ownership is verified by the static file `docs/google49dbcea2a2cad90f.html`, copied to each version's site root via `html_extra_path` in `docs/conf.py`. It is reachable at `/en/<version>/google…html` and only appears under `/en/stable/` after a release tag — do **not** delete or rename it. SEO metadata (canonical, Open Graph, JSON-LD) lives in `docs/conf.py` + `docs/_templates/layout.html`; preserve them when editing docs config.
 
-**Dev PRs (before release):** only edit `CHANGELOG.md` under `[Unreleased]` for anything users should see in the next release. Do not change `pyproject.toml` version until release day on `main`.
+**Dev PRs (before release):** only edit `CHANGELOG.md` under `[Unreleased]` for anything users should see in the next release. Do not change `pyproject.toml` version until release day on `main`, unless this is the release PR (see [version_guideline.md — Release PR](version_guideline.md#4-what-to-update-on-release): branch on `main`'s tip, all gates on the branch, no squash, tag the merged commit).
 
 **Quick grep before build:**
 
