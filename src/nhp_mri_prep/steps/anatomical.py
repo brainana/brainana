@@ -1004,7 +1004,6 @@ def anat_project_atlases_to_surface(
     metadata["target_grid"] = str(target_grid)
 
     output_stem = get_bids_prefix(bids_name)
-    freesurfer_subject_id = fs_subject_directory.name
     env = os.environ.copy()
     # Absolute SUBJECTS_DIR (resolving the staged symlink) matches project_tsnr_to_surface
     # and avoids FreeSurfer tools mis-resolving a relative '.' if they canonicalize the path.

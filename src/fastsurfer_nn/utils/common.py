@@ -38,13 +38,13 @@ __all__ = [
 
 from fastsurfer_nn.utils.parser_defaults import SubjectDirectoryConfig
 
-LOGGER = logging.getLogger(__name__)
-_T = TypeVar("_T")
-_Ti = TypeVar("_Ti")
-
 # The device policy itself lives in fastsurfer_nn.utils.gpu_utils (one implementation
 # for every brainana package); find_device adapts it to FastSurfer's interface.
 from fastsurfer_nn.utils.gpu_utils import resolve_device
+
+LOGGER = logging.getLogger(__name__)
+_T = TypeVar("_T")
+_Ti = TypeVar("_Ti")
 
 
 def find_device(
