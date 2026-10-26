@@ -124,7 +124,7 @@ def test_ignored_skull_strip_does_not_continue_on_dummies():
     assert "anat_after_conform_kept = anat_after_conform.join(skull_stripped_keys" in skull
 
     bias = wf[wf.index("// BIAS CORRECTION") : wf.index("// PUBLISH PHASE 1 OUTPUTS")]
-    code = "\n".join(l for l in bias.splitlines() if not l.strip().startswith("//"))
+    code = "\n".join(ln for ln in bias.splitlines() if not ln.strip().startswith("//"))
     assert "anat_after_conform_kept" in code
     assert not re.search(r"\banat_after_conform\b", code)
 

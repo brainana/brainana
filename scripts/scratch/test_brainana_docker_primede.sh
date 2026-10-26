@@ -10,7 +10,7 @@
 set -u
 
 fs_license=/mnt/DataDrive3/xliu/prep_test/freesurfer_license.txt
-version=3.2.0
+version=3.3.0
 image=liuxingyu987/brainana:${version}
 
 raw_root=/mnt/DataDrive2/macaque/data_raw/macaque_mri/PRIME-DE

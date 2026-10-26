@@ -198,6 +198,7 @@ picked up automatically; runners with no `version=` line are skipped silently.
 | File / area | What to update | Notes |
 | ----------- | -------------- | ----- |
 | **pyproject.toml** | `version = "${VERSION}"` | Single source of truth |
+| **uv.lock** | the `brainana` package's `version` line | CI `uv lock --check` fails if it lags (3.3.0 PR). One line edited in place — do not relock with another uv version: CI pins 0.6.16, which rewrites the whole file into an older format |
 | **`.venv` editable install** | `uv pip install -e .` | Refreshes dist-info; sidecar stamping reads pyproject directly, but pytest checks dist-info alignment |
 | **CHANGELOG.md** | `[Unreleased]` → `[${VERSION}] - YYYY-MM-DD`; add empty `[Unreleased]` | Copy into `gh release create --notes-file` |
 | **README.md** | Release highlights, links, Lite pointers | No pinned version required |
@@ -207,7 +208,24 @@ picked up automatically; runners with no `version=` line are skipped silently.
 | **RTD build (local)** | `sphinx-build` or `bash docs/build_rtd_local.sh` | After pyproject bump |
 | **Docker image** | `--build-arg BRAINANA_VERSION=${VERSION}` | Must match pyproject |
 
-**Dev PRs (before release):** only edit `CHANGELOG.md` under `[Unreleased]`. Do **not** bump `pyproject.toml` version until release day on `main`.
+**Dev PRs (before release):** only edit `CHANGELOG.md` under `[Unreleased]`. Do **not** bump `pyproject.toml` version until release day on `main` — except in a release PR (below).
+
+**Release PR: bumping on the branch.** The last PR before a release may carry the bump
+itself, which saves one CI run (`deps.yml` runs on the PR and again on every push to
+`main`, so bumping on `main` afterwards costs a third). Allowed when all of these hold:
+
+1. **The branch sits directly on `main`'s tip** (`git merge-base --is-ancestor origin/main HEAD`),
+   so the tree that passed the gates is the tree that lands. Rebase first if `main` moved.
+2. **Every pre-tag gate passes on the branch before merging** — pytest, ruff, Sphinx,
+   Docker smoke, Lite local (section 5). `main` reads `X.Y.Z` from the merge on; tag only
+   once it is good, and fix forward on `main` if not.
+3. **Merge without squashing** (fast-forward or merge commit), then tag the commit that
+   lands on `main` — never the branch commit.
+4. **The `CHANGELOG.md` date is the tag day**; re-date it if the merge slips.
+
+The bonus: CI installs the bumped package fresh, so `tests/test_version.py` checks the new
+version. The alternative — the bump on `main` as usual with `[skip ci]` in the release
+commit message — saves the same run but never tests the bump.
 
 **Quick grep before build:**
 
@@ -269,7 +287,7 @@ All must pass **before** `git commit` and **before** `git tag`. Full gate list i
 | Step | Command / action |
 |------|------------------|
 | Bump every version site | `python scripts/bump_version.py X.Y.Z` |
-| ↳ covers | `pyproject.toml`, `CHANGELOG.md` heading, `BrainanaLite.ipynb` ref, `docs/*.rst` example tags, `test_brainana_*.sh` |
+| ↳ covers | `pyproject.toml`, `uv.lock`, `CHANGELOG.md` heading, `BrainanaLite.ipynb` ref, `docs/*.rst` example tags, `test_brainana_*.sh` |
 | Write the CHANGELOG body | move `[Unreleased]` entries under the new heading |
 | Refresh `.venv` dist-info | `uv pip install -e .` (script cannot do this) |
 | Grep for stale references | script prints this; see quick grep above to re-check |

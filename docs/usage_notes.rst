@@ -26,7 +26,7 @@ Quick start
           liuxingyu987/brainana:<version> /input /output \
           --work_dir /output_wd --freesurfer_license /fs_license.txt
 
-Replace ``<version>`` with a published Brainana tag, for example ``3.2.0`` (see the `image tags on Docker Hub <https://hub.docker.com/r/liuxingyu987/brainana/tags>`_). Also:
+Replace ``<version>`` with a published Brainana tag, for example ``3.3.0`` (see the `image tags on Docker Hub <https://hub.docker.com/r/liuxingyu987/brainana/tags>`_). Also:
 
 - Without a compatible GPU, omit ``--gpus all``; the pipeline runs on the CPU with no other changes. See :ref:`Check GPU access <installation-check-gpu-access>`.
 - ``<path/to/work_dir>`` is a host path for Nextflow's intermediate files. Without this mount, a run cannot be resumed.
@@ -202,7 +202,7 @@ The following options can be passed after the image name (or after ``bids_dir`` 
        [-w PATH | --work_dir PATH] [--no_resume] \
        [--subjects SUBJECT[,SUBJECT...]] [--sessions SESSION[,SESSION...]] \
        [--tasks TASK[,TASK...]] [--runs RUN[,RUN...]] \
-       [--anat_only] [--output_space SPACE] [-profile PROFILE] [-h | --help]
+       [--anat_only] [--anat_from PATH] [--output_space SPACE] [-profile PROFILE] [-h | --help]
 
 Positional arguments
 ^^^^^^^^^^^^^^^^^^^^
@@ -273,6 +273,18 @@ Processing options
    Run only the anatomical pipeline; skip functional processing.
 
    Default: ``False``
+
+``--anat_from PATH``
+   Run only the functional pipeline, reusing the anatomical outputs of an
+   earlier brainana run in ``PATH`` (its ``preprocessed`` output directory).
+   The earlier run must use the same ``--output_space``, and ``--output_dir``
+   must be a new directory. Use it to reprocess functional data without
+   recomputing anatomy. Anatomical outputs and QC figures are not copied to the
+   new output directory; surface reconstructions are linked there. In Docker,
+   mount ``PATH`` into the container (for example ``-v <path/to/earlier>:/anat_from``
+   with ``--anat_from /anat_from``).
+
+   Default: (none)
 
 ``--output_space SPACE``
    Template space for registered outputs. Either a bundled template spec in

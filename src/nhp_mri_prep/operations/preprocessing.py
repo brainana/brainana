@@ -1747,6 +1747,17 @@ class EmptyBrainMaskError(RuntimeError):
 PRE_INFERENCE_N4_SHRINK = 4
 PRE_INFERENCE_N4_BSPLINE = 60
 
+# Func two-pass skull strip: N4 inside the pass-1 mask dilated by this margin,
+# then the network again. 80 mm with N4's 4 fitting levels ends at a 10 mm mesh:
+# finer started absorbing anatomy, coarser left the coil gradient (func skull-strip
+# bias benchmark). A third pass changed masks by 0.06% (median), so there is none.
+FUNC_N4_DILATE_MM = 6.0
+FUNC_N4_SHRINK = 2
+FUNC_N4_BSPLINE = 80
+# Pass 2 adding more than this fraction of the pass-1 mask is unusual (median
+# 2.6%); it flagged partial-slab EPI and bad-input sessions.
+FUNC_MASK_GROWTH_WARN = 0.10
+
 # Template prior: a first-pass miss above this triggers the second pass. On
 # correctly segmented subjects it measures 0.0-0.4 cm^3, on failures 0.9-40.
 TEMPLATE_PRIOR_MIN_MISSED_CM3 = 0.5
@@ -2250,6 +2261,115 @@ def apply_skullstripping(
     )
 
     return {"imagef_skullstripped": output_path, "brain_mask": brain_mask_path}
+
+
+def func_skullstrip_two_pass(
+    imagef: Union[str, Path],
+    working_dir: Union[str, Path],
+    output_name: str,
+    config: Optional[Dict[str, Any]] = None,
+    logger: Optional[logging.Logger] = None,
+) -> Dict[str, Any]:
+    """Func brain mask in two passes, the second on an N4 image fitted inside the first.
+
+    The func tmean's N4 (``func_bias_correction``) runs on the whole field of view, so a
+    receive-coil gradient survives and the network drops the dark lobe. Pass 1 finds the
+    brain roughly; N4 is refitted inside that mask dilated by ``FUNC_N4_DILATE_MM`` (within
+    the field of view); pass 2 runs on the corrected image.
+
+    Returns ``imagef_skullstripped`` (N4 image x final mask: the registration input),
+    ``brain_mask`` (final), ``imagef_bias_corrected`` (N4 image, unmasked; None when pass 2
+    did not run) and ``skullstrip_qc``. An empty pass-1 mask or a failed N4 keeps pass 1.
+    """
+    from scipy import ndimage as ndi
+
+    if logger is None:
+        logger = logging.getLogger(__name__)
+    work_dir = ensure_working_directory(working_dir, logger)
+    image_path = validate_input_file(imagef, logger)
+
+    pass1 = apply_skullstripping(
+        imagef=image_path, modal="func", working_dir=work_dir / "pass1",
+        output_name=output_name, config=config, logger=logger,
+    )
+    qc: Dict[str, Any] = {"SkullstripPasses": 1}
+    result = {
+        "imagef_skullstripped": Path(pass1["imagef_skullstripped"]),
+        "brain_mask": Path(pass1["brain_mask"]),
+        "imagef_bias_corrected": None,
+        "skullstrip_qc": qc,
+    }
+
+    img = nib.load(str(image_path))
+    data = np.asarray(img.dataobj, dtype=np.float32)
+    mask1 = np.asarray(nib.load(str(pass1["brain_mask"])).dataobj) > 0
+    qc["Pass1MaskVoxels"] = int(mask1.sum())
+    if not mask1.any():
+        logger.warning("QC: func skull strip pass 1 found no brain; pass 2 skipped")
+        return result
+
+    # Conform pads with a constant floor, not 0: the field of view is above the minimum.
+    finite = np.isfinite(data)
+    fov = finite & (data > data[finite].min() + 1e-6 * np.ptp(data[finite]))
+    zooms = img.header.get_zooms()[:3]
+    region = (ndi.distance_transform_edt(~mask1, sampling=zooms) <= FUNC_N4_DILATE_MM) & fov
+    n4_dir = work_dir / "pass2_n4"
+    n4_dir.mkdir(parents=True, exist_ok=True)
+    region_path = n4_dir / "n4_region.nii.gz"
+    nib.save(nib.Nifti1Image(region.astype(np.uint8), img.affine, img.header), str(region_path))
+    qc["PreInferenceN4"] = {"BSplineFitting": FUNC_N4_BSPLINE, "ShrinkFactor": FUNC_N4_SHRINK,
+                            "DilateMm": FUNC_N4_DILATE_MM}
+
+    n4_config = dict(config or {})
+    n4_config["func"] = dict(n4_config.get("func") or {})
+    n4_config["func"]["bias_correction"] = {
+        "enabled": True,
+        "algorithm": "N4BiasFieldCorrection",
+        "shrink_factor": FUNC_N4_SHRINK,
+        "bspline_fitting": FUNC_N4_BSPLINE,
+        "rescale_mean_to_100": False,
+    }
+    try:
+        n4 = bias_correction(
+            imagef=image_path, working_dir=n4_dir, modal="func",
+            output_name="func_n4_in_brain.nii.gz", config=n4_config, logger=logger,
+            maskf=region_path,
+        )
+        n4_path = Path(n4["imagef_bias_corrected"])
+        pass2 = apply_skullstripping(
+            imagef=n4_path, modal="func", working_dir=work_dir / "pass2",
+            output_name=output_name, config=config, logger=logger,
+        )
+    except Exception as e:  # pass 1 is a usable mask; never fail the step here
+        logger.warning(f"QC: func skull strip pass 2 failed, keeping pass 1 - {e}")
+        qc["PreInferenceN4"]["Error"] = str(e)[:300]
+        return result
+
+    mask2 = np.asarray(nib.load(str(pass2["brain_mask"])).dataobj) > 0
+    growth = float((mask2 & ~mask1).sum()) / mask1.sum()
+    qc.update(
+        SkullstripPasses=2,
+        Pass2GrowthPct=round(100 * growth, 2),
+        Pass2ShrinkPct=round(100 * float((mask1 & ~mask2).sum()) / mask1.sum(), 2),
+        MaskGrowthWarning=bool(growth > FUNC_MASK_GROWTH_WARN),
+    )
+    if qc["MaskGrowthWarning"]:
+        logger.warning(
+            f"QC: func skull strip pass 2 added {100 * growth:.1f}% to the pass-1 mask "
+            f"(> {100 * FUNC_MASK_GROWTH_WARN:.0f}%); check the mask (partial-slab EPI or poor input)"
+        )
+    else:
+        logger.info(f"QC: func skull strip pass 2 added {100 * growth:.1f}% to the pass-1 mask")
+
+    # Registration input: the corrected image inside the final mask.
+    brain_path = work_dir / output_name
+    apply_brain_mask(n4_path, Path(pass2["brain_mask"]), brain_path, logger=logger)
+    result.update(
+        imagef_skullstripped=brain_path,
+        brain_mask=Path(pass2["brain_mask"]),
+        imagef_bias_corrected=n4_path,
+    )
+    return result
 
 
 def apply_mask(

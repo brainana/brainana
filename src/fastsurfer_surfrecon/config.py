@@ -201,7 +201,7 @@ class ProcessingConfig(BaseModel):
     )
     inflate2_iterations: Optional[int] = Field(
         ge=1,
-        description="Surface inflation iterations for inflate2 (Stage 14, after topology fix, for visualization). None = use FreeSurfer default. Use 3 for monkey data (less inflation for visualization).",
+        description="Surface inflation iterations for inflate2 (Stage 14, after topology fix, for visualization). None = use FreeSurfer default. Use 2 for monkey data (less inflation for visualization).",
     )
     inflate2_smooth_iterations: Optional[int] = Field(
         ge=0,

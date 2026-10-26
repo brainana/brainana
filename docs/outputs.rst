@@ -30,7 +30,7 @@ Output directory layout
    │   │   └── atlas_space-{T1w|scanner|fsnative}/          # backprojected atlases
    │   ├── ses-<id>/
    │   │   └── func/
-   │   │       ├── <ses>_space-bold_{boldref|desc-brain_mask}.nii.gz
+   │   │       ├── <ses>_space-bold_{boldref|desc-biascorrect_boldref|desc-brain_mask}.nii.gz
    │   │       ├── <ses>_from-<A>_to-<B>_mode-image_xfm.<ext>
    │   │       ├── <run>_space-{bold|T1w|<template>}_desc-preproc_{bold|boldref}.nii.gz
    │   │       ├── <run>_space-T1w_desc-preproc_stat-tsnr_boldmap.nii.gz
@@ -172,7 +172,8 @@ Written for multi-run sessions with coregistration enabled.
 
 - ``<ses_prefix>_space-scanner_desc-coreg_boldref.nii.gz`` — Session-averaged BOLD reference after within-session coregistration (scanner space).
 - ``<ses_prefix>_space-bold_boldref.nii.gz`` — BOLD reference in BOLD (conformed) space.
-- ``<ses_prefix>_space-bold_desc-brain_mask.nii.gz`` — Brain mask in BOLD space.
+- ``<ses_prefix>_space-bold_desc-brain_mask.nii.gz`` — Brain mask in BOLD space. Its sidecar records the skull-strip passes and a mask-growth warning.
+- ``<ses_prefix>_space-bold_desc-biascorrect_boldref.nii.gz`` — BOLD reference after bias correction within the brain; the brain mask and registration are computed from it. For visual inspection.
 - ``<ses_prefix>_space-T1w_desc-preproc_stat-tsnr_boldmap.nii.gz`` — Session-level temporal SNR map (T1w space).
 - ``<ses_prefix>_space-<template>_desc-preproc_stat-tsnr_boldmap.nii.gz`` — Session-level temporal SNR map in template space (sessions without an associated T1w).
 

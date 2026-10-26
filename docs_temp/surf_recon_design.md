@@ -86,6 +86,9 @@ path (s08–s12 on the left) exactly as before.
    s13 white.preaparc   mris_place_surface --white --nsmooth 3 --max-cbv-dist 5
                         ★ --rip-label template.movable   (= all vertices − V1)
    s14 parcellation     (unchanged: subject cortex.label, subject ARM2 annot)
+                        then inflate2 for visualization: smoothwm and inflated rebuilt
+                        from white.preaparc (inflate2_iterations: 2, was 3 up to 3.2.0;
+                        processing/inflate2_visualization.py)
    s15 white            ★ --rip-label template.cortex_movable (= cortex.label − V1)
        pial             (unchanged: fitted everywhere, V1 included)
    s16 morphometry, s17 registration, s18–s22 (unchanged)

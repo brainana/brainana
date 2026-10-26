@@ -51,6 +51,17 @@ TEXT_TARGETS = [
         lambda old, new: (rf'^version = "{re.escape(old)}"$', f'version = "{new}"'),
     ),
     (
+        # The lockfile records the project's own version; CI's `uv lock --check`
+        # fails when it lags pyproject. Edited in place, not relocked: a different
+        # uv version would rewrite the whole file's format.
+        "uv.lock",
+        "project version in the lockfile (CI uv lock --check)",
+        lambda old, new: (
+            rf'^(name = "brainana"\nversion = )"{re.escape(old)}"$',
+            rf'\1"{new}"',
+        ),
+    ),
+    (
         "docs/demo.rst",
         "example Docker Hub tag",
         lambda old, new: (rf"\(e\.g\. ``{re.escape(old)}``\)", f"(e.g. ``{new}``)"),
@@ -224,7 +235,7 @@ def leftovers(old: str) -> list:
     digit sequence you care to search for.
     """
     suffixes = {".toml", ".md", ".rst", ".sh", ".ipynb", ".py", ".yml", ".yaml", ".cfg"}
-    skip_dirs = {"_build", ".ipynb_checkpoints", "__pycache__"}
+    skip_dirs = {"_build", ".ipynb_checkpoints", "__pycache__", ".venv"}
 
     hits = []
     for rel in GREP_SCOPE:
