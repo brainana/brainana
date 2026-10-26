@@ -198,6 +198,7 @@ picked up automatically; runners with no `version=` line are skipped silently.
 | File / area | What to update | Notes |
 | ----------- | -------------- | ----- |
 | **pyproject.toml** | `version = "${VERSION}"` | Single source of truth |
+| **uv.lock** | the `brainana` package's `version` line | CI `uv lock --check` fails if it lags (3.3.0 PR). One line edited in place — do not relock with another uv version: CI pins 0.6.16, which rewrites the whole file into an older format |
 | **`.venv` editable install** | `uv pip install -e .` | Refreshes dist-info; sidecar stamping reads pyproject directly, but pytest checks dist-info alignment |
 | **CHANGELOG.md** | `[Unreleased]` → `[${VERSION}] - YYYY-MM-DD`; add empty `[Unreleased]` | Copy into `gh release create --notes-file` |
 | **README.md** | Release highlights, links, Lite pointers | No pinned version required |
@@ -286,7 +287,7 @@ All must pass **before** `git commit` and **before** `git tag`. Full gate list i
 | Step | Command / action |
 |------|------------------|
 | Bump every version site | `python scripts/bump_version.py X.Y.Z` |
-| ↳ covers | `pyproject.toml`, `CHANGELOG.md` heading, `BrainanaLite.ipynb` ref, `docs/*.rst` example tags, `test_brainana_*.sh` |
+| ↳ covers | `pyproject.toml`, `uv.lock`, `CHANGELOG.md` heading, `BrainanaLite.ipynb` ref, `docs/*.rst` example tags, `test_brainana_*.sh` |
 | Write the CHANGELOG body | move `[Unreleased]` entries under the new heading |
 | Refresh `.venv` dist-info | `uv pip install -e .` (script cannot do this) |
 | Grep for stale references | script prints this; see quick grep above to re-check |
