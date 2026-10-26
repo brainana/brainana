@@ -1,14 +1,14 @@
 fs_license=/mnt/DataDrive3/xliu/prep_test/freesurfer_license.txt
-version=3.2.0
+version=3.3.0
 
 custom_template_f=''
 config_f=''
 
-# # # ------------------------------------------------------------
-# # # # 1. devtest
-# bids_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/dataset_devtest
-# output_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/dataset_devtest_docker_v${version}_sub
-# config_f=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/config_res-1.yaml
+# # ------------------------------------------------------------
+# # # 1. devtest
+bids_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/dataset_devtest
+output_dir=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/dataset_devtest_docker_v${version}_sub
+config_f=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/config_res-1.yaml
 
 # ------------------------------------------------------------
 # # # 2. prime-de
@@ -27,10 +27,10 @@ config_f=''
 # output_dir=/mnt/DataDrive2/macaque/data_preproc/macaque_mri/UNC-Wisconsin_brainana_v${version}
 # config_f=/mnt/DataDrive3/xliu/prep_test/brainana_test/preproc/config_ses.yaml
 
-# ------------------------------------------------------------
-# klink
-bids_dir=/mnt/DataDrive2/macaque/data_raw/macaque_mri/chris_klink/bids
-output_dir=/mnt/DataDrive2/macaque/data_preproc/macaque_mri/klink_brainana_v${version}
+# # ------------------------------------------------------------
+# # klink
+# bids_dir=/mnt/DataDrive2/macaque/data_raw/macaque_mri/chris_klink/bids
+# output_dir=/mnt/DataDrive2/macaque/data_preproc/macaque_mri/klink_brainana_v${version}
 
 # # ------------------------------------------------------------
 # # with custom template

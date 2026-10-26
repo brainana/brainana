@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [3.3.0] - 2026-10-26
+
 ### Added
 
 - **`--anat_from PATH`: functional-only runs.** Reuses the anatomical outputs of an earlier brainana run (same `--output_space`) instead of recomputing anatomy, for example to reprocess functional data after an update. Write the run to a new `--output_dir`; in Docker, mount `PATH` into the container.

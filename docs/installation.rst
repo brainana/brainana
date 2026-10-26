@@ -134,7 +134,7 @@ Pull the Brainana image
 
    docker pull liuxingyu987/brainana:<version>
 
-Replace ``<version>`` with a published Brainana tag, for example ``3.2.0`` (see the
+Replace ``<version>`` with a published Brainana tag, for example ``3.3.0`` (see the
 `image tags on Docker Hub <https://hub.docker.com/r/liuxingyu987/brainana/tags>`_).
 This is a one-time ~9 GB download (~23 GB on disk), typically a few minutes on a fast
 connection and longer on slower networks.

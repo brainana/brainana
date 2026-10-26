@@ -26,7 +26,7 @@ Quick start
           liuxingyu987/brainana:<version> /input /output \
           --work_dir /output_wd --freesurfer_license /fs_license.txt
 
-Replace ``<version>`` with a published Brainana tag, for example ``3.2.0`` (see the `image tags on Docker Hub <https://hub.docker.com/r/liuxingyu987/brainana/tags>`_). Also:
+Replace ``<version>`` with a published Brainana tag, for example ``3.3.0`` (see the `image tags on Docker Hub <https://hub.docker.com/r/liuxingyu987/brainana/tags>`_). Also:
 
 - Without a compatible GPU, omit ``--gpus all``; the pipeline runs on the CPU with no other changes. See :ref:`Check GPU access <installation-check-gpu-access>`.
 - ``<path/to/work_dir>`` is a host path for Nextflow's intermediate files. Without this mount, a run cannot be resumed.
