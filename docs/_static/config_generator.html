@@ -59,9 +59,9 @@ h3{font-size:125%;margin:24px 0 12px}
    options inside a card's advanced settings are rows. One treatment per level. */
 .section{margin:0 0 28px}
 
-/* Option row: name + help on the left, control in a fixed right column, hairline between
-   rows. .param-row is display:contents so its children join the .param-block grid. */
-.param-block{display:grid;grid-template-columns:22px minmax(0,1fr) 250px;grid-template-areas:"chk name ctl" ". help ctl";
+/* Option row: name with the control on its right, help under both at full width, hairline
+   between rows. .param-row is display:contents so its children join the .param-block grid. */
+.param-block{display:grid;grid-template-columns:22px minmax(0,1fr) 250px;grid-template-areas:"chk name ctl" ". help help";
   column-gap:12px;row-gap:3px;align-items:start;padding:12px 0;margin:0;border-top:1px solid var(--line)}
 .advanced-settings > .param-block:first-child,.advanced-subgroup-title + .param-block,.advanced-subgroup > .help-text + .param-block{border-top:0}
 .param-block > .param-row{display:contents}
@@ -79,8 +79,12 @@ textarea{width:100%}
 .help-text{display:block;margin:0;font-size:14px;line-height:20px;color:var(--muted)}
 /* option values named inside help text: plain literals, not bold headings */
 .help-text strong{font-family:var(--mono);font-size:12.5px;font-weight:400;color:var(--ink)}
-/* one option per line, hanging-indented under the opening line */
-.help-text-list{padding-left:1.2em;text-indent:-1.2em}
+/* option values: value column (mono, green like code literals in the docs) and meaning
+   column (muted), one option per row */
+.help-opts{display:grid;grid-template-columns:max-content minmax(0,1fr);column-gap:16px;row-gap:2px;margin:6px 0 0}
+.help-opts dt{font-family:var(--mono);font-size:12.5px;font-weight:600;color:var(--green-dark);white-space:nowrap;padding-top:1px}
+.help-opts dd{margin:0}
+.help-note{display:block;margin-top:6px}
 
 /* Module card: header (checkbox, name, help, advanced toggle); advanced settings open
    inside the same card on a slightly darker band. */
@@ -135,6 +139,9 @@ button#generate:hover{background:var(--sidebar-head);color:var(--purple-dark);bo
   .param-block{grid-template-columns:22px minmax(0,1fr);grid-template-areas:"chk name" ". help" ". ctl"}
   .param-block .param-control{margin-top:6px}
   .param-block .param-control:has(input[type="checkbox"]){justify-self:start}
+  .help-opts{grid-template-columns:minmax(0,1fr)}
+  .help-opts dt{white-space:normal}
+  .help-opts dd{padding-left:1.2em}
 }
     </style>
 </head>
@@ -180,10 +187,13 @@ button#generate:hover{background:var(--sidebar-head);color:var(--purple-dark);bo
                         </select>
                     </span>
                 </div>
-                <span class="help-text help-text-list">logging level:<br>
-                    <strong>0</strong> = errors only;<br>
-                    <strong>1</strong> = normal progress;<br>
-                    <strong>2</strong> = debug detail</span>
+                <div class="help-text">Logging level.
+                    <dl class="help-opts">
+                        <dt>0</dt><dd>errors only</dd>
+                        <dt>1</dt><dd>normal progress</dd>
+                        <dt>2</dt><dd>debug detail</dd>
+                    </dl>
+                </div>
             </div>
             <div class="param-block">
                 <div class="param-row">
@@ -201,7 +211,14 @@ button#generate:hover{background:var(--sidebar-head);color:var(--purple-dark);bo
                         <input type="text" id="general_gpu_device" name="general_gpu_device" value="auto">
                     </span>
                 </div>
-                <span class="help-text">GPU use for the whole run: "auto" = every GPU the container sees, else CPU; -1 or "cpu" = CPU only; 0, 1, … or cuda:N = only that GPU, numbered as nvidia-smi lists them. GPU steps: skull stripping and segmentation, the functional brain mask, FireANTs SyN registration</span>
+                <div class="help-text">GPU use for the whole run.
+                    <dl class="help-opts">
+                        <dt>auto</dt><dd>every GPU the container sees, else CPU</dd>
+                        <dt>-1, cpu</dt><dd>CPU only</dd>
+                        <dt>0, 1, cuda:N</dt><dd>only that GPU, numbered as nvidia-smi lists them</dd>
+                    </dl>
+                    <span class="help-note">GPU steps: skull stripping and segmentation, the functional brain mask, FireANTs SyN registration.</span>
+                </div>
             </div>
         </div>
 
@@ -268,6 +285,7 @@ button#generate:hover{background:var(--sidebar-head);color:var(--purple-dark);bo
                             <option value="D99:res-05">D99:res-05</option>
                             <option value="D99:res-025">D99:res-025</option>
                             <option value="Yerkes19:res-05">Yerkes19:res-05</option>
+                            <option value="112RMSL:res-05">112RMSL:res-05</option>
                         </select>
                     </span>
                 </div>
@@ -285,16 +303,19 @@ button#generate:hover{background:var(--sidebar-head);color:var(--purple-dark);bo
                     <span class="param-control">
                         <select id="anat_synthesis_level" name="anat_synthesis_level">
                             <option value="subject" selected>subject</option>
-                            <option value="112RMSL:res-05">112RMSL:res-05</option>
                             <option value="session">session</option>
                             <option value="session_longitudinal">session_longitudinal</option>
                         </select>
                     </span>
                 </div>
-                <span class="help-text help-text-list">T1w/T2w synthesis when multiple images exist:<br>
-                    <strong>"subject"</strong> = cross-session — one shared T1w per subject;<br>
-                    <strong>"session"</strong> = within-session — each session is independent;<br>
-                    <strong>"session_longitudinal"</strong> = same anatomical choice as <strong>"session"</strong>, plus a within-subject common (base) template and base-seeded longitudinal surfaces; needs surface_reconstruction.enabled and &gt;=2 sessions</span>
+                <div class="help-text">T1w/T2w synthesis when there are several images.
+                    <dl class="help-opts">
+                        <dt>subject</dt><dd>cross-session: one shared T1w per subject</dd>
+                        <dt>session</dt><dd>within-session: each session is independent</dd>
+                        <dt>session_longitudinal</dt><dd>as session, plus a within-subject base template and base-seeded longitudinal surfaces</dd>
+                    </dl>
+                    <span class="help-note">session_longitudinal needs surface_reconstruction enabled and at least 2 sessions.</span>
+                </div>
             </div>
             <div class="step">
                 <div class="param-row">
@@ -378,7 +399,13 @@ button#generate:hover{background:var(--sidebar-head);color:var(--purple-dark);bo
                                     </select>
                                 </span>
                             </div>
-                            <span class="help-text">fill missing thin V1 white matter from the template's V1 white matter registered to the subject; "auto" = only when tessellated surfaces are built: surface_reconstruction on and template_surface off</span>
+                            <div class="help-text">Fill missing thin V1 white matter from the template's V1 white matter, registered to the subject.
+                                <dl class="help-opts">
+                                    <dt>auto</dt><dd>only when tessellated surfaces are built (surface_reconstruction on, template_surface off)</dd>
+                                    <dt>true</dt><dd>always</dd>
+                                    <dt>false</dt><dd>never</dd>
+                                </dl>
+                            </div>
                         </div>
                         <div class="param-block">
                             <div class="param-row">
@@ -388,7 +415,12 @@ button#generate:hover{background:var(--sidebar-head);color:var(--purple-dark);bo
                                     <input type="number" id="anat_skullstripping_segmentation_fastSurferCNN_label_island_min_volume_mm3" name="anat_skullstripping_segmentation_fastSurferCNN_label_island_min_volume_mm3" value="0" step="0.5" min="0">
                                 </span>
                             </div>
-                            <span class="help-text">relabel detached label fragments smaller than this volume, in mm³, to the surrounding label; the largest piece of each label is kept; 0 = off, 2.5 is a sensible value</span>
+                            <div class="help-text">Relabel detached label fragments smaller than this volume (mm³) to the surrounding label. The largest piece of each label is always kept.
+                                <dl class="help-opts">
+                                    <dt>0</dt><dd>off</dd>
+                                    <dt>2.5</dt><dd>a sensible value</dd>
+                                </dl>
+                            </div>
                         </div>
                         <div id="anat_skullstripping_segmentation_fastSurferCNN_pre_inference_n4_options" class="advanced-subgroup">
                             <h4 class="advanced-subgroup-title">pre_inference_n4</h4>
@@ -405,7 +437,14 @@ button#generate:hover{background:var(--sidebar-head);color:var(--purple-dark);bo
                                         </select>
                                     </span>
                                 </div>
-                                <span class="help-text">"auto" = when template_prior finds more than min_missed_cm3 of brain the first pass missed (a smaller miss also counts when the first mask is under 80% of the template brain), or, with template_prior off, when the first mask is under 80% of the template brain; true = always run it. Either way the second pass is kept only if it agrees with the template at least as well as the first</span>
+                                <div class="help-text">When to run the second pass.
+                                    <dl class="help-opts">
+                                        <dt>auto</dt><dd>when template_prior finds more than min_missed_cm3 of missed brain, or (template_prior off) when the first mask is under 80% of the template brain</dd>
+                                        <dt>true</dt><dd>always</dd>
+                                        <dt>false</dt><dd>never</dd>
+                                    </dl>
+                                    <span class="help-note">A smaller miss also counts when the first mask is under 80% of the template brain. The second pass is kept only if it agrees with the template at least as well as the first.</span>
+                                </div>
                             </div>
                             <div class="param-block">
                                 <div class="param-row">
@@ -694,10 +733,13 @@ button#generate:hover{background:var(--sidebar-head);color:var(--purple-dark);bo
                                 </select>
                             </span>
                         </div>
-                        <span class="help-text help-text-list">degrees of freedom for the within-run realignment:<br>
-                            <strong>6</strong> = rigid (translation + rotation);<br>
-                            <strong>9</strong> = rigid + scaling;<br>
-                            <strong>12</strong> = full affine</span>
+                        <div class="help-text">Degrees of freedom for the within-run realignment.
+                            <dl class="help-opts">
+                                <dt>6</dt><dd>rigid (translation + rotation)</dd>
+                                <dt>9</dt><dd>rigid + scaling</dd>
+                                <dt>12</dt><dd>full affine</dd>
+                            </dl>
+                        </div>
                     </div>
                     <div class="param-block">
                         <div class="param-row">
@@ -714,10 +756,13 @@ button#generate:hover{background:var(--sidebar-head);color:var(--purple-dark);bo
                                 </select>
                             </span>
                         </div>
-                        <span class="help-text help-text-list">cost function for realignment:<br>
-                            <strong>mutualinfo</strong>, <strong>normmi</strong> = information-based, robust across contrasts;<br>
-                            <strong>corratio</strong>, <strong>normcorr</strong>, <strong>woods</strong> = intensity-ratio based;<br>
-                            <strong>leastsq</strong> = for images of identical contrast only</span>
+                        <div class="help-text">Cost function for realignment.
+                            <dl class="help-opts">
+                                <dt>mutualinfo, normmi</dt><dd>information-based, robust across contrasts</dd>
+                                <dt>corratio, normcorr, woods</dt><dd>intensity-ratio based</dd>
+                                <dt>leastsq</dt><dd>only for images of identical contrast</dd>
+                            </dl>
+                        </div>
                     </div>
                     <div class="param-block">
                         <div class="param-row">
@@ -737,10 +782,13 @@ button#generate:hover{background:var(--sidebar-head);color:var(--purple-dark);bo
                                 <input type="text" id="func_motion_correction_ref_vol" name="func_motion_correction_ref_vol" value="mid">
                             </span>
                         </div>
-                        <span class="help-text help-text-list">volume every other volume is aligned to:<br>
-                            <strong>mid</strong> = the middle volume;<br>
-                            <strong>Tmean</strong> = the run's temporal mean;<br>
-                            <strong>an integer</strong> = that volume index</span>
+                        <div class="help-text">Volume every other volume is aligned to.
+                            <dl class="help-opts">
+                                <dt>mid</dt><dd>the middle volume</dd>
+                                <dt>Tmean</dt><dd>the run's temporal mean</dd>
+                                <dt>0, 1, …</dt><dd>that volume index</dd>
+                            </dl>
+                        </div>
                     </div>
                     <div class="param-block">
                         <div class="param-row">
@@ -931,11 +979,14 @@ button#generate:hover{background:var(--sidebar-head);color:var(--purple-dark);bo
                         </select>
                     </span>
                 </div>
-                <span class="help-text help-text-list">anatomical to template &mdash; transform model:<br>
-                    <strong>translation</strong> = shift only;<br>
-                    <strong>rigid</strong> = shift + rotation;<br>
-                    <strong>affine</strong> = rigid + scaling and shearing;<br>
-                    <strong>syn</strong> = affine followed by nonlinear SyN</span>
+                <div class="help-text">Anatomical to template: transform model.
+                    <dl class="help-opts">
+                        <dt>translation</dt><dd>shift only</dd>
+                        <dt>rigid</dt><dd>shift + rotation</dd>
+                        <dt>affine</dt><dd>rigid + scaling and shearing</dd>
+                        <dt>syn</dt><dd>affine, then nonlinear SyN</dd>
+                    </dl>
+                </div>
             </div>
             <div class="param-block">
                 <div class="param-row">
@@ -950,11 +1001,14 @@ button#generate:hover{background:var(--sidebar-head);color:var(--purple-dark);bo
                         </select>
                     </span>
                 </div>
-                <span class="help-text help-text-list">functional to anatomical &mdash; transform model:<br>
-                    <strong>translation</strong> = shift only;<br>
-                    <strong>rigid</strong> = shift + rotation;<br>
-                    <strong>affine</strong> = rigid + scaling and shearing;<br>
-                    <strong>syn</strong> = affine followed by nonlinear SyN</span>
+                <div class="help-text">Functional to anatomical: transform model.
+                    <dl class="help-opts">
+                        <dt>translation</dt><dd>shift only</dd>
+                        <dt>rigid</dt><dd>shift + rotation</dd>
+                        <dt>affine</dt><dd>rigid + scaling and shearing</dd>
+                        <dt>syn</dt><dd>affine, then nonlinear SyN</dd>
+                    </dl>
+                </div>
             </div>
             <div class="param-block">
                 <div class="param-row">
@@ -969,11 +1023,14 @@ button#generate:hover{background:var(--sidebar-head);color:var(--purple-dark);bo
                         </select>
                     </span>
                 </div>
-                <span class="help-text help-text-list">functional to template &mdash; transform model:<br>
-                    <strong>translation</strong> = shift only;<br>
-                    <strong>rigid</strong> = shift + rotation;<br>
-                    <strong>affine</strong> = rigid + scaling and shearing;<br>
-                    <strong>syn</strong> = affine followed by nonlinear SyN</span>
+                <div class="help-text">Functional to template: transform model.
+                    <dl class="help-opts">
+                        <dt>translation</dt><dd>shift only</dd>
+                        <dt>rigid</dt><dd>shift + rotation</dd>
+                        <dt>affine</dt><dd>rigid + scaling and shearing</dd>
+                        <dt>syn</dt><dd>affine, then nonlinear SyN</dd>
+                    </dl>
+                </div>
             </div>
             <div class="param-block">
                 <div class="param-row">
@@ -994,9 +1051,12 @@ button#generate:hover{background:var(--sidebar-head);color:var(--purple-dark);bo
                         </select>
                     </span>
                 </div>
-                <span class="help-text help-text-list">resampling interpolation:<br>
-                    <strong>Linear</strong>, <strong>BSpline</strong>, <strong>Gaussian</strong>, the <strong>*WindowedSinc</strong> kernels = continuous data (images);<br>
-                    <strong>NearestNeighbor</strong>, <strong>GenericLabel</strong>, <strong>MultiLabel</strong> = label data, which must not be blended</span>
+                <div class="help-text">Resampling interpolation.
+                    <dl class="help-opts">
+                        <dt>Linear, BSpline, Gaussian, *WindowedSinc</dt><dd>continuous data (images)</dd>
+                        <dt>NearestNeighbor, GenericLabel, MultiLabel</dt><dd>label data, which must not be blended</dd>
+                    </dl>
+                </div>
             </div>
             <div class="param-block">
                 <div class="param-row">
