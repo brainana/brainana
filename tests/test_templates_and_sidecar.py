@@ -75,6 +75,7 @@ def test_has_nifti_extension(value, expected):
         ("tpl.nii", "template"),
         ("NMT2Sym:res-05", "NMT2Sym"),
         ("MEBRAINS", "MEBRAINS"),
+        ("112RMSL:res-05", "112RMSL"),
         ("", "NMT2Sym"),
         (None, "NMT2Sym"),
     ],

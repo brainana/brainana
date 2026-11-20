@@ -36,7 +36,7 @@ BRAINANA_PACKAGES = (
 )
 
 # Templates offered in the notebook's USER SETTINGS cell.
-OFFERED_TEMPLATES = ("NMT2Sym", "NMT2Asym", "MEBRAINS", "Yerkes19", "D99")
+OFFERED_TEMPLATES = ("NMT2Sym", "NMT2Asym", "MEBRAINS", "Yerkes19", "D99", "112RMSL")
 
 
 def _code_cells() -> list[str]:

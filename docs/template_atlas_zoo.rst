@@ -47,9 +47,13 @@ template and/or resolution (e.g. ``NMT2Sym:res-05``) via the
    * - Yerkes19 (`ref <https://doi.org/10.1523/JNEUROSCI.0493-16.2016>`__)
      -
      - ``res-05``
-   * - D99 (`ref <https://doi.org/10.1016/j.neuroimage.2008.10.058>`__)
-     -
+   * - D99 (`ref <https://doi.org/10.1016/j.neuroimage.2021.118759>`__)
+     - D99 v2.0, the single ex-vivo brain that the Saleem & Logothetis atlas was drawn on
      - ``res-025``, ``res-05``
+   * - 112RMSL (`ref <https://doi.org/10.1016/j.neuroimage.2008.10.058>`__)
+     - 112RM-SL: average of 112 rhesus monkeys, in Saleem & Logothetis stereotaxic space
+       (a different image from D99). No template surfaces yet
+     - ``res-05``
 
 You can also give a path to your own ``.nii``/``.nii.gz`` template; outputs then use the
 space label ``template`` and no atlases are backprojected (see :ref:`custom-template`).
@@ -76,11 +80,16 @@ Somatotopy, MacBNA, D99, CortHierarchy, FuncNetwork, FuncConnGrad
    FuncConnGrad gives functional connectivity gradients. See the download directory above
    for references.
 
-Every atlas above is provided in all five template spaces (NMT2Sym, NMT2Asym,
-MEBRAINS, Yerkes19, D99) and is backprojected for whichever one you choose.
+UWPaxinos (`ref <https://www.nitrc.org/projects/uw_rhesus_brain/>`__)
+   Wisconsin rhesus parcellation on 112RM-SL: 286 regions from the Paxinos rhesus atlas,
+   plus cerebellum, VTA, dorsal raphe and substantia nigra. Regions are not split by
+   hemisphere.
+
+Every atlas above is provided in all six template spaces (NMT2Sym, NMT2Asym,
+MEBRAINS, Yerkes19, D99, 112RMSL) and is backprojected for whichever one you choose.
 FuncNetwork, CortHierarchy and FuncConnGrad cover the left hemisphere only.
 
 .. note::
 
-   FreeSurfer- and GIfTI-format surfaces with all of these atlases for NMT2Sym, NMT2Asym, MEBRAINS, Yerkes19 and D99
+   FreeSurfer- and GIfTI-format surfaces with these atlases (except UWPaxinos) for NMT2Sym, NMT2Asym, MEBRAINS, Yerkes19 and D99
    are available at `macaque_template_surfaces <https://github.com/xingyu-liu/macaque_template_surfaces>`_.

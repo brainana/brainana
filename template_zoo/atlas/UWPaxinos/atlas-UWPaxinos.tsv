@@ -1,0 +1,291 @@
+ID	name	name_full
+1	A5	A5 noradrenaline cells
+5	Acb	accumbens nucleus
+6	AcbC	accumbens nucleus, core
+7	AcbSh	accumbens nucleus, shell
+10	AI	agranular insular cortex
+11	Al#3	alar nucleus
+14	AHiMC	amygdalohippocampal area, magnocellular part
+15	AHiPC	amygdalohippocampal area, parvicellular part
+18	IMG	amygdaloid intramedullary gray
+19	APir	amygdalopiriform transition area
+23	AA	anterior amygdaloid area
+29	AHi	anterior hypothalamic area
+35	AO	anterior olfactory nucleus
+39	Apul	anterior pulvinar
+42	AD#1	anterodorsal thalamic nucleus
+43	AM#1	anteromedial thalamic nucleus
+46	AV	anteroventral thalamic nucleus
+52	1#1	area 1 of cortex (somatosensory)
+53	10	area 10 of cortex
+54	10D	area 10 of cortex, dorsal part
+56	10M	area 10 of cortex, medial part
+57	10V	area 10 of cortex, ventral part
+58	11	area 11 of cortex
+59	11L	area 11 of cortex, lateral part
+60	11m	area 11 of cortex, medial part
+61	13	area 13 of cortex
+62	13L	area 13 of cortex, lateral part
+63	13M	area 13 of cortex, medial part
+64	13a	area 13a of cortex
+65	14M	area 14 of cortex, medial part
+66	14o	area 14o
+67	2#1	area 2 of cortex (somatosensory)
+68	2Ve	area 2 of cortex, vestibular part
+69	23	area 23 of cortex
+70	23a	area 23a of cortex
+71	23b	area 23b of cortex
+72	23c	area 23c of cortex
+73	23d	area 23d of cortex
+75	24/23a	area 24/23a of cortex
+76	24/23b	area 24/23b of cortex
+77	24/23c	area 24/23c of cortex
+78	24a	area 24a of cortex
+79	24b	area 24b of cortex
+80	24c	area 24c of cortex
+81	24d	area 24d of cortex
+82	25	area 25 of cortex
+83	29	area 29 of cortex
+84	29a	area 29a of cortex
+85	29a-c	area 29a-c of cortex
+87	29d	area 29d of cortex
+88	30	area 30 of cortex
+89	31	area 31 of cortex
+90	32	area 32 of cortex
+91	35	area 35 of cortex
+93	3a	area 3a of cortex (somatosensory)
+94	3b	area 3b of cortex (somatosensory)
+95	4#1	area 4 of cortex (primary motor)
+96	44	area 44 of cortex
+97	45A	area 45A of cortex
+98	45B	area 45B of cortex
+100	46D	area 46D of cortex
+101	46V	area 46V of cortex
+102	47(12)	area 47 (old 12) of cortex
+103	47(12)L	area 47 (old 12) of cortex, lateral part
+104	47(12)O	area 47 (old 12) of cortex, orbital part
+110	6DC(F2)	area 6 of cortex, dorsocaudal part (Matelli's F2)
+111	6DR(F7)	area 6 of cortex, dorsorostral part (Matelli's F7)
+112	6M	area 6 of cortex, medial (supplementary motor) part
+114	6VC(F4)	area 6 of cortex, ventral part, caudal subdivision (Matelli's F4)
+116	6VR(F5)	area 6 of cortex, ventral part, rostral subdivision (Matelli's F5)
+118	6/32	area 6/32 of cortex
+119	8AD	area 8 of cortex, anterodorsal part
+120	8AV	area 8 of cortex, anteroventral part
+121	8/32	area 8/32 of cortex
+122	8A	area 8A of cortex
+123	8B	area 8B of cortex
+124	9L	area 9 of cortex, lateral part
+125	9M	area 9 of cortex, medial part
+126	9/32	area 9/32 of cortex
+128	9/46	area 9/46 of cortex
+129	9/46D	area 9/46 of cortex, dorsal part
+130	9/46V	area 9/46 of cortex, ventral part
+131	PGa	area PG associated region of the superior temporal sulcus
+132	PGM/31	area PGM/31 of cortex
+135	proM#1	area ProM (promotor)
+136	TFM	area TF, medial part
+139	TLR(R36)	area TL, rostral part (area 36R)
+140	2/1	areas 2/1 of cortex (somatosensory)
+143	AKL	auditory koniocortex, lateral part
+144	AKM	auditory koniocortex, medial part
+145	azac	azygos anterior cerebral artery
+148	BM#4	basal nucleus (Meynert)
+150	BL#2	basolateral amygdaloid nucleus
+151	BLD	basolateral amygdaloid nucleus, dorsal part
+152	BLDL	basolateral amygdaloid nucleus, dorsallateral part
+153	BLI	basolateral amygdaloid nucleus, intermediate part
+155	BLV	basolateral amygdaloid nucleus, ventral part
+156	BLVL	basolateral amygdaloid nucleus, ventrolateral part
+157	BLVM	basolateral amygdaloid nucleus, ventromedial part
+158	BM#3	basomedial amygdaloid nucleus
+159	BMMC	basomedial amygdaloid nucleus, magnocellular part
+160	BMPC	basomedial amygdaloid nucleus, parvicellular part
+161	BMPCD	basomedial amygdaloid nucleus, parvicellular part, dorsal division
+162	BMPCV	basomedial amygdaloid nucleus, parvicellular part, ventral division
+163	BMPCVM	basomedial amygdaloid nucleus, parvicellular part, ventromedial division
+164	BST	bed nucleus of the stria terminalis
+165	BSTIA	bed nucleus of the stria terminalis, intraamygdaloid division
+184	Cd	caudate nucleus
+188	CeL	central amygdaloid nucleus, lateral division
+189	CEm#1	central amygdaloid nucleus, medial division
+193	CM#2	central medial thalamic nucleus
+197	Cl#2	centrolateral thalamic nucleus
+198	CMn	centromedian thalamic nucleus
+199	CMnL	centromedian thalamic nucleus, lateral part
+200	CMnM	centromedian thalamic nucleus, medial part
+217	CG	cingulate gyrus
+239	DG	dentate gyrus
+240	DIP	depth intraparietal area
+244	DEn	dorsal endopiriform nucleus
+259	Dpt	dorsal parietal area
+284	DI#2	dysgranular insular cortex
+288	ECL	entorhinal cortex, caudal limited part
+289	EC#2	entorhinal cortex, caudal part
+291	ELC	entorhinal cortex, lateral part, caudal division
+292	ELR	entorhinal cortex, lateral part, rostral division
+293	ER#1	entorhinal cortex, rostral part
+294	EI	entorhinal Cx, intermediate part
+295	EOl	entorhinal Cx, olfactory part
+303	EGP	external globus pallidus
+304	eml	external medullary lamina
+320	CA1	field CA1 of hippocampus
+321	CA1'	field CA1' of hippocampus
+322	CA2	field CA2 of hippocampus
+323	CA3	field CA3 of hippocampus
+324	CA4	field CA4 of the hippocampus
+327	FST	fundus of superior temporal sulcus
+340	GI	granular insular cortex
+345	Gu	gustatory cortex
+349	Hip	hippocampus
+351	IG	indusium griseum
+367	Ipul	inferior pulvinar
+368	ithp	inferior thalamic peduncle
+373	IPro	insular proisocortex
+375	IAM	interanteromedial thalamic nucleus
+377	I#2	intercalated nuclei of the amygdala
+385	IMD	intermediodorsal thalamic nucleus
+391	IGP	internal globus pallidus
+393	iml	internal medullary lamina
+406	IPa	intraparietal sulcus associated area in the superior temporal sulcus
+408	ICjM	islands of Calleja, major island
+409	JxSt	juxtastriate area
+414	LTer	lamina terminalis
+416	La#3	lateral amygdaloid nucleus
+421	LDSF	lateral dorsal thalamic nucleus, superficial part
+435	lo	lateral olfactory tract
+445	LPO	lateral preoptic area
+447	Lpul	lateral pulvinar
+451	LSD	lateral septal nucleus, dorsal part
+452	lsv	lateral septal nucleus, ventral part
+494	mt	mammillothalamic tract
+500	Me	medial amygdaloid nucleus
+502	CeMV	medial amygdaloid nucleus, medioventral part
+505	MGD	medial geniculate nucleus, dorsal part
+506	MGM	medial geniculate nucleus, medial part
+507	MGV	medial geniculate nucleus, ventral part
+522	MPul	medial pulvinar
+526	MST	medial superior temporal area
+532	MD	mediodorsal thalamic nucleus
+533	MDC	mediodorsal thalamic nucleus, central part
+534	MDD	mediodorsal thalamic nucleus, dorsal part
+535	MDL	mediodorsal thalamic nucleus, lateral part
+536	MDM	mediodorsal thalamic nucleus, medial part
+544	MT(V5)	middle temporal area (visual area 5)
+560	HDB	nucleus of the horizontal limb of the diagonal band
+563	VDB	nucleus of the vertical limb of the diagonal band
+565	OPt	occipitoparietal area
+569	Olb	olfactory bulb
+571	Tu	olfactory tubercle
+575	ox	optic chiasm
+576	2n	optic nerve
+581	OPAl	orbital periallocortex
+582	OPro	orbital proisocortex
+585	PaAC	paraauditory area, caudal part
+587	PaAL	paraauditory area, lateral part
+588	PaAR	paraauditory cortex, rostral part
+591	Pc#3	paracentral thalamic nucleus
+594	Pf#2	parafascicular thalamic nucleus
+599	PaIL	parainsular cortex, lateral part
+600	PaIM	parainsular cortex, medial part
+601	PaL	paralaminar amygdaloid nucleus
+602	PaLGl	paralaminar amygdaloid nucleus, glomerular part
+608	PaS	parasubiculum
+610	PT#2	paratenial thalamic nucleus
+613	PaAP	paraventricular hypothalamic nucleus, anterior parvicellular part
+616	PV	paraventricular thalamic nucleus
+617	PVA	paraventricular thalamic nucleus, anterior part
+618	PVP	paraventricular thalamic nucleus, posterior part
+619	PE#1	parietal area PE
+620	PEC	parietal area PE, caudal part
+621	PECg	parietal area PE, cingulate part
+623	PEa	parietal area PEa
+624	PFCx	parietal area PF (cortex)
+625	PFOp	parietal area PF, opercular part
+626	PFG#1	parietal area PFG
+627	PG#1	parietal area PG
+629	PGOp	parietal area PG, opercular part
+630	POaE	parietal area POa, external part
+631	POaI	parietal area POa, internal part
+634	PO#1	parieto-occipital area
+635	POa	parietooccipital associated area in the intraparietal sulcus
+654	Pir	piriform cortex
+667	PPt#1	posterior parietal area
+685	PrS	presubiculum
+689	ProK	prokoniocortex
+690	ProKL	prokoniocortex, lateral part
+691	ProKM	prokoniocortex, medial part
+692	ProST	prostriate area
+693	ProS#2	prosubiculum
+695	Pul#1	pulvinar nuclei
+697	Pu	putamen
+710	R#4	reticular thalamic nucleus
+714	ReI	retroinsular area
+715	ReIP	retroinsular area, parietal part
+716	ReIT	retroinsular area, temporal part
+719	Re	reuniens thalamic nucleus
+733	S2	secondary somatosensory cortex
+734	S2E	secondary somatosensory cortex, external part
+735	S2I	secondary somatosensory cortex, internal part
+737	SHi	septohippocampal nucleus
+772	S#1	subiculum
+778	SPF	subparafascicular thalamic nucleus
+779	SPFPC	subparafascicular thalamic nucleus, parvicellular part
+784	SI#2	substantia innominata
+811	ST1	superior temporal sulcus area 1
+812	ST3	superior temporal sulcus area 3
+813	ST2g	superior temporal sulcus area, gyral part
+814	ST2s	superior temporal sulcus area, sulcal part
+816	SS	supracallosal subiculum
+817	SG	suprageniculate thalamic nucleus
+827	TAa	temporal area TAa
+828	TEM	temporal area TE, medial part
+829	TEO	temporal area TE, occipital part
+830	TEOM	temporal area TE, occipitomedial part
+831	TE1#1	temporal area TE1
+834	TE2#1	temporal area TE2
+837	TE3#1	temporal area TE3
+838	TEa#1	temporal area TEa
+839	TF	temporal area TF
+840	TFL	temporal area TF, lateral part
+841	TFO	temporal area TF, occipital part
+842	TH	temporal area TH
+843	Tho	temporal area TH, occipital part
+844	TL	temporal area TL
+845	TLO(36O)	temporal area TL, occipital part (area 36O)
+847	TPO	temporal parietooccipital associated area in sts
+848	TPOC	temporal parietooccipital associated area in sts, caudal part
+850	Tpt	temporoparietal cortex
+852	TTPAl	temporopolar periallocortex
+854	TPPro	temporopolar proisocortex
+865	23x	unnamed region sections 102-114, called 23 more anteriorly
+872	VACo	ventral anterior cortical nucleus of the amygdala
+874	VAL(pal)	ventral anterior thalamic nucleus, lateral part, pallidal territory of thalamus
+875	VAL(VO)	ventral anterior thalamic nucleus, lateral part, ventralis oralis nucleus
+876	VAL(VO)+pal	ventral anterior thalamic nucleus, lateral part, ventralis oralis nucleus+pallidal territory of thalamus
+877	VAMC	ventral anterior thalamic nucleus, magnocellular part
+878	VAM	ventral anterior thalamic nucleus, medial part
+882	VCo	ventral cortical amygdaloid nucleus
+883	VCoInf	ventral cortical amygdaloid nucleus, inferior part
+884	VCoIn	ventral cortical amygdaloid nucleus, intermediate part
+885	VCoSu	ventral cortical amygdaloid nucleus, superior part
+892	VLL	ventral lateral thalamic nucleus, lateral part
+893	VLM#1	ventral lateral thalamic nucleus, medial part
+897	VP#3	ventral pallidum
+901	VPL#1	ventral posterolateral thalamic nucleus
+902	VPM	ventral posteromedial thalamic nucleus
+922	V1	visual area 1 (primary visual cortex)
+923	V2	visual area 2
+924	V3D	visual area 3, dorsal part
+925	V3V	visual area 3, ventral part
+926	V3A	visual area 3A
+927	V4	visual area 4
+928	V4D	visual area 4, dorsal part
+929	V4T	visual area 4, transitional part
+930	V4V	visual area 4, ventral part
+931	V4A	visual area 4A
+932	Xi	xiphoid thalamic nucleus
+992	Cb	cerebellum (in-house)
+997	VTA	ventral tegmental area (in-house)
+998	DR	dorsal raphe (in-house)
+999	SN	substantia nigra (in-house)

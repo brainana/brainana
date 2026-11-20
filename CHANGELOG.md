@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **112RM-SL template** (`--output_space 112RMSL:res-05`): the McLaren et al. (2009) average of 112 rhesus monkeys, in Saleem & Logothetis stereotaxic space. It is a different image from D99. All zoo atlases are available in this space; there are no template surfaces yet.
+- **UWPaxinos atlas**: the Wisconsin rhesus parcellation (286 Paxinos regions plus cerebellum, VTA, dorsal raphe and substantia nigra), in every template space. Volume only, not on the template surfaces.
+
+### Fixed
+
+- **D99 reference in the template zoo docs** pointed to the McLaren et al. (2009) paper; it now cites Saleem et al. (2021), the D99 v2.0 that Brainana bundles.
+
 
 ## [3.3.0] - 2026-10-26
 

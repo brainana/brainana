@@ -43,6 +43,7 @@ def _rotation_x(deg):
         ({"template": {"output_space": "MEBRAINS"}}, ("table", "MEBRAINS")),
         ({"template": {"output_space": "D99:res-05"}}, ("table", "D99")),
         ({"template": {"output_space": "Yerkes19"}}, ("table", "Yerkes19")),
+        ({"template": {"output_space": "112RMSL:res-05"}}, ("table", "112RMSL")),
         ({"template": {"output_space": "/data/my_template.nii.gz"}}, ("rigid", None)),
         ({"anat": {"conform": {"enabled": False}}}, ("rigid", None)),
     ],
@@ -85,14 +86,17 @@ def test_itk_affine_reads_a_centred_transform(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "family, mask",
+    "family, mask, far",
     [
-        ("MEBRAINS", "MEBRAINS/tpl-MEBRAINS_res-05_T1w_brain"),
-        ("D99", "D99/tpl-D99_res-05_brainmask"),
-        ("Yerkes19", "Yerkes19/tpl-Yerkes19_res-05_brainmask"),
+        ("MEBRAINS", "MEBRAINS/tpl-MEBRAINS_res-05_T1w_brain", True),
+        ("D99", "D99/tpl-D99_res-05_brainmask", True),
+        ("Yerkes19", "Yerkes19/tpl-Yerkes19_res-05_brainmask", True),
+        # 112RM-SL already sits close to NMT2Sym (identity Dice ~0.88, ~2 mm shift), so
+        # the inverse is not far off either; check the rigid improves on identity instead.
+        ("112RMSL", "112RMSL/tpl-112RMSL_res-05_brainmask", False),
     ],
 )
-def test_table_places_the_template_brain_on_nmt2sym(tmp_path, family, mask):
+def test_table_places_the_template_brain_on_nmt2sym(tmp_path, family, mask, far):
     """The bundled rigid, applied by header, puts the template's brain on NMT2Sym's.
 
     The wrong direction must not: that is the mistake this guards against.
@@ -111,8 +115,12 @@ def test_table_places_the_template_brain_on_nmt2sym(tmp_path, family, mask):
 
     wrong = nf.Nmt2SymFrame(np.linalg.inv(frame.to_nmt2sym), "table")
     assert placed_dice(frame) > 0.88
-    assert placed_dice(wrong) < 0.6
-    assert frame.provenance()["TranslationMm"] > 20
+    if far:
+        assert placed_dice(wrong) < 0.6
+        assert frame.provenance()["TranslationMm"] > 20
+    else:
+        identity = nf.Nmt2SymFrame(np.eye(4), "table")
+        assert placed_dice(frame) > placed_dice(identity) > placed_dice(wrong)
 
 
 def test_reframe_keeps_the_voxels(tmp_path):

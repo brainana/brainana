@@ -1,0 +1,43 @@
+{
+  "Description": "Rigid 112RMSL -> NMT2Sym (ITK text, LPS). mode-image: resamples 112RMSL into NMT2Sym; as a point map it takes NMT2Sym points to 112RMSL points.",
+  "Method": "ANTs translation->rigid->affine (MI, centre-of-mass start) of tpl-112RMSL_res-05_T1w_brain.nii.gz to tpl-NMT2Sym_res-05_T1w_brain.nii.gz; rigid = polar decomposition of the affine, agreeing with it at the NMT2Sym brain centroid",
+  "Software": "ANTs Version: 2.5.1.post13-g4a0fb48",
+  "Date": "2026-11-20",
+  "AffineLPS": [
+    [
+      1.031659,
+      -0.020563,
+      -0.004309,
+      -0.048746
+    ],
+    [
+      0.02547,
+      1.038219,
+      -0.128718,
+      1.379247
+    ],
+    [
+      0.007836,
+      0.188173,
+      1.065949,
+      -0.236771
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "AffineScales": [
+    1.0969,
+    1.034,
+    1.0291
+  ],
+  "TranslationMm": 1.66,
+  "BrainMaskDiceWithNMT2Sym": {
+    "identity": 0.876,
+    "rigid": 0.89,
+    "affine": 0.962
+  }
+}

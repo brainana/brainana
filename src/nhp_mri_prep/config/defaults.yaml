@@ -19,7 +19,7 @@ template:
   # examples:
   #   - "NMT2Sym:res-1"
   #   - "NMT2Sym:res-025"
-  #   - "MEBRAINS:res-05", "D99:res-05", "Yerkes19:res-05", "NMT2Asym:res-05"
+  #   - "MEBRAINS:res-05", "D99:res-05", "Yerkes19:res-05", "NMT2Asym:res-05", "112RMSL:res-05"
   #   - "/path/to/custom_template.nii.gz"
 
 anat:

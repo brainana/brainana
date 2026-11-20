@@ -3,7 +3,7 @@
 The template prior, the V1 white-matter fix and the template surface register NMT2Sym
 material to the subject with FireANTs, which needs the pair roughly aligned first
 (see src/nhp_mri_prep/operations/nmt2sym_frame.py). When conform aligned the subject
-to MEBRAINS, D99 or Yerkes19, these files supply that alignment.
+to MEBRAINS, D99, Yerkes19 or 112RMSL, these files supply that alignment.
 
 For each template: an ANTs translation -> rigid -> affine registration of its brain to
 the NMT2Sym res-05 brain (mutual information, centre-of-mass start), then the rigid
@@ -18,7 +18,7 @@ Writes, per template X:
       from, and brain-mask Dice with NMT2Sym (identity / rigid / affine).
 
 Run from the repo root with the venv active (needs ANTs):
-    python scripts/dev/nhp_mriprep/make_template_nmt2sym_xfm.py [MEBRAINS D99 Yerkes19]
+    python scripts/dev/nhp_mriprep/make_template_nmt2sym_xfm.py [MEBRAINS D99 Yerkes19 112RMSL]
 """
 
 import json
@@ -53,6 +53,7 @@ TEMPLATES = {  # brain image to register, mask to score (MEBRAINS res-05 has no 
     "MEBRAINS": ("MEBRAINS/tpl-MEBRAINS_res-05_T1w_brain", "MEBRAINS/tpl-MEBRAINS_res-05_T1w_brain"),
     "D99": ("D99/tpl-D99_res-05_T1w_brain", "D99/tpl-D99_res-05_brainmask"),
     "Yerkes19": ("Yerkes19/tpl-Yerkes19_res-05_T1w_brain", "Yerkes19/tpl-Yerkes19_res-05_brainmask"),
+    "112RMSL": ("112RMSL/tpl-112RMSL_res-05_T1w_brain", "112RMSL/tpl-112RMSL_res-05_brainmask"),
 }
 
 log = logging.getLogger("make_template_nmt2sym_xfm")

@@ -88,3 +88,34 @@ retinotopy res-1 in MEBRAINS, MacBNA in NMT2Asym). xfm direction checked by warp
 NMT2Sym T1w: r ≈ 0.95 as named vs ≈ 0 reversed. On the template surfaces, label area shares
 match NMT2Sym (r ≥ 0.985 for D99, MacBNA, FuncNetwork). `discover_atlases` picks the new
 files up with no code change.
+
+## 112RM-SL template + UWPaxinos atlas (2026-11-20)
+
+- **Template `112RMSL`** (display name 112RM-SL; hyphen dropped for a BIDS-valid label):
+  McLaren et al. 2009, NeuroDebian `mclaren-rhesus-macaque-atlas` 0.20081212 (GPL-3). It sits in
+  Saleem & Logothetis space but is a 112-monkey average, not the D99 specimen (brainana's D99 is
+  D99 v2.0, voxel-identical to the AFNI `D99_v2.0_dist`). The distributed T1 is already skull-stripped;
+  `brainmask` = GM+WM+CSF priors > 0.5 (114 cm³). Reoriented LAS→RAS and cropped to brain + 6 vox,
+  no resampling. Built by `macaque/propogate_atlases_across_space/make_112rmsl_template_and_atlas.py`;
+  originals + NOTE in `atlas/macaque/template/112RMSL/`.
+- **Rigid frame** `template/xfm/from-112RMSL_to-NMT2Sym_*`: brain-mask Dice with NMT2Sym 0.876
+  identity / 0.89 rigid / 0.962 affine. 112RM-SL is already near the NMT2Sym frame (1.7 mm), so
+  `test_table_places_the_template_brain_on_nmt2sym` checks rigid > identity > inverse for it instead
+  of the "inverse is far off" check used for D99/MEBRAINS/Yerkes19.
+- **SyN to/from NMT2Sym** via brainana's `ants_register` (`make_syn_xfm.py`): FireANTs (GPU) used;
+  stored as `.nii.gz` warps in `atlas/macaque/xfm/`. Direction check: NMT2Sym→112RMSL r=0.912
+  (reversed 0.265), 112RMSL→NMT2Sym r=0.800 (reversed 0.256). ANTs SyN run for comparison gave
+  0.884 / 0.807, so FireANTs kept; the lower forward r is the image pair (112RM-SL contrast,
+  CSF-inclusive mask), not the engine.
+- **UWPaxinos atlas**: Wisconsin Rhesus Brain Parcellation (NITRC `rhesusROIs_20180830`, public
+  domain), indexed `Paxinos_to_112RM-SL_20121014` on the original (non-symmetrized) template.
+  290 codes = 286 Paxinos elementary + 992 Cb, 997 VTA, 998 DR, 999 SN (997–999 identified by voxel
+  overlap with `ROIs/In_house/*`; names from `Rhesus_ROIs.xls`). The `.img` header origin differs
+  from the T1's on the same voxel grid; the T1 affine is used (99.8% of labelled voxels in the brainmask).
+  Bilateral labels. Volume only (not projected onto template surfaces).
+- **Propagation**: `1_warp_atlases.py` warped every zoo atlas (incl. ARM1–6, added to `ATLASES` with
+  `surface=False`) into 112RMSL, and UWPaxinos into the other five spaces; all 290 labels survive in
+  every space. 112RMSL has no `sub-112RMSL` surfaces, so steps 2–3 default to `SURFACE_TEMPLATES` /
+  `SURFACE_ATLASES` and skip it.
+- Docs: the D99 row in `template_atlas_zoo.rst` used to cite McLaren 2009 (the 112RM-SL paper);
+  now Saleem et al. 2021. The zoo overview figure (`template_atlas_zoo.png`) was not regenerated.
