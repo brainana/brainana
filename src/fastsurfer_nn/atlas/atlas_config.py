@@ -1,14 +1,24 @@
 #!/usr/bin/env python3
 """
-ARM3 Atlas Configuration - All-in-One Module
+Atlas configuration: region classification and label mapping.
 
-Provides complete atlas functionality including:
-1. Region classification (cortex, subcortex, white matter)
-2. Label mapping (sparse ↔ dense)
-3. Label generation utilities
-4. Verification tools
+Terminology used throughout fastsurfer_nn (keep it consistent):
 
-Supports both ARM3 (metadata-based) and FreeSurfer (threshold-based) atlases.
+* **sparse** labels = atlas label IDs exactly as stored in label NIfTI files and in the
+  ColorLUT, e.g. 0 (background), 2, 16, 1002, 502, -1, -1501. Non-contiguous, may be negative.
+* **dense** labels = contiguous network class indices 0..N-1 with 0 = background. This is
+  what the CNN predicts and what the HDF5 ``aseg_dataset`` stores.
+  Axial/coronal (bilateral): N = number of atlas labels + background (ARM2: 71).
+  Sagittal (left/right merged by ``key_nohemi``): ARM2: 36.
+
+(Not the TensorFlow sense of "sparse = integer class vs dense = one-hot".)
+
+Conversions: sparse -> dense ``map_labels_to_dense`` / ``map_labels_to_sagittal_dense``;
+dense -> sparse ``map_labels_to_sparse`` with ``create_dense_to_sparse_mapping``. The plane-
+aware wrappers live on ``AtlasManager`` (``to_dense``, ``dense_to_sparse``, ``dense_ids_of``).
+Region sets on ``AtlasConfig`` (``cortex_labels`` etc.) hold SPARSE IDs.
+
+Supports roiinfo-based atlases (ARM levels) and FreeSurfer (threshold-based).
 """
 
 import json
@@ -186,9 +196,7 @@ def load_atlas_config_from_roiinfo(roiinfo_path: Path) -> AtlasConfig:
         except (ValueError, IndexError):
             continue
 
-    # Note: Background (0) is NOT in roiinfo.txt
-    # We add it here only for internal compatibility (treated as cortex class)
-    cortex_labels.add(0)
+    # Background (0) is not a region: it is in none of these sets.
 
     atlas_name = roiinfo_path.stem
 
@@ -214,51 +222,6 @@ def create_freesurfer_config(plane: str = "coronal") -> AtlasConfig:
     return AtlasConfig(name="FreeSurfer", ctx_thresh=ctx_thresh, use_threshold=True)
 
 
-# Default configurations
-ARM3_CONFIG_PATH = Path(__file__).parent / "atlas-ARM_level-3_roiinfo.txt"
-_ATLAS_CONFIGS = {}
-
-
-def get_atlas_config(atlas_name: str = "arm3", plane: str = "coronal") -> AtlasConfig:
-    """
-    Get atlas configuration by name.
-
-    Parameters
-    ----------
-    atlas_name : str
-        'arm3', 'freesurfer', or path to roiinfo.txt
-    plane : str
-        For FreeSurfer: 'sagittal', 'coronal', or 'axial'
-
-    Examples
-    --------
-    >>> config = get_atlas_config('arm3')
-    >>> config.is_cortex(3)  # True
-    >>> config.is_subcortex(503)  # True
-    """
-    cache_key = f"{atlas_name}_{plane}"
-
-    if cache_key not in _ATLAS_CONFIGS:
-        if atlas_name.lower() == "arm3":
-            if ARM3_CONFIG_PATH.exists():
-                _ATLAS_CONFIGS[cache_key] = load_atlas_config_from_roiinfo(
-                    ARM3_CONFIG_PATH
-                )
-            else:
-                raise FileNotFoundError(f"ARM3 config not found at {ARM3_CONFIG_PATH}")
-
-        elif atlas_name.lower() == "freesurfer":
-            _ATLAS_CONFIGS[cache_key] = create_freesurfer_config(plane)
-
-        elif Path(atlas_name).exists():
-            _ATLAS_CONFIGS[cache_key] = load_atlas_config_from_roiinfo(Path(atlas_name))
-
-        else:
-            raise ValueError(f"Unknown atlas: {atlas_name}")
-
-    return _ATLAS_CONFIGS[cache_key]
-
-
 # ============================================================================
 # SAGITTAL HEMISPHERE MAPPING - For Multi-View Training
 # ============================================================================
@@ -275,7 +238,7 @@ def load_sagittal_hemisphere_mapping(
     Parameters
     ----------
     roiinfo_path : Path, optional
-        Path to roiinfo.txt. If None, uses default ARM3 path.
+        Path to roiinfo.txt. Required.
 
     Returns
     -------
@@ -292,7 +255,7 @@ def load_sagittal_hemisphere_mapping(
     >>> num_classes    # 75 (74 unique key_nohemi + background)
     """
     if roiinfo_path is None:
-        roiinfo_path = ARM3_CONFIG_PATH
+        raise ValueError("roiinfo_path is required (e.g. AtlasManager('ARM2').roiinfo_path)")
 
     bilateral_to_merged = {}
     key_nohemi_set = set()
@@ -338,18 +301,18 @@ def create_sagittal_sparse_to_dense_mapping(
     """
     Create sparse-to-dense mapping for sagittal training.
 
-    Maps bilateral ARM3 labels -> dense indices for sagittal model.
+    Maps bilateral labels -> dense indices for sagittal model.
     Both hemispheres of same structure map to same dense index.
 
     Parameters
     ----------
     roiinfo_path : Path, optional
-        Path to roiinfo.txt. If None, uses default ARM3 path.
+        Path to roiinfo.txt. Required.
 
     Returns
     -------
     Dict[int, int]
-        Mapping from bilateral ARM3 labels -> dense indices
+        Mapping from bilateral labels -> dense indices
 
     Examples
     --------
@@ -382,16 +345,16 @@ def map_labels_to_sagittal_dense(
     label_array: np.ndarray, roiinfo_path: Optional[Path] = None
 ) -> np.ndarray:
     """
-    Map ARM3 bilateral labels to sagittal hemisphere-merged dense indices.
+    Map bilateral labels to sagittal hemisphere-merged dense indices.
 
     This is used during sagittal training data generation.
 
     Parameters
     ----------
     label_array : np.ndarray
-        Array with bilateral ARM3 label IDs (e.g., 3, 1003, 11, 1011, ...)
+        Array with bilateral label IDs (e.g., 3, 1003, 11, 1011, ...)
     roiinfo_path : Path, optional
-        Path to roiinfo.txt. If None, uses default ARM3 path.
+        Path to roiinfo.txt. Required.
 
     Returns
     -------
@@ -423,36 +386,6 @@ def map_labels_to_sagittal_dense(
 # ============================================================================
 # LABEL MAPPING - Sparse ↔ Dense Conversion
 # ============================================================================
-
-# Load ARM3 labels from JSON
-_LABELS_FILE = Path(__file__).parent / "arm3_labels.json"
-
-if _LABELS_FILE.exists():
-    with open(_LABELS_FILE, "r") as f:
-        _labels_data = json.load(f)
-        ARM3_LABELS = _labels_data["labels"]
-        NUM_CLASSES = _labels_data["num_labels"]
-else:
-    ARM3_LABELS = []
-    NUM_CLASSES = 0
-
-# Create region names for ARM3 (used by global_var.py for class names)
-# These align with DENSE indices (0 to 147), not sparse labels
-if ARM3_LABELS:
-    ARM3_REGION_NAMES = ["Background"] + [f"ARM3-{label}" for label in ARM3_LABELS]
-else:
-    ARM3_REGION_NAMES = []
-
-# Create sagittal-specific region names (hemisphere-merged)
-# These align with DENSE indices for sagittal (0 to 74)
-try:
-    _, sagittal_labels, _ = load_sagittal_hemisphere_mapping()
-    ARM3_SAGITTAL_REGION_NAMES = ["Background"] + [
-        f"ARM3-{label}" for label in sagittal_labels
-    ]
-except Exception:
-    ARM3_SAGITTAL_REGION_NAMES = []
-
 
 def create_sparse_to_dense_mapping(sparse_labels: List[int]) -> Dict[int, int]:
     """
@@ -721,263 +654,3 @@ def generate_colorlut_from_roiinfo(roiinfo_path: Path, output_tsv_path: Path):
 # ============================================================================
 # VERIFICATION - Check cortex detection
 # ============================================================================
-
-
-def check_cortex_detection(label_array: np.ndarray, atlas_name: str = "arm3"):
-    """
-    Verify cortex detection is working correctly.
-
-    Analyzes which labels are present and how they're classified.
-    """
-    config = get_atlas_config(atlas_name)
-
-    unique_labels = np.unique(label_array)
-    unique_labels = unique_labels[unique_labels != 0]
-
-    print("=" * 70)
-    print(f"Cortex Detection Analysis - {config.name}")
-    print("=" * 70)
-    print(f"Atlas: {atlas_name}")
-    print(f"Use threshold: {config.use_threshold}")
-    print(f"Total unique labels: {len(unique_labels)}")
-    print()
-
-    # Categorize
-    cortex_found = []
-    subcortex_found = []
-    wm_found = []
-    unknown_found = []
-
-    for label in unique_labels:
-        label_int = int(label)
-        region_type = config.get_region_type(label_int)
-
-        if region_type == "cortex":
-            cortex_found.append(label_int)
-        elif region_type == "subcortex":
-            subcortex_found.append(label_int)
-        elif region_type in ["cerebral_WM", "cerebellar_WM"]:
-            wm_found.append(label_int)
-        else:
-            unknown_found.append(label_int)
-
-    # Report
-    print(f"✓ Cortex labels: {len(cortex_found)}")
-    if cortex_found:
-        print(f"  Sample: {sorted(cortex_found)[:10]}")
-
-    print(f"\n✓ Subcortex labels: {len(subcortex_found)}")
-    if subcortex_found:
-        print(f"  Sample: {sorted(subcortex_found)[:10]}")
-
-    print(f"\n✓ White matter labels: {len(wm_found)}")
-    if wm_found:
-        print(f"  All: {sorted(wm_found)}")
-
-    if unknown_found:
-        print(f"\n⚠ Unknown labels: {sorted(unknown_found)}")
-
-    # Voxel counts
-    total_voxels = len(label_array.flatten())
-    cortex_voxels = sum([np.sum(label_array == label) for label in cortex_found])
-    subcortex_voxels = sum([np.sum(label_array == label) for label in subcortex_found])
-    wm_voxels = sum([np.sum(label_array == label) for label in wm_found])
-
-    print("\n" + "=" * 70)
-    print("Voxel Analysis")
-    print("=" * 70)
-    print(f"Total: {total_voxels:,}")
-    print(f"Cortex: {cortex_voxels:,} ({100*cortex_voxels/total_voxels:.1f}%)")
-    print(f"Subcortex: {subcortex_voxels:,} ({100*subcortex_voxels/total_voxels:.1f}%)")
-    print(f"White matter: {wm_voxels:,} ({100*wm_voxels/total_voxels:.1f}%)")
-    print("=" * 70)
-
-    return {
-        "cortex_labels": cortex_found,
-        "subcortex_labels": subcortex_found,
-        "wm_labels": wm_found,
-    }
-
-
-# ============================================================================
-# MAIN - Tests and CLI
-# ============================================================================
-
-if __name__ == "__main__":
-    import sys
-    import argparse
-
-    parser = argparse.ArgumentParser(description="ARM3 Atlas Configuration")
-    parser.add_argument(
-        "--generate", action="store_true", help="Generate labels.json and ColorLUT.tsv"
-    )
-    parser.add_argument("--test", action="store_true", help="Run test suite")
-    parser.add_argument(
-        "--verify", type=str, help="Verify cortex detection on segmentation file"
-    )
-
-    args = parser.parse_args()
-
-    if args.generate:
-        print("Generating ARM3 atlas files...")
-        current_dir = Path(__file__).parent
-        roiinfo_path = current_dir / "atlas-ARM_level-3_roiinfo.txt"
-
-        if not roiinfo_path.exists():
-            print(f"❌ Error: {roiinfo_path} not found!")
-            sys.exit(1)
-
-        # labels.json generation removed - use ColorLUT.tsv instead
-        generate_colorlut_from_roiinfo(roiinfo_path, current_dir / "ARM3_ColorLUT.tsv")
-        print("\n✅ Done!")
-
-    elif args.verify:
-        import nibabel as nib
-
-        print(f"Loading segmentation: {args.verify}")
-        img = nib.load(args.verify)
-        seg_data = img.get_fdata().astype(np.int32)
-        check_cortex_detection(seg_data, "arm3")
-
-    else:
-        # Run test suite
-        print("=" * 70)
-        print("ARM3 Atlas Configuration - Test Suite")
-        print("=" * 70)
-
-        # Test 1: ARM3 config
-        print("\n1. ARM3 Configuration:")
-        arm3 = get_atlas_config("arm3")
-        print(f"   Name: {arm3.name}")
-        print(f"   Cortex labels: {len(arm3.cortex_labels)}")
-        print(f"   Subcortex labels: {len(arm3.subcortex_labels)}")
-
-        test_labels = {
-            3: "cortex",
-            503: "subcortex",
-            -1: "cerebral_WM",
-            -501: "cerebellar_WM",
-        }
-        print("\n   Label classification:")
-        for label, expected in test_labels.items():
-            result = arm3.get_region_type(label)
-            status = "✓" if result == expected else "✗"
-            print(f"     {status} {label:5d} -> {result} (expected: {expected})")
-
-        # Test 2: Label mapping
-        print("\n2. Label Mapping:")
-        if ARM3_LABELS:
-            print(f"   Total labels: {len(ARM3_LABELS)}")
-
-            # Create mappings for testing
-            sparse_to_dense = create_sparse_to_dense_mapping(ARM3_LABELS)
-            dense_to_sparse = create_dense_to_sparse_mapping(ARM3_LABELS)
-
-            test_sparse = np.array([0, 3, -1, -1001, 1811])
-            test_dense = map_labels_to_dense(test_sparse, sparse_to_dense)
-            test_sparse_back = map_labels_to_sparse(test_dense, dense_to_sparse)
-
-            print(f"   Sparse: {test_sparse}")
-            print(f"   Dense:  {test_dense}")
-            print(f"   Back:   {test_sparse_back}")
-
-            if np.array_equal(test_sparse, test_sparse_back):
-                print("   ✓ Round-trip test passed")
-            else:
-                print("   ✗ Round-trip test failed")
-        else:
-            print("   ⚠ arm3_labels.json not found")
-
-        # Test 3: Synthetic verification
-        print("\n3. Cortex Detection:")
-        test_seg = np.array([0, 3, 11, 503, 543, -1, -1001, -501])
-        test_volume = np.repeat(test_seg, 100).reshape((len(test_seg), 10, 10))
-        results = check_cortex_detection(test_volume, "arm3")
-
-        print("\n" + "=" * 70)
-        print("✓ All tests completed!")
-        print("=" * 70)
-
-
-def get_sagittal_to_bilateral_expansion(
-    roiinfo_path: Optional[Path] = None,
-) -> List[int]:
-    """
-    Create expansion mapping for sagittal predictions to bilateral label space.
-
-    This is used during inference when a sagittal model (75 classes) needs to be
-    combined with coronal/axial models (149 classes). The sagittal prediction
-    needs to be expanded from 75 channels to 149 channels.
-
-    Parameters
-    ----------
-    roiinfo_path : Path, optional
-        Path to roiinfo.txt. If None, uses default ARM3 path.
-
-    Returns
-    -------
-    List[int]
-        Index list of length 149, where each position i corresponds to which
-        sagittal class (0-74) should be used for bilateral class i.
-
-    Examples
-    --------
-    For a sagittal prediction with shape [batch, 75, H, W], this converts to
-    [batch, 149, H, W] by duplicating appropriate channels:
-
-    >>> idx_list = get_sagittal_to_bilateral_expansion()
-    >>> bilateral_pred = sagittal_pred[:, idx_list, :, :]
-
-    Notes
-    -----
-    The mapping works by:
-    1. Loading the bilateral-to-sagittal mapping from roiinfo.txt
-    2. Creating the inverse: for each bilateral class, which sagittal class?
-    3. Converting sagittal sparse IDs to dense indices (0-74)
-
-    Both hemispheres of same structure map to same sagittal class:
-    - Bilateral class 3 (rh ACC) -> Sagittal dense idx 1
-    - Bilateral class 1003 (lh ACC) -> Sagittal dense idx 1
-    """
-    if roiinfo_path is None:
-        roiinfo_path = ARM3_CONFIG_PATH
-
-    # Step 1: Load bilateral -> sagittal mapping
-    (
-        bilateral_to_merged,
-        sagittal_labels,
-        num_sagittal_classes,
-    ) = load_sagittal_hemisphere_mapping(roiinfo_path)
-
-    # Step 2: Create sagittal sparse -> dense index mapping
-    nohemi_to_dense = {0: 0}  # Background
-    for dense_idx, key_nohemi in enumerate(sagittal_labels, start=1):
-        nohemi_to_dense[key_nohemi] = dense_idx
-
-    # Step 3: Load bilateral sparse -> dense mapping
-    bilateral_sparse_to_dense = create_sparse_to_dense_mapping(
-        ARM3_LABELS
-    )  # Use ARM3_LABELS explicitly
-
-    # Step 4: Create the expansion index list
-    # For each bilateral dense index, find which sagittal dense index it maps to
-    num_bilateral_classes = len(bilateral_sparse_to_dense)  # 149
-
-    # Create reverse mapping: bilateral_dense -> bilateral_sparse
-    bilateral_dense_to_sparse = {v: k for k, v in bilateral_sparse_to_dense.items()}
-
-    # Build the index list
-    idx_list = []
-    for bilateral_dense_idx in range(num_bilateral_classes):
-        # Get the bilateral sparse label
-        bilateral_sparse = bilateral_dense_to_sparse.get(bilateral_dense_idx, 0)
-
-        # Map to sagittal merged label (key_nohemi)
-        sagittal_sparse = bilateral_to_merged.get(bilateral_sparse, 0)
-
-        # Map to sagittal dense index
-        sagittal_dense_idx = nohemi_to_dense.get(sagittal_sparse, 0)
-
-        idx_list.append(sagittal_dense_idx)
-
-    return idx_list

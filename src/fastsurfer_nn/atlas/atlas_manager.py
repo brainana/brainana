@@ -161,9 +161,71 @@ class AtlasManager:
         """Get total number of classes (including background)."""
         return self.num_classes
 
-    def get_labels(self) -> List[int]:
-        """Get list of label IDs (including background)."""
+    def get_sparse_labels(self) -> List[int]:
+        """Sparse label IDs (atlas IDs, incl. background 0) in roiinfo FILE order.
+
+        This is NOT the dense (network class) order: background is appended LAST here,
+        while dense index 0 is background. Use get_dense_to_sparse_mapping() /
+        dense_to_sparse(plane) whenever you need "sparse ID of dense index i".
+        """
         return self.labels
+
+    # ------------------------------------------------------------------ plane-aware helpers
+    # Terminology (see atlas_config module docstring):
+    #   sparse = atlas label IDs as stored in label NIfTIs / ColorLUT (0, 2, 1002, -1, ...)
+    #   dense  = contiguous network class indices 0..N-1 (0 = background)
+    # Axial/coronal models are bilateral (N = all labels); sagittal models merge left/right
+    # into key_nohemi classes (N = unique key_nohemi + background).
+
+    def num_dense_classes(self, plane: str = "coronal") -> int:
+        if plane == "sagittal":
+            return self.get_sagittal_mapping()[2]
+        return self.get_num_classes()
+
+    def dense_to_sparse(self, plane: str = "coronal") -> np.ndarray:
+        """Array d2s with d2s[dense] = sparse ID, for the given plane.
+
+        Sagittal classes are hemisphere-merged; each maps to its key_nohemi, which in ARM
+        atlases is the right-hemisphere ID (so it has a ColorLUT entry).
+        """
+        if plane != "sagittal":
+            return self.get_dense_to_sparse_mapping()
+        _, sagittal_labels, _ = self.get_sagittal_mapping()
+        return np.array([0] + list(sagittal_labels), dtype=np.int32)
+
+    def sparse_to_dense(self, plane: str = "coronal") -> Dict[int, int]:
+        """Dict sparse ID -> dense index for the given plane (bilateral IDs for sagittal)."""
+        if plane != "sagittal":
+            return self.get_sparse_to_dense_mapping()
+        from .atlas_config import create_sagittal_sparse_to_dense_mapping
+
+        return create_sagittal_sparse_to_dense_mapping(self.roiinfo_path)
+
+    def to_dense(self, sparse_array: np.ndarray, plane: str = "coronal") -> np.ndarray:
+        """Map a sparse label array to dense indices for the given plane."""
+        if plane == "sagittal":
+            return self.map_labels_to_sagittal_dense(sparse_array)
+        return self.map_labels_to_dense(sparse_array)
+
+    def dense_ids_of(self, sparse_ids, plane: str = "coronal") -> List[int]:
+        """Dense indices of a set of sparse IDs (background and unknown IDs dropped)."""
+        lut = self.sparse_to_dense(plane)
+        return sorted({lut[int(s)] for s in sparse_ids if int(s) != 0 and int(s) in lut} - {0})
+
+    def cortex_dense(self, plane: str = "coronal") -> List[int]:
+        """Dense indices of cortical classes for the given plane."""
+        return self.dense_ids_of(self.get_atlas_config(plane).cortex_labels, plane)
+
+    def dense_class_names(self, plane: str = "coronal") -> List[str]:
+        """Class names in dense order (index 0 = 'background')."""
+        names = {0: "background"}
+        if self.roiinfo_path.exists():
+            df = pd.read_csv(self.roiinfo_path, sep="\t")
+            for _, r in df.iterrows():
+                key = int(r["key_nohemi"] if plane == "sagittal" else r["key"])
+                hemi = "both" if plane == "sagittal" else str(r.get("hemi", ""))
+                names.setdefault(key, f"{r['region']}-{hemi}-{r['name']}")
+        return [names.get(int(s), str(int(s))) for s in self.dense_to_sparse(plane)]
 
     def get_sparse_to_dense_mapping(self) -> Dict[int, int]:
         """Get sparse to dense label mapping."""
@@ -413,7 +475,7 @@ if __name__ == "__main__":
         if not args.generate and not args.verify:
             print(f"Atlas Manager for {args.atlas_name.upper()}")
             print(f"  Classes: {manager.get_num_classes()}")
-            print(f"  Labels: {len(manager.get_labels())}")
+            print(f"  Labels: {len(manager.get_sparse_labels())}")
             print(f"  Config: {manager.get_atlas_config().name}")
 
     except Exception as e:

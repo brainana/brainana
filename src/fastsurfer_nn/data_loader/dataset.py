@@ -13,11 +13,11 @@
 # limitations under the License.
 
 # IMPORTS
-import time
 from collections.abc import Callable, Sequence
 from typing import Optional
 
 import h5py
+from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 import torch
@@ -145,452 +145,124 @@ class MultiScaleOrigDataThickSlices(Dataset):
         return self.count
 
 
-# Base class for HDF5-based datasets with shared file handling
-class HDF5DatasetBase(Dataset):
-    """
-    Base class for HDF5-based datasets with optimized file handling.
-    Provides shared methods for opening and managing HDF5 file handles.
+# ----------------------------------------------------------------------------- training data
+class SliceDataset(Dataset):
+    """2.5-D training/validation slices from an HDF5 file written by step2_create_hdf5.
+
+    HDF5 layout (one group per image size, e.g. "256"):
+        orig_dataset   [N, H, W, C]  uint8 (new files) or float32 (older files), 0..RESCALE
+        aseg_dataset   [N, H, W]     dense class indices
+        weight_dataset [N, H, W]     loss weights (float16 or float32)
+        zoom_dataset   [N, 2]        in-plane voxel size (mm) after the resize to target size
+        subject        [N]           subject (image stem) of each slice
+
+    Each item is a dict:
+        image        [C, H, W] uint8 (raw, normalised on the GPU) - or float32 in [0, 1] when
+                     a CPU torchio transform is used or the file stores float images
+        label        [H, W] uint8 dense indices
+        weight       [H, W] float32
+        scale_factor [2] float32 = 1 / zoom (FastSurferVINN input)
+        subject      int index into ``self.subjects``
+
+    The HDF5 file is opened lazily once per worker process with a small chunk cache
+    (``cache_mb``), so several workers do not multiply a large cache in RAM.
     """
 
-    def _get_hdf5_file(self):
-        """
-        Get persistent HDF5 file handle (opened lazily on first access).
-        The file remains open for the lifetime of the dataset to avoid repeated open/close operations.
-        Each worker process gets its own dataset instance, so this is safe for multiprocessing.
-        """
+    def __init__(self, dataset_path: str, cfg: yacs.config.CfgNode,
+                 cpu_transform=None, cache_mb: int = 64):
+        self.dataset_path = str(dataset_path)
+        self.max_size = cfg.DATA.PADDED_SIZE
+        self.rescale = float(cfg.DATA.PREPROCESSING.RESCALE)
+        self.cpu_transform = cpu_transform
+        self.scale_jitter = cpu_transform is not None and "Gaussian" in cfg.DATA.AUG
+        self.cache_bytes = int(cache_mb) * 1024**2
+        self._hdf5_file = None
+
+        self.index = []  # (size, idx)
+        subjects, subj_idx = [], []
+        with h5py.File(self.dataset_path, "r") as hf:
+            for size in cfg.DATA.SIZES:
+                key = f"{size}"
+                if key not in hf:
+                    logger.warning(f"Dataset: size {size} not in {self.dataset_path}")
+                    continue
+                grp = hf[key]
+                n = len(grp["orig_dataset"])
+                self.index += [(key, i) for i in range(n)]
+                names = [s.decode() if isinstance(s, bytes) else str(s)
+                         for s in grp["subject"][:]]
+                subjects += names
+                self.image_dtype = grp["orig_dataset"].dtype
+                logger.info(f"Dataset: {n} slices of size {size} in {Path(self.dataset_path).name} "
+                            f"(image dtype {self.image_dtype})")
+        self.subjects = sorted(set(subjects))
+        lut = {s: i for i, s in enumerate(self.subjects)}
+        self.subject_of = np.array([lut[s] for s in subjects], dtype=np.int64)
+
+    def __len__(self) -> int:
+        return len(self.index)
+
+    def _file(self):
         if self._hdf5_file is None:
-            # Optimized cache settings for read-heavy workloads with slow network storage
-            # With single worker, we can use a very large cache to minimize I/O
-            # rdcc_nbytes: cache size in bytes (8GB for large datasets on network storage)
-            # rdcc_nslots: number of hash table slots (larger = less collisions)
-            # rdcc_w0: write policy (0.0 = no write caching, pure read cache)
-            # Note: Large cache helps when I/O is slow (network mounts)
-            self._hdf5_file = h5py.File(
-                self.dataset_path,
-                "r",
-                rdcc_nbytes=8 * 1024**3,  # Increased to 8GB cache for network storage
-                rdcc_nslots=100000,  # More slots for better cache hit rate
-                rdcc_w0=0.0,  # Pure read cache (no write caching)
-            )
+            self._hdf5_file = h5py.File(self.dataset_path, "r", rdcc_nbytes=self.cache_bytes,
+                                        rdcc_nslots=10007)
         return self._hdf5_file
 
-    def _open_hdf5_file(self):
-        """
-        Legacy method for backward compatibility.
-        Now returns the persistent file handle instead of creating a new one.
-        """
-        return self._get_hdf5_file()
+    def _pad(self, a: np.ndarray) -> np.ndarray:
+        from fastsurfer_nn.data_loader.data_utils import pad_to_size
 
-    def get_subject_names(self):
-        """
-        Get subject names from the HDF5 dataset.
+        return pad_to_size(a, self.max_size, mode="edge", pos="top_left")
 
-        Returns
-        -------
-        list
-            List of subject names.
-        """
-        # Load subject names lazily when requested
-        subjects = []
-        hf = self._get_hdf5_file()
-        for size, idx in self.dataset_indices:
-            subject = hf[f"{size}"]["subject"][idx]
-            if isinstance(subject, bytes):
-                subject = subject.decode("utf-8")
-            subjects.append(subject)
-        return subjects
+    def __getitem__(self, index: int) -> dict:
+        key, i = self.index[index]
+        grp = self._file()[key]
+        img = self._pad(grp["orig_dataset"][i])  # H, W, C
+        label = self._pad(grp["aseg_dataset"][i])
+        weight = self._pad(grp["weight_dataset"][i])
+        zoom = np.asarray(grp["zoom_dataset"][i], dtype=np.float32)
+        zoom = np.where(np.abs(zoom) < 1e-6, 1.0, zoom)
+        scale = 1.0 / zoom
 
-    def _scan_hdf5_indices(self, dataset_path: str, cfg: yacs.config.CfgNode):
-        """
-        Scan HDF5 file to build dataset indices without loading all data.
-        Shared initialization logic for both training and validation datasets.
+        if self.cpu_transform is not None:
+            image, label_t, weight_t, scale = self._cpu_augment(img, label, weight, scale)
+        else:
+            image = torch.from_numpy(np.ascontiguousarray(img.transpose(2, 0, 1)))
+            if image.dtype != torch.uint8:
+                image = (image.float() / self.rescale).clamp_(0, 1)
+            label_t = torch.from_numpy(np.ascontiguousarray(label)).to(torch.uint8)
+            weight_t = torch.from_numpy(np.ascontiguousarray(weight)).float()
+        return {
+            "image": image,
+            "label": label_t,
+            "weight": weight_t,
+            "scale_factor": torch.as_tensor(scale, dtype=torch.float32),
+            "subject": int(self.subject_of[index]),
+        }
 
-        Parameters
-        ----------
-        dataset_path : str
-            Path to the HDF5 file
-        cfg : yacs.config.CfgNode
-            Configuration node with DATA.SIZES
-        """
-        self.dataset_indices = []  # List of (size, index) tuples
-        self.count = 0
-
-        # Open file in reading mode to get metadata only
-        with h5py.File(dataset_path, "r") as hf:
-            for size in cfg.DATA.SIZES:
-                try:
-                    logger.info(f"Dataset: scanning size {size}...")
-                    # Only get the length, don't load data
-                    num_samples = len(hf[f"{size}"]["orig_dataset"])
-                    logger.info(f"Dataset: found {num_samples} slices for size {size}")
-
-                    # Store indices for lazy loading
-                    for idx in range(num_samples):
-                        self.dataset_indices.append((size, idx))
-
-                    self.count += num_samples
-
-                except KeyError:
-                    logger.warning(
-                        f"Dataset: key error, size {size} does not exist in HDF5 file"
-                    )
-                    continue
-
-        if self.count == 0:
-            logger.error(
-                f"WARNING: No samples found in HDF5 file!\n"
-                f"  File: {dataset_path}\n"
-                f"  Plane: {cfg.DATA.PLANE}\n"
-                f"  Expected sizes: {cfg.DATA.SIZES}\n"
-                f"  This will cause training to fail. Please check:\n"
-                f"    1. HDF5 file was created successfully\n"
-                f"    2. Subjects were processed during HDF5 creation\n"
-                f"    3. HDF5 file structure matches expected sizes\n"
-                f"    4. Data split file includes subjects for this split"
-            )
+    def _cpu_augment(self, img, label, weight, scale):
+        """torchio path (DATA.AUG_DEVICE = 'cpu')."""
+        subject = tio.Subject({
+            "img": tio.ScalarImage(tensor=np.expand_dims(img.transpose(2, 0, 1), 3).astype(np.float32)),
+            "label": tio.LabelMap(tensor=label[np.newaxis, :, :, np.newaxis].astype(np.int16)),
+            "weight": tio.LabelMap(tensor=weight[np.newaxis, :, :, np.newaxis].astype(np.float32)),
+        })
+        out = self.cpu_transform(subject)
+        s = 1.0
+        for tf in out.get_composed_history():
+            args = tf._get_reproducing_arguments()
+            if "scales" in args:  # RandomAffine applied as Affine: in-plane scale
+                s *= float(np.asarray(args["scales"])[0])
+        image = (torch.squeeze(out["img"].data, -1).float() / self.rescale).clamp_(0, 1)
+        label_t = torch.squeeze(out["label"].data).to(torch.uint8)
+        weight_t = torch.squeeze(out["weight"].data).float()
+        scale = scale * s
+        if self.scale_jitter:
+            scale = np.maximum(scale + np.random.randn() * 0.1, 0.1)
+        return image, label_t, weight_t, scale
 
     def __del__(self):
-        """Cleanup: close HDF5 file if it was opened."""
-        if self._hdf5_file is not None:
+        if getattr(self, "_hdf5_file", None) is not None:
             try:
                 self._hdf5_file.close()
             except Exception:
-                pass  # Ignore errors during cleanup
-
-
-# Operator to load hdf5-file for training
-class MultiScaleDataset(HDF5DatasetBase):
-    """
-    Class for loading aseg file with augmentations (transforms).
-    """
-
-    def __init__(
-        self,
-        dataset_path: str,
-        cfg: yacs.config.CfgNode,
-        gn_noise: bool = False,
-        transforms: Optional = None,
-    ):
-        """
-        Construct object.
-
-        Parameters
-        ----------
-        dataset_path : str
-            Path to the dataset.
-        cfg : yacs.config.CfgNode
-            Configuration node.
-        gn_noise : bool
-            Whether to add gaussian noise (Default value = False).
-        transforms : Optional
-            Transformer to apply to the image (Default value = None).
-        """
-        self.max_size = cfg.DATA.PADDED_SIZE
-        self.base_res = 1.0
-        self.rescale = cfg.DATA.PREPROCESSING.RESCALE
-        self.gn_noise = gn_noise
-        self.dataset_path = dataset_path
-        self.transforms = transforms
-
-        # Persistent HDF5 file handle (opened lazily, kept open for lifetime of dataset)
-        # Each worker process gets its own dataset instance, so this is safe for multiprocessing
-        self._hdf5_file = None
-
-        # Scan HDF5 file to build indices (shared method from base class)
-        self._scan_hdf5_indices(dataset_path, cfg)
-
-    def _get_scale_factor(
-        self, img_zoom: torch.Tensor, scale_aug: torch.Tensor
-    ) -> npt.NDArray[float]:
-        """
-        Get scaling factor to match original resolution of input image to final resolution of FastSurfer base network.
-
-        Input resolution is taken from voxel size in image header.
-
-
-        Parameters
-        ----------
-        img_zoom : torch.Tensor
-            Image zoom factor.
-        scale_aug : torch.Tensor
-            Scale augmentation factor.
-
-        Returns
-        -------
-        npt.NDArray[float]
-            Scale factor along x and y dimension.
-        """
-        if torch.all(scale_aug > 0):
-            img_zoom *= 1 / scale_aug
-
-        # Safeguard against division by zero or invalid zoom values
-        # Replace zero or very small values with base_res to get scale factor of 1.0
-        img_zoom = torch.where(
-            torch.abs(img_zoom) < 1e-6, torch.tensor(self.base_res), img_zoom
-        )
-
-        scale = self.base_res / img_zoom
-
-        if self.gn_noise:
-            scale += (
-                torch.randn(1) * 0.1 + 0
-            )  # needs to be changed to torch.tensor stuff
-            scale = torch.clamp(scale, min=0.1)
-
-        return scale
-
-    def _pad(self, image: npt.NDArray) -> np.ndarray:
-        """
-        Pad the image with edge values (replicates edge pixels) instead of zeros.
-        This helps the model perform better at boundaries by avoiding artificial zero-padded edges.
-
-        Parameters
-        ----------
-        image : npt.NDArray
-            Image to pad.
-
-        Returns
-        -------
-        padded_image
-            Padded image.
-        """
-        from fastsurfer_nn.data_loader.data_utils import pad_to_size
-
-        # Use unified padding function with edge mode (handles cropping internally if needed)
-        return pad_to_size(image, self.max_size, mode="edge", pos="top_left")
-
-    def unify_imgs(
-        self, img: npt.NDArray, label: npt.NDArray, weight: npt.NDArray
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """
-        Pad img, label and weight.
-
-        Parameters
-        ----------
-        img : npt.NDArray
-            Image to unify.
-        label : npt.NDArray
-            Labels of the image.
-        weight : npt.NDArray
-            Weights of the image.
-
-        Returns
-        -------
-        np.ndarray
-            Img.
-        np.ndarray
-            Label.
-        np.ndarray
-            Weight.
-        """
-        img = self._pad(img)
-        label = self._pad(label)
-        weight = self._pad(weight)
-
-        return img, label, weight
-
-    def __getitem__(self, index):
-        """
-        Retrieve processed data at the specified index.
-
-        Parameters
-        ----------
-        index : int
-            Index to retrieve data for.
-
-        Returns
-        -------
-        dict
-            Dictionary containing torch tensors for image, label, weight, and scale factor.
-        """
-
-        time.time()
-
-        # Lazy load data from HDF5 file using persistent handle
-        size, idx = self.dataset_indices[index]
-
-        # Time HDF5 loading
-        # Optimized: Access all datasets from same group to minimize file seeks
-        hdf5_start = time.time()
-        hf = self._get_hdf5_file()
-        size_group = hf[f"{size}"]
-        # Read all arrays in sequence to minimize I/O overhead
-        image = size_group["orig_dataset"][idx]
-        label = size_group["aseg_dataset"][idx]
-        weight = size_group["weight_dataset"][idx]
-        zoom = size_group["zoom_dataset"][idx]
-        time.time() - hdf5_start
-
-        # Time padding
-        pad_start = time.time()
-        padded_img, padded_label, padded_weight = self.unify_imgs(image, label, weight)
-        time.time() - pad_start
-
-        img = np.expand_dims(padded_img.transpose((2, 0, 1)), axis=3)
-        label = padded_label[np.newaxis, :, :, np.newaxis]
-        weight = padded_weight[np.newaxis, :, :, np.newaxis]
-
-        subject = tio.Subject(
-            {
-                "img": tio.ScalarImage(tensor=img),
-                "label": tio.LabelMap(tensor=label),
-                "weight": tio.LabelMap(tensor=weight),
-            }
-        )
-
-        zoom_aug = torch.as_tensor([0.0, 0.0])
-
-        if self.transforms is not None:
-            # Time augmentation
-            aug_start = time.time()
-            tx_sample = self.transforms(subject)  # this returns data as torch.tensors
-            time.time() - aug_start
-        else:
-            tx_sample = subject
-
-        # total_time = time.time() - total_start
-
-        # # Log slow samples with detailed breakdown - these block the batch!
-        # # Lowered threshold to 1.0s to catch moderately slow samples that still cause issues
-        # if total_time > 5.0:
-        #     logger.warning(
-        #         f"⚠️  SLOW SAMPLE: {total_time:.2f}s total for sample {index} "
-        #         f"(size={size}, idx={idx})\n"
-        #         f"   Breakdown: HDF5={hdf5_time:.3f}s, Padding={pad_time:.3f}s, "
-        #         f"Augmentation={aug_time:.3f}s\n"
-        #     )
-        # # Log moderately slow augmentations (lowered threshold)
-        # elif aug_time > 2.0:
-        #     logger.info(
-        #         f"Slow augmentation: {aug_time:.3f}s for sample {index} "
-        #         f"(size={size}, idx={idx})"
-        #     )
-
-        if self.transforms is not None:
-            img = torch.squeeze(tx_sample["img"].data).float()
-            label = torch.squeeze(tx_sample["label"].data).byte()
-            weight = torch.squeeze(tx_sample["weight"].data).float()
-
-            # get updated scalefactor, in case of scaling, not ideal - fails if scales is not in dict
-            rep_tf = tx_sample.get_composed_history()
-            if rep_tf:
-                zoom_aug += torch.as_tensor(
-                    rep_tf[0]._get_reproducing_arguments()["scales"]
-                )[:-1]
-
-            # Normalize HDF5 data from [0, rescale] to [0, 1] range
-            # Uses RESCALE value from config (typically 255.0)
-            img = torch.clamp(img / self.rescale, min=0.0, max=1.0)
-        else:
-            # No transforms - convert directly
-            img = torch.from_numpy(img).float()
-            label = torch.from_numpy(label).byte()
-            weight = torch.from_numpy(weight).float()
-            img = torch.clamp(img / self.rescale, min=0.0, max=1.0)
-
-        scale_factor = self._get_scale_factor(
-            torch.from_numpy(zoom), scale_aug=zoom_aug
-        )
-
-        return {
-            "image": img,
-            "label": label,
-            "weight": weight,
-            "scale_factor": scale_factor,
-        }
-
-    def __len__(self):
-        """
-        Return count.
-        """
-        return self.count
-
-
-# Operator to load hdf5-file for validation
-class MultiScaleDatasetVal(HDF5DatasetBase):
-    """
-    Class for loading aseg file with augmentations (transforms).
-    """
-
-    def __init__(self, dataset_path, cfg, transforms=None):
-        self.max_size = cfg.DATA.PADDED_SIZE
-        self.base_res = 1.0
-        self.dataset_path = dataset_path
-        self.transforms = transforms
-
-        # Persistent HDF5 file handle (opened lazily, kept open for lifetime of dataset)
-        # Each worker process gets its own dataset instance, so this is safe for multiprocessing
-        self._hdf5_file = None
-
-        # Scan HDF5 file to build indices (shared method from base class)
-        self._scan_hdf5_indices(dataset_path, cfg)
-
-    def _get_scale_factor(self, img_zoom):
-        """
-        Get scaling factor to match original resolution of input image to final resolution of FastSurfer base network.
-
-        Input resolution is taken from voxel size in image header.
-
-        Parameters
-        ----------
-        img_zoom : np.ndarray
-            Voxel sizes of the image.
-
-        Returns
-        -------
-        np.ndarray : numpy.typing.NDArray[float]
-            Scale factor along x and y dimension.
-        """
-        # Safeguard against division by zero or invalid zoom values
-        img_zoom = np.asarray(img_zoom)
-        # Replace zero or very small values with base_res to get scale factor of 1.0
-        img_zoom = np.where(np.abs(img_zoom) < 1e-6, self.base_res, img_zoom)
-        scale = self.base_res / img_zoom
-        return scale
-
-    def __getitem__(self, index):
-        """
-        Get item.
-        """
-        # Lazy load data from HDF5 file using persistent handle
-        size, idx = self.dataset_indices[index]
-
-        # Use persistent file handle (no context manager - file stays open)
-        # Optimized: Access all datasets from same group to minimize file seeks
-        hf = self._get_hdf5_file()
-        size_group = hf[f"{size}"]
-        # Read all arrays in sequence to minimize I/O overhead
-        img = size_group["orig_dataset"][idx]
-        label = size_group["aseg_dataset"][idx]
-        weight = size_group["weight_dataset"][idx]
-        zoom = size_group["zoom_dataset"][idx]
-
-        scale_factor = self._get_scale_factor(zoom)
-
-        if self.transforms is not None:
-            tx_sample = self.transforms(
-                {
-                    "img": img,
-                    "label": label,
-                    "weight": weight,
-                    "scale_factor": scale_factor,
-                }
-            )
-
-            img = tx_sample["img"]
-            label = tx_sample["label"]
-            weight = tx_sample["weight"]
-            scale_factor = tx_sample["scale_factor"]
-
-        return {
-            "image": img,
-            "label": label,
-            "weight": weight,
-            "scale_factor": scale_factor,
-        }
-
-    def __len__(self):
-        """
-        Get count.
-        """
-        return self.count
+                pass

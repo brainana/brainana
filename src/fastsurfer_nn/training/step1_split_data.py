@@ -24,7 +24,15 @@ from fastsurfer_nn.utils.config_utils import (
 )
 
 
-def split_data(data_dir, val_split=0.2, seed=42, min_train_subjects=5):
+def animal_key(stem: str) -> str:
+    """'site-ohsu_sub-032217_ses-002_run-1_T1w' -> 'site-ohsu_sub-032217'."""
+    parts = stem.split("_")
+    sub = next((p for p in parts if p.startswith("sub-")), parts[0])
+    site = parts[0] if parts[0].startswith("site-") else ""
+    return f"{site}_{sub}" if site else sub
+
+
+def split_data(data_dir, val_split=0.2, seed=42, min_train_subjects=5, force=False):
     """
     Split data into train/val sets
 
@@ -80,20 +88,23 @@ def split_data(data_dir, val_split=0.2, seed=42, min_train_subjects=5):
         train_subjects = valid_subjects
         val_subjects = []
     else:
-        # Shuffle and split
+        # Split by ANIMAL (site + sub-), so sessions/runs of one monkey never end up on both
+        # sides (that would leak anatomy into validation).
+        by_animal = {}
+        for s in valid_subjects:
+            by_animal.setdefault(animal_key(s), []).append(s)
+        animals = sorted(by_animal)
         random.seed(seed)
-        random.shuffle(valid_subjects)
+        random.shuffle(animals)
 
-        num_val = max(1, int(len(valid_subjects) * val_split))
-        num_train = len(valid_subjects) - num_val
-
-        # Ensure minimum training subjects
-        if num_train < min_train_subjects:
-            num_train = min_train_subjects
-            num_val = len(valid_subjects) - num_train
-
-        val_subjects = valid_subjects[:num_val]
-        train_subjects = valid_subjects[num_val:]
+        num_val = max(1, int(round(len(animals) * val_split)))
+        if len(animals) - num_val < 1:
+            num_val = len(animals) - 1
+        val_animals = set(animals[:num_val])
+        val_subjects = [s for s in valid_subjects if animal_key(s) in val_animals]
+        train_subjects = [s for s in valid_subjects if animal_key(s) not in val_animals]
+        if len(train_subjects) < min_train_subjects:
+            print(f"Warning: only {len(train_subjects)} training subjects")
 
     # print(f"\nTraining subjects: {len(train_subjects)}")
     # print(f"Validation subjects: {len(val_subjects)}")
@@ -108,6 +119,9 @@ def split_data(data_dir, val_split=0.2, seed=42, min_train_subjects=5):
     }
 
     split_file = data_dir / "data_split.json"
+    if split_file.exists() and not force:
+        raise SystemExit(f"{split_file} exists (it decides which subjects are validation); "
+                         "pass --force to replace it")
     with open(split_file, "w") as f:
         json.dump(split_info, f, indent=2)
 
@@ -141,6 +155,8 @@ def main():
         default=0.2,
         help="Fraction for validation (default: 0.2 = 20%%, can override YAML)",
     )
+    parser.add_argument("--force", action="store_true",
+                        help="replace an existing data_split.json")
     args = parser.parse_args()
 
     # Load config from YAML using unified config utilities
@@ -158,7 +174,8 @@ def main():
     print()
 
     split_data(
-        data_dir=data_dir, val_split=args.val_split, seed=seed, min_train_subjects=5
+        data_dir=data_dir, val_split=args.val_split, seed=seed, min_train_subjects=5,
+        force=args.force,
     )
 
 

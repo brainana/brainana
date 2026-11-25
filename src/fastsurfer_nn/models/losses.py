@@ -190,13 +190,11 @@ class CombinedLoss(nn.Module):
         Tensor
             Cross entropy value.
         """
-        # Typecast to long tensor --> labels are bytes initially (uint8),
-        # index operations require LongTensor in pytorch
-        target = target.type(torch.LongTensor)
-        # Due to typecasting above, target needs to be shifted to gpu again
-        # Use the same device as the input (not default cuda device)
-        if inputx.is_cuda:
-            target = target.to(inputx.device)
+        # Labels arrive as uint8; index ops need long. Cast on the input's device (no
+        # round trip through the CPU). Losses are computed in float32 even under autocast.
+        target = target.to(device=inputx.device, dtype=torch.long)
+        inputx = inputx.float()
+        weight = weight.to(inputx.device).float()
 
         input_soft = F.softmax(inputx, dim=1)  # Along Class Dimension
         dice_val = torch.mean(self.dice_loss(input_soft, target))

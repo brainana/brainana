@@ -11,749 +11,560 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Training loop for the 2.5-D segmentation networks (FastSurferVINN).
 
-import os
+What happens per epoch:
+  train    - batches from the HDF5 (uint8 slices) -> GPU -> GPU augmentation -> bf16 forward ->
+             combined Dice + weighted CE loss (fp32) -> optimizer step -> LR step (fractional epoch)
+  validate - no augmentation; per-subject 3-D Dice from overlap counts (DiceAccumulator)
+  select   - TRAIN.SELECTION_METRIC (default val_dice = mean per-subject foreground Dice)
+             picks Best_training_state.pkl AND drives early stopping (one criterion)
+  record   - monitor/metrics.jsonl + status.json + snapshot PNG (live dashboard),
+             training_metrics.csv, logs/training.log, optional TensorBoard
 
-# IMPORTS
+Resume (TRAIN.RESUME) continues from the newest checkpoints/Epoch_*.pkl with optimizer,
+scheduler, early-stopping state and best score. Fine-tuning (TRAIN.FINE_TUNE +
+TRAIN.PRETRAINED_MODEL) loads weights only and FAILS if they cannot be loaded.
+"""
+
+from __future__ import annotations
+
+import contextlib
 import csv
+import hashlib
+import json
+import math
+import os
+import subprocess
 import time
+from pathlib import Path
 
 import numpy as np
 import torch
-import torch.optim.lr_scheduler as scheduler
 import yacs.config
 
 try:
     from torch.utils.tensorboard import SummaryWriter
-except ImportError:
-    SummaryWriter = (
-        None  # tensorboard is a training-only dependency; absent in lite/inference
-    )
-from tqdm import tqdm
+except ImportError:  # tensorboard is optional; the monitor files are the primary log
+    SummaryWriter = None
 
 from fastsurfer_nn.atlas.atlas_manager import get_atlas_manager
 from fastsurfer_nn.data_loader import loader
+from fastsurfer_nn.data_loader.gpu_augment import GpuAugment
 from fastsurfer_nn.models.losses import get_loss_func
 from fastsurfer_nn.models.networks import build_model
 from fastsurfer_nn.models.optimizer import get_optimizer
 from fastsurfer_nn.utils import checkpoint as cp
 from fastsurfer_nn.utils import logging
-from fastsurfer_nn.utils.checkpoint import read_checkpoint_file
-from fastsurfer_nn.utils.lr_scheduler import get_lr_scheduler
-from fastsurfer_nn.utils.meters import Meter
-from fastsurfer_nn.utils.metrics import iou_score, precision_recall
-from fastsurfer_nn.utils.misc import plot_predictions, update_num_steps
+from fastsurfer_nn.utils.constants import PRETRAINED_MODEL_DIR, REPO_ROOT
 from fastsurfer_nn.utils.gpu_utils import get_device
+from fastsurfer_nn.utils.lr_scheduler import get_lr_scheduler
+from fastsurfer_nn.utils.metrics import DiceAccumulator
+from fastsurfer_nn.utils.misc import update_num_steps
+from fastsurfer_nn.utils.monitor import TrainingMonitor
 
 logger = logging.getLogger(__name__)
 
 
+def resolve_pretrained(path: str) -> Path:
+    """Pretrained checkpoint path. A bare file name (e.g. "T1w_seg-ARM2_coronal.pkl") means the
+    shipped model in PRETRAINED_MODEL_DIR; a stale directory also falls back there (warned)."""
+    p = Path(path)
+    if p.exists():
+        return p
+    alt = Path(PRETRAINED_MODEL_DIR) / p.name
+    if alt.exists():
+        if str(p.parent) not in ("", "."):  # a stale directory, not a bare file name
+            logger.warning(f"PRETRAINED_MODEL {path} not found; using {alt}")
+        return alt
+    raise FileNotFoundError(
+        f"TRAIN.PRETRAINED_MODEL not found: {path} (also looked for {alt})")
+
+
+def git_commit() -> str:
+    try:
+        out = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
+                             capture_output=True, text=True, timeout=10)
+        dirty = subprocess.run(["git", "-C", str(REPO_ROOT), "status", "--porcelain",
+                                "--untracked-files=no"], capture_output=True, text=True,
+                               timeout=10).stdout.strip()
+        return out.stdout.strip() + ("-dirty" if dirty else "")
+    except Exception:
+        return "unknown"
+
+
+def site_of(subject: str) -> str:
+    return subject.split("_", 1)[0] if subject.startswith("site-") else "unknown"
+
+
 class Trainer:
-    """
-    Trainer for the networks.
-
-    Methods
-    -------
-    __init__
-        Construct object.
-    train
-        Trains the network.
-    eval
-        Validates calculations.
-    run
-        Performs training loop.
-    """
-
-    def __init__(self, cfg: yacs.config.CfgNode):
-        """
-        Construct Trainer object.
-
-        Parameters
-        ----------
-        cfg : yacs.config.CfgNode
-            Node of configs to be used.
-        """
-        # Set random seed from configs.
+    def __init__(self, cfg: yacs.config.CfgNode, profile_iters: int = 0):
+        self.cfg = cfg
+        self.profile_iters = int(profile_iters)
         np.random.seed(cfg.RNG_SEED)
         torch.manual_seed(cfg.RNG_SEED)
-        self.cfg = cfg
+        deterministic = bool(getattr(cfg.TRAIN, "DETERMINISTIC", False))
+        torch.backends.cudnn.deterministic = deterministic
+        torch.backends.cudnn.benchmark = not deterministic
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
 
-        # Create the checkpoint dir (flat structure, no EXPR_NUM subdirectory).
-        self.checkpoint_dir = os.path.join(cfg.LOG_DIR, "checkpoints")
-        os.makedirs(self.checkpoint_dir, exist_ok=True)
+        self.log_dir = Path(cfg.LOG_DIR)
+        self.checkpoint_dir = self.log_dir / "checkpoints"
+        self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        (self.log_dir / "logs").mkdir(parents=True, exist_ok=True)
+        logging.setup_logging(str(self.log_dir / "logs" / "training.log"))
 
-        # Setup logging (flat structure)
-        os.makedirs(os.path.join(cfg.LOG_DIR, "logs"), exist_ok=True)
-        logging.setup_logging(os.path.join(cfg.LOG_DIR, "logs", "training.log"))
-
-        # Setup CSV metrics logging
-        self.metrics_csv_path = os.path.join(cfg.LOG_DIR, "training_metrics.csv")
-        self.metrics_file = None
-        self.csv_writer = None
-        # Automatic GPU selection (finds least busy GPU)
         self.device = get_device()
         self.model = build_model(cfg)
         self.loss_func = get_loss_func(cfg)
-
-        # Print training configuration summary
-        self._print_config_summary(cfg)
-
-        # Set up logger format
         self.num_classes = cfg.MODEL.NUM_CLASSES
+        self.plane = cfg.DATA.PLANE
+        self.rescale = float(cfg.DATA.PREPROCESSING.RESCALE)
+        self.accum = max(1, int(getattr(cfg.TRAIN, "ACCUM_STEPS", 1)))
 
-        # Binary brain mask mode - no atlas needed
+        amp = str(getattr(cfg.TRAIN, "AMP", "none")).lower()
+        if self.device.type != "cuda":
+            amp = "none"
+        if amp == "bf16" and not torch.cuda.is_bf16_supported():
+            logger.warning("bf16 not supported on this GPU; using fp16")
+            amp = "fp16"
+        self.amp_dtype = {"bf16": torch.bfloat16, "fp16": torch.float16}.get(amp)
+        self.scaler = torch.amp.GradScaler("cuda") if amp == "fp16" else None
+
+        # class names / colours in DENSE order for this plane
         if self.num_classes == 2:
             self.class_names = ["background", "brain"]
-            atlas_manager = None  # No atlas needed
+            self.dense_rgb = np.array([[0, 0, 0], [255, 140, 0]])
         else:
-            # Multi-class mode - set up class names using AtlasManager
-            # Determine atlas name: if CLASS_OPTIONS[0] is an atlas name (ARM2, ARM3), use it
-            # Otherwise default to ARM2 for backward compatibility
-            potential_atlas = (
-                cfg.DATA.CLASS_OPTIONS[0] if cfg.DATA.CLASS_OPTIONS else "ARM2"
-            )
-            atlas_name = (
-                potential_atlas
-                if potential_atlas.upper() in ["ARM2", "ARM3", "FREESURFER"]
-                else "ARM2"
-            )
+            atlas = cfg.DATA.CLASS_OPTIONS[0] if cfg.DATA.CLASS_OPTIONS else "ARM2"
+            am = get_atlas_manager(atlas)
+            self.class_names = am.dense_class_names(self.plane)
+            self.dense_rgb = self._dense_rgb(am)
+            if len(self.class_names) != self.num_classes:
+                raise ValueError(
+                    f"MODEL.NUM_CLASSES={self.num_classes} but atlas {atlas} has "
+                    f"{len(self.class_names)} dense classes for plane {self.plane}")
 
-            # Get class names from AtlasManager
-            atlas_manager = get_atlas_manager(atlas_name)
-            class_dict = atlas_manager.get_class_dict()
+        self.gpu_aug = None
+        if getattr(cfg.DATA, "AUG_DEVICE", "gpu") == "gpu" and cfg.DATA.AUG and "None" not in cfg.DATA.AUG:
+            gen = torch.Generator().manual_seed(int(cfg.RNG_SEED))
+            self.gpu_aug = GpuAugment(cfg, generator=gen)
 
-            # Extract class names based on plane and options
-            # For mixed plane mode, use "not_sagittal" (coronal/axial) as default
-            plane = cfg.DATA.PLANE
-            if plane == "mixed":
-                plane_key = "not_sagittal"  # Mixed mode uses combined view
-            else:
-                plane_key = "sagittal" if plane == "sagittal" else "not_sagittal"
+        metric = getattr(cfg.TRAIN, "SELECTION_METRIC", "val_dice")
+        if metric not in ("val_dice", "val_loss"):
+            raise ValueError(f"TRAIN.SELECTION_METRIC must be val_dice or val_loss, not {metric}")
+        self.metric = metric
+        self.higher_is_better = metric == "val_dice"
+        self._summary_logged = False
+        # optional per-subject groups for reporting (e.g. UNC age bins), written by the data prep
+        self.age_bin_of = {}
+        ab = Path(cfg.TRAINING_DATA_DIR) / "age_bins.tsv" if cfg.TRAINING_DATA_DIR else None
+        if ab is not None and ab.exists():
+            for line in ab.read_text().splitlines()[1:]:
+                parts = line.split("\t")
+                if len(parts) >= 3 and parts[2] != "n/a":
+                    self.age_bin_of[parts[0]] = parts[2]
 
-            self.class_names = []
-            for opt in cfg.DATA.CLASS_OPTIONS:
-                if opt.upper() in ["ARM2", "ARM3", "FREESURFER"]:
-                    # If option is an atlas name, use the combined view
-                    self.class_names.extend(class_dict[plane_key].get(opt, []))
-                else:
-                    # Otherwise it's a class type (aseg, aparc)
-                    self.class_names.extend(class_dict[plane_key].get(opt, []))
+    # ------------------------------------------------------------------ setup helpers
+    def _dense_rgb(self, am) -> np.ndarray:
+        import pandas as pd
 
-        # Create format string with same number of placeholders as class names
-        self.a = "{}\t" * (len(self.class_names) - 1) + "{}"
-        self.plot_dir = os.path.join(cfg.LOG_DIR, "plots")
-        os.makedirs(self.plot_dir, exist_ok=True)
+        rgb = np.zeros((self.num_classes, 3))
+        try:
+            lut = pd.read_csv(am.colorlut_path, sep="\t")
+            cols = {c.lower(): c for c in lut.columns}
+            by_id = {int(r[cols["id"]]): (r[cols["r"]], r[cols["g"]], r[cols["b"]])
+                     for _, r in lut.iterrows()}
+            for d, s in enumerate(am.dense_to_sparse(self.plane)):
+                rgb[d] = by_id.get(int(s), (200, 200, 200))
+        except Exception as e:
+            logger.warning(f"ColorLUT not readable ({e}); snapshot colours are random")
+            rgb = np.random.default_rng(0).integers(40, 255, (self.num_classes, 3))
+        rgb[0] = 0
+        return rgb
 
-        self.subepoch = False if self.cfg.TRAIN.BATCH_SIZE == 16 else True
+    def _config_summary(self) -> dict:
+        c = self.cfg
+        return {
+            "plane": c.DATA.PLANE, "contrast": getattr(c.DATA, "CONTRAST", ""),
+            "classes": c.MODEL.NUM_CLASSES, "batch": c.TRAIN.BATCH_SIZE, "accum": self.accum,
+            "epochs": c.TRAIN.NUM_EPOCHS, "lr": c.OPTIMIZER.BASE_LR,
+            "scheduler": c.OPTIMIZER.LR_SCHEDULER, "optimizer": c.OPTIMIZER.OPTIMIZING_METHOD,
+            "amp": str(self.amp_dtype).replace("torch.", "") if self.amp_dtype else "none",
+            "aug_device": getattr(c.DATA, "AUG_DEVICE", "gpu"),
+            "aug": self.gpu_aug.describe() if self.gpu_aug else ", ".join(c.DATA.AUG),
+            "pretrained": Path(c.TRAIN.PRETRAINED_MODEL).name if c.TRAIN.FINE_TUNE else "",
+            "selection": self.metric, "train_hdf5": c.DATA.PATH_HDF5_TRAIN,
+            "val_hdf5": c.DATA.PATH_HDF5_VAL, "out": c.LOG_DIR,
+        }
 
-    def _print_config_summary(self, cfg):
-        """Print a formatted summary of key training configuration parameters."""
-        logger.info("")
+    def _log_summary(self, n_train, n_val, s_train, s_val):
+        s = self._config_summary()
+        logger.info("=" * 80)
+        for k, v in s.items():
+            logger.info(f"{k:<12}{v}")
+        logger.info(f"{'device':<12}{self.device}")
+        logger.info(f"{'data':<12}train {n_train} slices / {s_train} subjects, "
+                    f"val {n_val} slices / {s_val} subjects")
         logger.info("=" * 80)
 
-        # Model info
-        num_classes = cfg.MODEL.NUM_CLASSES
-        model_type = (
-            "Binary (Brain Mask)"
-            if num_classes == 2
-            else f"Multi-class ({num_classes} classes)"
-        )
-        logger.info(f"Model Type:         {model_type}")
-        logger.info(f"Model Name:         {cfg.MODEL.MODEL_NAME}")
-        logger.info(f"Device:             {self.device}")
+    def _provenance(self, train_loader, val_loader) -> dict:
+        split_f = Path(self.cfg.TRAINING_DATA_DIR) / "data_split.json" if self.cfg.TRAINING_DATA_DIR else None
+        split_hash = ""
+        if split_f is not None and split_f.exists():
+            split_hash = hashlib.sha256(split_f.read_bytes()).hexdigest()[:16]
+        return {
+            "git_commit": git_commit(),
+            "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "training_data_dir": str(self.cfg.TRAINING_DATA_DIR),
+            "data_split_sha256_16": split_hash,
+            "train_subjects": list(train_loader.dataset.subjects),
+            "val_subjects": list(val_loader.dataset.subjects),
+            "pretrained": str(self.cfg.TRAIN.PRETRAINED_MODEL) if self.cfg.TRAIN.FINE_TUNE else "",
+        }
 
-        # Data info
-        plane = cfg.DATA.PLANE
-        if plane == "mixed":
-            logger.info(
-                f"Plane:              {plane} (plane-agnostic: axial, coronal, sagittal)"
-            )
-        else:
-            logger.info(f"Plane:              {plane}")
-        image_size = cfg.DATA.SIZES[0] if cfg.DATA.SIZES else cfg.MODEL.HEIGHT
-        logger.info(f"Image Size:         {image_size}×{image_size}")
-        logger.info(f"Padded Size:        {cfg.DATA.PADDED_SIZE}")
+    def _autocast(self):
+        if self.amp_dtype is None:
+            return contextlib.nullcontext()
+        return torch.autocast("cuda", dtype=self.amp_dtype)
 
-        # Preprocessing info
-        logger.info(f"Orientation:        {cfg.DATA.PREPROCESSING.ORIENTATION}")
-        logger.info(f"Image Size Mode:    {cfg.DATA.PREPROCESSING.IMG_SIZE}")
-        logger.info(f"Voxel Size:         {cfg.DATA.PREPROCESSING.VOX_SIZE}")
+    def _to_device(self, batch, train: bool):
+        images = batch["image"].to(self.device, non_blocking=True)
+        if images.dtype == torch.uint8:
+            images = images.float().div_(self.rescale)
+        labels = batch["label"].to(self.device, non_blocking=True).long()
+        weights = batch["weight"].to(self.device, non_blocking=True).float()
+        scale = batch["scale_factor"].float()  # stays on CPU (see gpu_augment docstring)
+        if train and self.gpu_aug is not None:
+            images, labels, weights, scale = self.gpu_aug(images, labels, weights, scale)
+        if self.channels_last:
+            images = images.contiguous(memory_format=torch.channels_last)
+        return images, labels, weights, scale, batch["subject"]
 
-        # Augmentation summary
-        if not cfg.DATA.AUG or "None" in cfg.DATA.AUG:
-            aug_summary = "None"
-        else:
-            aug_list = []
-            aug_probs = getattr(cfg.DATA, "AUG_PROBABILITIES", None)
-            for aug in cfg.DATA.AUG:
-                if aug != "None":
-                    if aug_probs and hasattr(aug_probs, aug):
-                        prob = getattr(aug_probs, aug)
-                        aug_list.append(f"{aug} ({prob:.1f})")
-                    else:
-                        aug_list.append(aug)
-            aug_summary = ", ".join(aug_list) if aug_list else "None"
-        logger.info(f"Augmentations:      {aug_summary}")
-
-        # Training info
-        logger.info(f"Batch Size:         {cfg.TRAIN.BATCH_SIZE}")
-        logger.info(f"Epochs:             {cfg.TRAIN.NUM_EPOCHS}")
-        logger.info(f"Learning Rate:      {cfg.OPTIMIZER.BASE_LR}")
-        logger.info(f"Optimizer:          {cfg.OPTIMIZER.OPTIMIZING_METHOD}")
-        logger.info(f"LR Scheduler:       {cfg.OPTIMIZER.LR_SCHEDULER}")
-
-        # Pretrained model
-        if cfg.TRAIN.PRETRAINED_MODEL and cfg.TRAIN.FINE_TUNE:
-            pretrained_name = os.path.basename(cfg.TRAIN.PRETRAINED_MODEL)
-            logger.info(f"Pretrained Model:   {pretrained_name}")
-        else:
-            logger.info("Pretrained Model:   None (training from scratch)")
-
-        # Output directory
-        logger.info(f"Output Dir:         {cfg.LOG_DIR}")
-
-        logger.info("=" * 80)
-        logger.info("")
-
-    def _init_csv_logging(self):
-        """Initialize CSV file for logging training metrics."""
-        self.metrics_file = open(self.metrics_csv_path, "w", newline="")
-        self.csv_writer = csv.writer(self.metrics_file)
-        self.csv_writer.writerow(["loss", "dice", "val_loss", "val_dice"])
-        self.metrics_file.flush()
-
-    def _log_metrics_to_csv(self, train_loss, train_dice, val_loss, val_dice):
-        """Log metrics to CSV file."""
-        if self.csv_writer is not None:
-            self.csv_writer.writerow([train_loss, train_dice, val_loss, val_dice])
-            self.metrics_file.flush()
-
-    def _close_csv_logging(self):
-        """Close CSV file."""
-        if self.metrics_file is not None:
-            self.metrics_file.close()
-
-    def train(
-        self,
-        train_loader: loader.DataLoader,
-        optimizer: torch.optim.Optimizer,
-        scheduler: None | scheduler.StepLR | scheduler.CosineAnnealingWarmRestarts,
-        train_meter: Meter,
-        epoch,
-    ) -> None:
-        """
-        Train the network to the given training data.
-
-        Parameters
-        ----------
-        train_loader : loader.DataLoader
-            Data loader for the training.
-        optimizer : torch.optim.Optimizer
-            Optimizer for the training.
-        scheduler : None, scheduler.StepLR, scheduler.CosineAnnealingWarmRestarts
-            LR scheduler for the training.
-        train_meter : Meter
-            Meter to keep track of the training stats.
-        epoch : int
-            Current epoch.
-
-        """
+    # ------------------------------------------------------------------ epochs
+    def train_epoch(self, epoch, train_loader, optimizer, scheduler):
         self.model.train()
-        time.time()
-        loss_batch = np.zeros(1)
-
-        # Reset meter at the start of each training epoch to ensure fresh accumulation
-        train_meter.reset()
-
-        # Start background dice tracking
-        train_meter.start_background_tracking()
-
-        # Create progress bar with custom description
-        pbar = tqdm(
-            enumerate(train_loader),
-            total=len(train_loader),
-            desc=f"Epoch {epoch}/{self.cfg.TRAIN.NUM_EPOCHS}",
-        )
-
-        for curr_iter, batch in pbar:
-            images, labels, weights, scale_factors = (
-                batch["image"].to(self.device),
-                batch["label"].to(self.device),
-                batch["weight"].float().to(self.device),
-                batch["scale_factor"],
-            )
-
-            if not self.subepoch or (curr_iter) % (16 / self.cfg.TRAIN.BATCH_SIZE) == 0:
-                optimizer.zero_grad()  # every second epoch to get batchsize of 16 if using 8
-
-            pred = self.model(images, scale_factors)
+        n_iter = len(train_loader)
+        acc = DiceAccumulator(self.num_classes, 1, self.device)
+        log_every = max(1, int(self.cfg.TRAIN.LOG_INTERVAL))
+        sums = torch.zeros(3, device=self.device)  # total, dice, ce since last log
+        loss_epoch = torch.zeros((), device=self.device)
+        n_since = 0
+        t_epoch = time.perf_counter()
+        t_last_log = t_epoch
+        data_wait = 0.0
+        data_wait_window = 0.0
+        prof = []
+        optimizer.zero_grad(set_to_none=True)
+        t_end = time.perf_counter()
+        for it, batch in enumerate(train_loader):
+            t_got = time.perf_counter()
+            wait = t_got - t_end
+            data_wait += wait
+            data_wait_window += wait
+            images, labels, weights, scale, _ = self._to_device(batch, train=True)
+            with self._autocast():
+                pred = self.model(images, scale)
             loss_total, loss_dice, loss_ce = self.loss_func(pred, labels, weights)
-
-            train_meter.update_stats(pred, labels, loss_total)
-            train_meter.log_iter(curr_iter, epoch)
-            if scheduler is not None:
-                # Use get_last_lr() instead of deprecated get_lr()
-                # get_last_lr() returns a list of learning rates (one per parameter group)
-                current_lr = scheduler.get_last_lr()
-                train_meter.write_summary(loss_total, current_lr, loss_ce, loss_dice)
+            loss = loss_total / self.accum
+            if self.scaler is not None:
+                self.scaler.scale(loss).backward()
             else:
-                train_meter.write_summary(
-                    loss_total, [self.cfg.OPTIMIZER.BASE_LR], loss_ce, loss_dice
-                )
-
-            loss_total.backward()
-            if (
-                not self.subepoch
-                or (curr_iter + 1) % (16 / self.cfg.TRAIN.BATCH_SIZE) == 0
-            ):
-                optimizer.step()  # every second epoch to get batchsize of 16 if using 8
+                loss.backward()
+            last = it == n_iter - 1
+            if (it + 1) % self.accum == 0 or last:
+                if self.scaler is not None:
+                    self.scaler.step(optimizer)
+                    self.scaler.update()
+                else:
+                    optimizer.step()
+                optimizer.zero_grad(set_to_none=True)
                 if scheduler is not None:
-                    scheduler.step(epoch + curr_iter / len(train_loader))
-
-            loss_batch += loss_total.item()
-
-            # Update progress bar with current metrics (non-blocking background computation)
-            if curr_iter % 5 == 0:  # Update more frequently since it's non-blocking
-                current_dice = train_meter.get_latest_dice()
-                pbar.set_postfix({"Dice": f"{current_dice:.4f}"})
-
-            # Plot sample predictions
-            if curr_iter == len(train_loader) - 2:
-                plt_title = "Training Results Epoch " + str(epoch)
-
-                file_save_name = os.path.join(
-                    self.plot_dir, "Epoch_" + str(epoch) + "_Training_Predictions.pdf"
+                    scheduler.step((epoch - 1) + (it + 1) / n_iter)
+            with torch.no_grad():
+                acc.update(pred.argmax(1), labels)
+                sums += torch.stack([loss_total.detach(), loss_dice.detach(), loss_ce.detach()])
+                loss_epoch += loss_total.detach()
+            n_since += 1
+            if self.profile_iters:
+                torch.cuda.synchronize(self.device)
+                prof.append((wait, time.perf_counter() - t_got))
+                if len(prof) >= self.profile_iters:
+                    self._report_profile(prof)
+                    return None
+            if (it + 1) % log_every == 0 or last:
+                vals = (sums / n_since).tolist()  # one sync per log interval
+                now = time.perf_counter()
+                window = now - t_last_log
+                lr = optimizer.param_groups[0]["lr"]
+                self.global_step = (epoch - 1) * n_iter + it + 1
+                self.monitor.log_iter(
+                    epoch=epoch, iter=it + 1, iters=n_iter, step=self.global_step,
+                    loss=vals[0], loss_dice=vals[1], loss_ce=vals[2], lr=lr,
+                    data_s=data_wait_window / n_since, step_s=window / n_since,
+                    img_per_s=n_since * self.cfg.TRAIN.BATCH_SIZE / max(window, 1e-9),
+                    data_wait_frac=data_wait_window / max(window, 1e-9),
                 )
-
-                _, batch_output = torch.max(pred, dim=1)
-
-                plot_predictions(
-                    images, labels, batch_output, plt_title, file_save_name
-                )
-
-        # Stop background tracking
-        train_meter.stop_background_tracking()
-
-        train_meter.log_epoch(epoch)
-
-        # Get training metrics for CSV logging
-        train_loss = np.array(train_meter.batch_losses).mean()
-        # Use get_dice_without_background() to match progress bar display (excludes background class 0)
-        train_dice = train_meter.get_dice_without_background()
-        train_dice = train_dice.item() if hasattr(train_dice, "item") else train_dice
-
-        # Store training metrics for CSV (will be logged after validation)
-        self._current_train_loss = train_loss
-        self._current_train_dice = train_dice
+                elapsed = now - t_epoch
+                eta_epoch = elapsed / (it + 1) * (n_iter - it - 1)
+                self.monitor.status(state="training", epoch=epoch, iter=it + 1, iters=n_iter,
+                                    eta_epoch_s=eta_epoch,
+                                    eta_s=eta_epoch + self._epoch_eta(epoch))
+                if self.writer is not None:
+                    self.writer.add_scalar("Train/total_loss", vals[0], self.global_step)
+                    self.writer.add_scalar("Train/lr", lr, self.global_step)
+                logger.info(f"train epoch {epoch} iter {it + 1}/{n_iter} loss {vals[0]:.4f} "
+                            f"(dice {vals[1]:.4f} ce {vals[2]:.4f}) lr {lr:.2e} "
+                            f"{window / n_since:.3f}s/it data-wait {data_wait_window / max(window, 1e-9):.0%}")
+                sums.zero_()
+                n_since = 0
+                data_wait_window = 0.0
+                t_last_log = now
+            t_end = time.perf_counter()
+        train_s = time.perf_counter() - t_epoch
+        return {
+            "train_loss": float(loss_epoch) / n_iter,
+            "train_dice": acc.mean_pooled_dice(),
+            "train_s": train_s,
+            "data_wait_frac": data_wait / max(train_s, 1e-9),
+        }
 
     @torch.no_grad()
-    def eval(
-        self, val_loader: loader.DataLoader, val_meter: Meter, epoch: int
-    ) -> np.ndarray:
-        """
-        Evaluate model and calculates stats.
-
-        Parameters
-        ----------
-        val_loader : loader.DataLoader
-            Value loader.
-        val_meter : Meter
-            Meter for the values.
-        epoch : int
-            Epoch to evaluate.
-
-        Returns
-        -------
-        int, float, ndarray
-            median miou [value].
-        """
+    def validate(self, epoch, val_loader):
         self.model.eval()
+        ds = val_loader.dataset
+        acc = DiceAccumulator(self.num_classes, len(ds.subjects), self.device)
+        loss_sum = torch.zeros((), device=self.device)
+        t0 = time.perf_counter()
+        for batch in val_loader:
+            images, labels, weights, scale, subj = self._to_device(batch, train=False)
+            with self._autocast():
+                pred = self.model(images, scale)
+            loss_total, _, _ = self.loss_func(pred, labels, weights)
+            loss_sum += loss_total.detach()
+            acc.update(pred.argmax(1), labels, subj)
+        subj_mean = acc.subject_mean().cpu().numpy()
+        per_class = acc.per_class_dice().cpu().numpy()
+        per_subject = {s: float(v) for s, v in zip(ds.subjects, subj_mean)}
+        per_site = {}
+        for s, v in per_subject.items():
+            per_site.setdefault(site_of(s), []).append(v)
+        per_age = {}
+        for s, v in per_subject.items():
+            if s in self.age_bin_of:
+                per_age.setdefault(self.age_bin_of[s], []).append(v)
+        return {
+            "per_age": {k: float(np.nanmean(v)) for k, v in per_age.items()},
+            "val_loss": float(loss_sum) / len(val_loader),
+            "val_dice": acc.mean_subject_dice(),
+            "val_dice_pooled": acc.mean_pooled_dice(),
+            "per_class": {n: (None if np.isnan(v) else float(v))
+                          for n, v in zip(self.class_names, per_class)},
+            "per_subject": per_subject,
+            "per_site": {k: float(np.nanmean(v)) for k, v in per_site.items()},
+            "val_s": time.perf_counter() - t0,
+        }
 
-        # Reset meter at the start of each validation epoch to ensure fresh accumulation
-        # This ensures dice is computed correctly across all validation batches, not accumulated across epochs
-        val_meter.reset()
+    def _snapshot_batch(self, ds):
+        k = int(getattr(self.cfg.TRAIN, "SNAPSHOT_SLICES", 4))
+        picks, titles = [], []
+        for s in range(min(k, len(ds.subjects))):
+            idx = np.nonzero(ds.subject_of == s)[0]
+            if len(idx):
+                picks.append(int(idx[len(idx) // 2]))
+                titles.append(ds.subjects[s])
+        if not picks:
+            return None
+        items = [ds[i] for i in picks]
+        batch = {key: torch.stack([torch.as_tensor(it[key]) for it in items])
+                 for key in ("image", "label", "weight", "scale_factor")}
+        batch["subject"] = torch.as_tensor([it["subject"] for it in items])
+        return batch, titles
 
-        # Aggregate statistics across all batches (not per scale factor)
-        ints_ = np.zeros(self.num_classes - 1)
-        unis_ = np.zeros(self.num_classes - 1)
-        per_cls_counts_gt = np.zeros(self.num_classes - 1)
-        per_cls_counts_pred = np.zeros(self.num_classes - 1)
-        accs = np.zeros(
-            self.num_classes - 1
-        )  # -1 to exclude background (still included in val loss)
+    @torch.no_grad()
+    def _snapshot(self, epoch, snap):
+        if snap is None:
+            return
+        batch, titles = snap
+        self.model.eval()
+        images, labels, _, scale, _ = self._to_device(batch, train=False)
+        with self._autocast():
+            pred = self.model(images, scale).argmax(1)
+        self.monitor.snapshot(epoch, images, labels, pred, self.dense_rgb, titles)
 
-        time.time()
-        # Start background dice tracking for validation
-        val_meter.start_background_tracking()
+    def _report_profile(self, prof):
+        arr = np.array(prof[5:] if len(prof) > 10 else prof)  # skip warm-up iterations
+        wait, comp = arr[:, 0], arr[:, 1]
+        res = {
+            "iterations": len(arr), "batch_size": self.cfg.TRAIN.BATCH_SIZE,
+            "data_wait_s_mean": float(wait.mean()), "gpu_step_s_mean": float(comp.mean()),
+            "s_per_iter": float((wait + comp).mean()),
+            "data_wait_frac": float(wait.sum() / (wait + comp).sum()),
+            "img_per_s": float(self.cfg.TRAIN.BATCH_SIZE / (wait + comp).mean()),
+            "workers": int(self.cfg.DATA_LOADER.NUM_WORKERS),
+            "aug_device": getattr(self.cfg.DATA, "AUG_DEVICE", "gpu"),
+            "amp": str(self.amp_dtype),
+            "max_mem_gb": torch.cuda.max_memory_allocated(self.device) / 1024**3
+            if self.device.type == "cuda" else None,
+        }
+        out = self.log_dir / "monitor" / "profile.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(res, indent=2))
+        logger.info("PROFILE " + json.dumps(res))
 
-        # Create progress bar with custom description for validation
-        pbar = tqdm(
-            enumerate(val_loader), total=len(val_loader), desc=f"Val Epoch {epoch}"
-        )
+    def _epoch_eta(self, epoch) -> float:
+        if not self.epoch_times:
+            return 0.0
+        return float(np.mean(self.epoch_times[-5:])) * (self.cfg.TRAIN.NUM_EPOCHS - epoch)
 
-        for curr_iter, batch in pbar:
-            images, labels, weights, scale_factors = (
-                batch["image"].to(self.device),
-                batch["label"].to(self.device),
-                batch["weight"].float().to(self.device),
-                batch["scale_factor"],
-            )
-
-            pred = self.model(images, scale_factors)
-            loss_total, loss_dice, loss_ce = self.loss_func(pred, labels, weights)
-
-            # Get predictions for metrics and plotting
-            _, batch_output = torch.max(pred, dim=1)
-
-            # Calculate iou_scores, accuracy and dice confusion matrix + sum over previous batches
-            int_, uni_ = iou_score(batch_output, labels, self.num_classes)
-            ints_ += int_
-            unis_ += uni_
-
-            tpos, pcc_gt, pcc_pred = precision_recall(
-                batch_output, labels, self.num_classes
-            )
-            accs += tpos
-            per_cls_counts_gt += pcc_gt
-            per_cls_counts_pred += pcc_pred
-
-            # Plot sample predictions
-            if curr_iter == (len(val_loader) // 2):
-                plt_title = "Validation Results Epoch " + str(epoch)
-
-                file_save_name = os.path.join(
-                    self.plot_dir,
-                    "Epoch_" + str(epoch) + "_Validations_Predictions.pdf",
-                )
-
-                plot_predictions(
-                    images, labels, batch_output, plt_title, file_save_name
-                )
-
-            val_meter.update_stats(pred, labels, loss_total)
-            val_meter.write_summary(loss_total)
-            val_meter.log_iter(curr_iter, epoch)
-
-            # Update progress bar with current metrics (non-blocking background computation)
-            if curr_iter % 5 == 0:  # Update more frequently since it's non-blocking
-                current_dice = val_meter.get_latest_dice()
-                pbar.set_postfix({"Dice": f"{current_dice:.4f}"})
-
-        # Stop background tracking
-        val_meter.stop_background_tracking()
-
-        val_meter.log_epoch(epoch)
-
-        # Get validation metrics for CSV logging
-        val_loss = np.array(val_meter.batch_losses).mean()
-        # Use get_dice_without_background() to match progress bar display (excludes background class 0)
-        val_dice = val_meter.get_dice_without_background()
-        val_dice = val_dice.item() if hasattr(val_dice, "item") else val_dice
-        self._current_val_loss = val_loss
-        self._current_val_dice = val_dice
-
-        # Compute overall metrics
-        ious = ints_ / (unis_ + 1e-8)  # Add small epsilon to avoid division by zero
-        miou = np.mean(ious)
-        np.mean(accs / (per_cls_counts_gt + 1e-8))
-        np.mean(accs / (per_cls_counts_pred + 1e-8))
-
-        # Log overall statistics
-        logger.info(
-            f"Validation: epoch={epoch}, dice={val_dice:.4f}, loss={val_loss:.4f}"
-        )
-
-        return miou
-
+    # ------------------------------------------------------------------ main loop
     def run(self):
-        """
-        Transfer the model to devices, create a tensor board summary writer and then perform the training loop.
-        """
-        if self.cfg.NUM_GPUS > 1:
-            assert (
-                self.cfg.NUM_GPUS <= torch.cuda.device_count()
-            ), "Cannot use more GPU devices than available"
-            logger.info(f"System: using {self.cfg.NUM_GPUS} GPUs")
+        cfg = self.cfg
+        if cfg.NUM_GPUS > 1:
+            assert cfg.NUM_GPUS <= torch.cuda.device_count(), "Cannot use more GPUs than available"
             self.model = torch.nn.DataParallel(self.model)
 
-        val_loader = loader.get_dataloader(self.cfg, "val")
-        train_loader = loader.get_dataloader(self.cfg, "train")
+        val_loader = loader.get_dataloader(cfg, "val")
+        train_loader = loader.get_dataloader(cfg, "train")
+        update_num_steps(train_loader, cfg)
+        self._log_summary(len(train_loader.dataset), len(val_loader.dataset),
+                          len(train_loader.dataset.subjects), len(val_loader.dataset.subjects))
 
-        update_num_steps(train_loader, self.cfg)
-
-        # Transfer the model to device(s)
         self.model = self.model.to(self.device)
+        self.channels_last = bool(getattr(cfg.TRAIN, "CHANNELS_LAST", True)) and self.device.type == "cuda"
+        if self.channels_last:
+            self.model = self.model.to(memory_format=torch.channels_last)
+        optimizer = get_optimizer(self.model, cfg)
+        scheduler = get_lr_scheduler(optimizer, cfg)
 
-        optimizer = get_optimizer(self.model, self.cfg)
-        scheduler = get_lr_scheduler(optimizer, self.cfg)
+        start_epoch, best, best_epoch, wait_count = 1, None, 0, 0
+        history = []
+        if cfg.TRAIN.RESUME and cp.get_checkpoint_path(cfg.LOG_DIR):
+            ckpt = cp.get_checkpoint_path(cfg.LOG_DIR)[-1]
+            done, best, state = cp.restore_model_state_from_checkpoint(
+                ckpt, self.model, optimizer, scheduler, fine_tune=False)
+            start_epoch = done + 1
+            best_epoch = state.get("best_epoch", 0)
+            wait_count = state.get("wait_count", 0)
+            history = state.get("history", [])
+            logger.info(f"Resume: {ckpt.name}, continuing at epoch {start_epoch}, best {best}")
+        elif cfg.TRAIN.RESUME:
+            logger.warning(f"TRAIN.RESUME set but no checkpoint in {self.checkpoint_dir}; starting fresh")
+        if start_epoch == 1 and cfg.TRAIN.FINE_TUNE:
+            if not cfg.TRAIN.PRETRAINED_MODEL:
+                raise ValueError("TRAIN.FINE_TUNE is set but TRAIN.PRETRAINED_MODEL is empty")
+            path = resolve_pretrained(cfg.TRAIN.PRETRAINED_MODEL)
+            state = cp.read_checkpoint_file(path, map_location="cpu")["model_state"]
+            n_pre = state["classifier.conv.weight"].shape[0] if "classifier.conv.weight" in state else None
+            drop = n_pre != self.num_classes
+            cp.restore_model_state_from_checkpoint(path, self.model, fine_tune=True,
+                                                   drop_classifier=drop)
+            logger.info(f"Fine-tune: loaded {path.name}"
+                        + (f" (classifier dropped: {n_pre} -> {self.num_classes} classes)" if drop else ""))
 
-        # Load pretrained model for transfer learning if specified
-        if self.cfg.TRAIN.PRETRAINED_MODEL and self.cfg.TRAIN.FINE_TUNE:
-            try:
-                # Check actual number of classes in the pretrained checkpoint
-                checkpoint = read_checkpoint_file(
-                    self.cfg.TRAIN.PRETRAINED_MODEL, map_location="cpu"
-                )
+        if getattr(cfg.TRAIN, "COMPILE", False):
+            self.model = torch.compile(self.model)
 
-                # Find classifier weight to determine number of classes in checkpoint
-                classifier_key = None
-                for key in checkpoint["model_state"].keys():
-                    if "classifier" in key and "weight" in key and "conv" in key:
-                        classifier_key = key
-                        break
+        run_name = Path(cfg.LOG_DIR).name
+        self.monitor = TrainingMonitor(cfg.LOG_DIR, run_name, self._config_summary(), self.device,
+                                       enabled=bool(getattr(cfg.TRAIN, "MONITOR", True)))
+        self.writer = SummaryWriter(cfg.SUMMARY_PATH, flush_secs=30) if SummaryWriter else None
+        provenance = self._provenance(train_loader, val_loader)
+        snap = self._snapshot_batch(val_loader.dataset)
+        self.epoch_times = []
+        self.global_step = (start_epoch - 1) * len(train_loader)
 
-                if classifier_key:
-                    pretrained_num_classes = checkpoint["model_state"][
-                        classifier_key
-                    ].shape[0]
-                    drop_classifier = (
-                        self.cfg.MODEL.NUM_CLASSES != pretrained_num_classes
-                    )
-                else:
-                    drop_classifier = True
-
-                # Now load the checkpoint (re-loads it, but ensures correct drop_classifier logic)
-                checkpoint_epoch, best_metric = cp.restore_model_state_from_checkpoint(
-                    self.cfg.TRAIN.PRETRAINED_MODEL,
-                    self.model,
-                    optimizer=None,  # Don't load optimizer for transfer learning
-                    scheduler=None,  # Don't load scheduler for transfer learning
-                    fine_tune=True,
-                    drop_classifier=drop_classifier,
-                )
-                start_epoch = 0
-                best_dice = 0
-                best_val_loss = float("inf")
-            except Exception as e:
-                logger.warning(
-                    f"Transfer Learning: failed to load pretrained model: {e}"
-                )
-                start_epoch = 0
-                best_dice = 0
-                best_val_loss = float("inf")
-        # Resume training from checkpoint
-        elif self.cfg.TRAIN.RESUME:
-            checkpoint_paths = cp.get_checkpoint_path(
-                self.cfg.LOG_DIR, self.cfg.TRAIN.RESUME_EXPR_NUM
-            )
-            if checkpoint_paths:
-                try:
-                    checkpoint_path = checkpoint_paths.pop()
-                    (
-                        checkpoint_epoch,
-                        best_metric,
-                    ) = cp.restore_model_state_from_checkpoint(
-                        checkpoint_path,
-                        self.model,
-                        optimizer,
-                        scheduler,
-                        self.cfg.TRAIN.FINE_TUNE,
-                    )
-                    start_epoch = checkpoint_epoch
-                    best_dice = best_metric
-                    best_val_loss = float("inf")  # Reset when resuming
-                except Exception as e:
-                    logger.warning(
-                        f"Checkpoint: no model to restore, resuming from epoch 0: {e}"
-                    )
-                    start_epoch = 0
-                    best_dice = 0
-                    best_val_loss = float("inf")
-            else:
-                start_epoch = 0
-                best_dice = 0
-                best_val_loss = float("inf")
-        else:
-            start_epoch = 0
-            best_dice = 0
-            best_val_loss = float("inf")
-
-        # Create tensorboard summary writer
-
-        writer = SummaryWriter(self.cfg.SUMMARY_PATH, flush_secs=15)
-
-        train_meter = Meter(
-            self.cfg,
-            mode="train",
-            global_step=start_epoch * len(train_loader),
-            total_iter=len(train_loader),
-            total_epoch=self.cfg.TRAIN.NUM_EPOCHS,
-            device=self.device,
-            writer=writer,
-        )
-
-        val_meter = Meter(
-            self.cfg,
-            mode="val",
-            global_step=start_epoch,
-            total_iter=len(val_loader),
-            total_epoch=self.cfg.TRAIN.NUM_EPOCHS,
-            device=self.device,
-            writer=writer,
-        )
-
-        # Initialize CSV logging
-        self._init_csv_logging()
-
-        # Initialize early stopping if enabled
-        early_stopping_enabled = getattr(self.cfg.TRAIN, "EARLY_STOPPING", False)
-        if early_stopping_enabled:
-            early_stopping_mode = getattr(self.cfg.TRAIN, "EARLY_STOPPING_MODE", "min")
-            early_stopping_patience = getattr(
-                self.cfg.TRAIN, "EARLY_STOPPING_PATIENCE", 10
-            )
-            early_stopping_wait = getattr(self.cfg.TRAIN, "EARLY_STOPPING_WAIT", 0)
-            early_stopping_delta = getattr(self.cfg.TRAIN, "EARLY_STOPPING_DELTA", 0.0)
-
-            # Initialize early stopping state
-            if early_stopping_mode == "min":
-                best_metric = float("inf")
-
-                def is_better(current, best):
-                    return current < best - early_stopping_delta
-
-            else:  # mode == 'max'
-                best_metric = float("-inf")
-
-                def is_better(current, best):
-                    return current > best + early_stopping_delta
-
-            early_stopping_patience_count = 0
-            best_metric_epoch = 0
-
-            logger.info(
-                f"Early stopping enabled: mode={early_stopping_mode}, patience={early_stopping_patience}, "
-                f"wait={early_stopping_wait}, delta={early_stopping_delta}"
-            )
-        else:
-            logger.info("Early stopping disabled")
-
-        # Perform the training loop.
-        logger.info("=" * 80)
-        logger.info("Training: starting training loop")
-        logger.info("=" * 80)
-        logger.info("")
-
-        for epoch in range(start_epoch + 1, self.cfg.TRAIN.NUM_EPOCHS + 1):
-            logger.info("-" * 80)
-            logger.info(f"Epoch {epoch}/{self.cfg.TRAIN.NUM_EPOCHS}")
-            logger.info("-" * 80)
-            self.train(train_loader, optimizer, scheduler, train_meter, epoch=epoch)
-
-            if epoch % 10 == 0:
-                val_meter.enable_confusion_mat()
-                self.eval(val_loader, val_meter, epoch=epoch)
-                val_meter.disable_confusion_mat()
-
-            else:
-                self.eval(val_loader, val_meter, epoch=epoch)
-
-            # Log metrics to CSV after each epoch
-            self._log_metrics_to_csv(
-                self._current_train_loss,
-                self._current_train_dice,
-                self._current_val_loss,
-                self._current_val_dice,
-            )
-
-            if (epoch + 1) % self.cfg.TRAIN.CHECKPOINT_PERIOD == 0:
-                cp.save_checkpoint(
-                    self.checkpoint_dir,
-                    epoch + 1,
-                    best_dice,
-                    self.cfg.NUM_GPUS,
-                    self.cfg,
-                    self.model,
-                    optimizer,
-                    scheduler,
-                )
-
-            # Handle NaN dice (can happen early in training when many classes aren't predicted yet)
-            # Treat NaN as 0 for comparison purposes
-            current_dice = (
-                0.0 if np.isnan(self._current_val_dice) else self._current_val_dice
-            )
-            current_val_loss = self._current_val_loss
-
-            # Determine if this is the best model
-            # Priority 1: If Dice is improving and valid (not 0), use Dice
-            # Priority 2: If both current and best Dice are 0 (i.e., both NaN), use validation loss
-            save_best = False
-            if current_dice > 0 and current_dice > best_dice:
-                # Dice is improving - this is the primary criterion
-                best_dice = current_dice
-                best_val_loss = current_val_loss
-                save_best = True
+        es = bool(cfg.TRAIN.EARLY_STOPPING)
+        patience = int(cfg.TRAIN.EARLY_STOPPING_PATIENCE)
+        es_wait = int(cfg.TRAIN.EARLY_STOPPING_WAIT)
+        delta = float(cfg.TRAIN.EARLY_STOPPING_DELTA)
+        keep_last = 3
+        csv_path = self.log_dir / "training_metrics.csv"
+        new_csv = not csv_path.exists() or start_epoch == 1
+        csv_fh = open(csv_path, "w" if new_csv else "a", newline="")
+        csv_w = csv.writer(csv_fh)
+        if new_csv:
+            csv_w.writerow(["epoch", "lr", "train_loss", "train_dice", "val_loss", "val_dice",
+                            "val_dice_pooled", "epoch_s", "data_wait_frac", "best"])
+        self.monitor.event(f"start epoch {start_epoch}" + (" (resume)" if start_epoch > 1 else ""))
+        stopped_early = False
+        try:
+            for epoch in range(start_epoch, cfg.TRAIN.NUM_EPOCHS + 1):
+                t0 = time.perf_counter()
+                tr = self.train_epoch(epoch, train_loader, optimizer, scheduler)
+                if tr is None:  # profile mode
+                    self.monitor.close("profiled")
+                    return
+                self.monitor.status(state="validating", epoch=epoch)
+                va = self.validate(epoch, val_loader)
+                self._snapshot(epoch, snap)
+                score = va[self.metric]
+                score = score if not (isinstance(score, float) and math.isnan(score)) else None
+                improved = score is not None and (
+                    best is None
+                    or (self.higher_is_better and score > best + delta)
+                    or (not self.higher_is_better and score < best - delta))
+                if improved:
+                    best, best_epoch = score, epoch
+                    wait_count = 0
+                elif epoch > es_wait:
+                    wait_count += 1
+                epoch_s = time.perf_counter() - t0
+                self.epoch_times.append(epoch_s)
+                lr = optimizer.param_groups[0]["lr"]
+                rec = {"epoch": epoch, "lr": lr, **tr, **va, "epoch_s": epoch_s,
+                       "best": bool(improved), "best_epoch": best_epoch, "best_score": best,
+                       "early_stop_count": wait_count}
+                history.append({k: rec[k] for k in ("epoch", "train_loss", "train_dice",
+                                                     "val_loss", "val_dice", "val_dice_pooled")})
+                self.monitor.log_epoch(**rec)
+                csv_w.writerow([epoch, lr, tr["train_loss"], tr["train_dice"], va["val_loss"],
+                                va["val_dice"], va["val_dice_pooled"], epoch_s,
+                                tr["data_wait_frac"], int(improved)])
+                csv_fh.flush()
+                if self.writer is not None:
+                    for k in ("val_loss", "val_dice", "val_dice_pooled"):
+                        self.writer.add_scalar(f"Val/{k}", va[k], epoch)
                 logger.info(
-                    f"Checkpoint: best model at epoch={epoch+1}, dice={best_dice:.4f}"
-                )
-            elif (
-                current_dice == 0
-                and best_dice == 0
-                and current_val_loss < best_val_loss
-            ):
-                # Dice is not yet useful (still NaN), use validation loss instead
-                best_val_loss = current_val_loss
-                save_best = True
+                    f"epoch {epoch}: train loss {tr['train_loss']:.4f} dice {tr['train_dice']:.4f} | "
+                    f"val loss {va['val_loss']:.4f} dice(3D/subject) {va['val_dice']:.4f} "
+                    f"pooled {va['val_dice_pooled']:.4f} | {epoch_s / 60:.1f} min, "
+                    f"data-wait {tr['data_wait_frac']:.0%}" + ("  * best" if improved else ""))
 
-            if save_best:
-                # Save only the best model file (overwrites previous best)
-                cp.save_best_checkpoint(
-                    self.checkpoint_dir,
-                    epoch + 1,
-                    best_dice,
-                    self.cfg.NUM_GPUS,
-                    self.cfg,
-                    self.model,
-                    optimizer,
-                    scheduler,
-                )
-
-            # Early stopping check
-            if early_stopping_enabled:
-                # Determine which metric to monitor
-                if early_stopping_mode == "min":
-                    current_metric = current_val_loss
-                else:  # mode == 'max'
-                    current_metric = current_dice
-
-                # Always track the best metric, but only start patience counter after wait period
-                if is_better(current_metric, best_metric):
-                    best_metric = current_metric
-                    best_metric_epoch = epoch
-                    # Reset patience counter only if we're past the wait period
-                    if epoch > early_stopping_wait:
-                        early_stopping_patience_count = 0
-                        logger.info(
-                            f"Early stopping: metric improved to {current_metric:.6f} at epoch {epoch}"
-                        )
-                else:
-                    # Only start counting patience after wait period
-                    if epoch > early_stopping_wait:
-                        early_stopping_patience_count += 1
-                        improvement_needed = early_stopping_delta
-                        logger.info(
-                            f"Early stopping: no improvement for {early_stopping_patience_count}/{early_stopping_patience} epochs "
-                            f"(current: {current_metric:.6f}, best: {best_metric:.6f} at epoch {best_metric_epoch}, "
-                            f"need improvement of {improvement_needed:.6f})"
-                        )
-
-                        # Check if we should stop
-                        if early_stopping_patience_count >= early_stopping_patience:
-                            logger.info("=" * 80)
-                            logger.info(f"Early stopping triggered at epoch {epoch}")
-                            logger.info(
-                                f"Best metric: {best_metric:.6f} at epoch {best_metric_epoch}"
-                            )
-                            logger.info(
-                                f"No improvement for {early_stopping_patience} consecutive epochs"
-                            )
-                            logger.info("=" * 80)
-                            break
-
-        # Close CSV logging when training completes
-        self._close_csv_logging()
-        logger.info("")
-        logger.info("=" * 80)
-        logger.info("Training: completed")
-        logger.info("=" * 80)
+                trainer_state = {"best_epoch": best_epoch, "wait_count": wait_count,
+                                 "history": history, "metric": self.metric}
+                if improved:
+                    cp.save_best_checkpoint(self.checkpoint_dir, epoch, best, cfg.NUM_GPUS, cfg,
+                                            self.model, optimizer, scheduler, trainer_state,
+                                            provenance)
+                if epoch % max(1, int(cfg.TRAIN.CHECKPOINT_PERIOD)) == 0 or epoch == cfg.TRAIN.NUM_EPOCHS:
+                    cp.save_checkpoint(self.checkpoint_dir, epoch, best, cfg.NUM_GPUS, cfg,
+                                       self.model, optimizer, scheduler, extra_state=trainer_state,
+                                       provenance=provenance)
+                    for old in cp.get_checkpoint_path(cfg.LOG_DIR)[:-keep_last]:
+                        old.unlink()
+                self.monitor.status(state="training", epoch=epoch, best_epoch=best_epoch,
+                                    best_score=best, early_stop_count=wait_count,
+                                    early_stop_patience=patience if es else None,
+                                    eta_s=self._epoch_eta(epoch))
+                if es and wait_count >= patience:
+                    logger.info(f"Early stopping at epoch {epoch}: no {self.metric} improvement "
+                                f"for {patience} epochs (best {best:.4f} at epoch {best_epoch})")
+                    self.monitor.event(f"early stop at epoch {epoch}")
+                    cp.save_checkpoint(self.checkpoint_dir, epoch, best, cfg.NUM_GPUS, cfg,
+                                       self.model, optimizer, scheduler, extra_state=trainer_state,
+                                       provenance=provenance)
+                    stopped_early = True
+                    break
+        except BaseException:
+            self.monitor.close("failed")
+            raise
+        finally:
+            csv_fh.close()
+            if self.writer is not None:
+                self.writer.close()
+        self.monitor.event("finished" + (" (early stop)" if stopped_early else ""))
+        self.monitor.close("finished")
+        logger.info(f"Training finished. Best {self.metric} {best} at epoch {best_epoch}: "
+                    f"{self.checkpoint_dir / 'Best_training_state.pkl'}")

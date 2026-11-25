@@ -52,8 +52,8 @@ def get_config(args: argparse.Namespace) -> yacs.config.CfgNode:
 
     if hasattr(args, "rng_seed"):
         cfg.RNG_SEED = args.rng_seed
-    if hasattr(args, "output_dir"):
-        cfg.LOG_DIR = args.LOG_dir
+    if getattr(args, "output_dir", None):
+        cfg.OUTPUT_DIR = args.output_dir
 
     # Resolve paths from configuration
     cfg = _resolve_paths(cfg, args.cfg_file)

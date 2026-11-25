@@ -37,6 +37,8 @@ def plot_predictions(
     batch_output: torch.Tensor,
     plt_title: str,
     file_save_name: str,
+    plane: str = "coronal",
+    atlas_name: str | None = None,
 ) -> None:
     """
     Plot predictions from validation set.
@@ -62,11 +64,10 @@ def plot_predictions(
     display_images = torch.unsqueeze(images_batch[:, mid_slice, :, :], 1)
     img_grid = utils.make_grid(display_images.cpu(), nrow=4)
 
-    # Build dense-to-sparse mapping on-the-fly from current atlas
-    # Use atlas_manager to get the exact same label list used during HDF5 creation
-    atlas_name = os.environ.get("ATLAS_NAME", "ARM2")
-    atlas_manager = AtlasManager(atlas_name)
-    dense_to_sparse = np.array(atlas_manager.get_labels(), dtype=np.int32)
+    # dense index -> sparse atlas ID for this plane (index 0 = background). The trainer's
+    # live snapshots (utils/monitor.py) replaced this plot; kept for ad-hoc use.
+    atlas_manager = AtlasManager(atlas_name or os.environ.get("ATLAS_NAME", "ARM2"))
+    dense_to_sparse = atlas_manager.dense_to_sparse(plane)
 
     plt.subplot(211)
     grid = utils.make_grid(labels_batch.unsqueeze_(1).cpu(), nrow=4)[0]

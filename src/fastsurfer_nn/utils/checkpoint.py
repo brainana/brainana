@@ -194,30 +194,17 @@ def get_checkpoint(ckpt_dir: str, epoch: int) -> str:
 def get_checkpoint_path(
     log_dir: Path | str, resume_experiment: str | int | None = None
 ) -> MutableSequence[Path]:
-    """
-    Find the paths to checkpoints from the experiment directory.
+    """Epoch checkpoints of a run, oldest first (by epoch number).
 
-    Parameters
-    ----------
-    log_dir : Path, str
-        Experiment directory.
-    resume_experiment : Union[str, int, None]
-        Sub-experiment to search in for a model (Default value = None).
-
-    Returns
-    -------
-    prior_model_paths : MutableSequence[Path]
-        A list of filenames for checkpoints.
+    Checkpoints live flat in ``<log_dir>/checkpoints/Epoch_<NNNNN>_training_state.pkl``.
+    ``resume_experiment`` is accepted for backward compatibility: a value other than
+    None/"Default" selects the legacy ``checkpoints/<resume_experiment>/`` sub-folder.
     """
-    if resume_experiment == "Default" or resume_experiment is None:
-        return []
-    if not isinstance(log_dir, Path):
-        log_dir = Path(log_dir)
-    checkpoint_path = log_dir / "checkpoints" / str(resume_experiment)
-    prior_model_paths = sorted(
-        checkpoint_path.glob("Epoch_*"), key=lambda p: p.stat().st_mtime
-    )
-    return list(prior_model_paths)
+    log_dir = Path(log_dir)
+    folder = log_dir / "checkpoints"
+    if resume_experiment not in (None, "Default", ""):
+        folder = folder / str(resume_experiment)
+    return sorted(folder.glob("Epoch_*_training_state.pkl"))
 
 
 def restore_model_state_from_checkpoint(
@@ -229,10 +216,7 @@ def restore_model_state_from_checkpoint(
     drop_classifier: bool = False,
 ):
     """
-    Restore model, optimizer, and scheduler states from checkpoint.
-
-    This function loads a checkpoint and restores the model weights,
-    and optionally the optimizer and scheduler states for resuming training.
+    Restore model (and, unless fine-tuning, optimizer/scheduler) state from a checkpoint.
 
     Parameters
     ----------
@@ -240,239 +224,157 @@ def restore_model_state_from_checkpoint(
         Path to the checkpoint.
     model : torch.nn.Module
         Network model.
-    optimizer : Optional[torch.optim.Optimizer]
-        Network optimizer (Default value = None).
-    scheduler : Optional[Scheduler]
-        Network scheduler (Default value = None).
+    optimizer, scheduler : optional
+        Restored only when ``fine_tune`` is False (i.e. when resuming).
     fine_tune : bool
-        Whether to fine tune or not (Default value = False).
+        Load weights only (transfer learning).
     drop_classifier : bool
-        Whether to drop the classifier or not (Default value = False).
+        Drop the classifier layer (class count differs); loading is non-strict then.
 
     Returns
     -------
-    loaded_epoch : int
-        Epoch number.
+    completed_epoch : int
+        Number of the last completed epoch stored in the checkpoint (resume at +1).
+        Checkpoints written before checkpoint_format 2 stored epoch+1; this is corrected.
+    best_metric : float or None
+    trainer_state : dict
+        Extra trainer state (early stopping etc.), empty for older checkpoints.
     """
     checkpoint = read_checkpoint_file(checkpoint_path)
-
+    state = checkpoint["model_state"]
     if drop_classifier:
-        classifier_conv = ["classifier.conv.weight", "classifier.conv.bias"]
-        for key in classifier_conv:
-            if key in checkpoint["model_state"]:
-                del checkpoint["model_state"][key]
-
-    # if this is a multi-gpu model, get the underlying model
+        for key in ["classifier.conv.weight", "classifier.conv.bias"]:
+            state.pop(key, None)
     mod = model.module if hasattr(model, "module") else model
-    mod.load_state_dict(checkpoint["model_state"], strict=not drop_classifier)
-
+    mod = getattr(mod, "_orig_mod", mod)
+    missing, unexpected = mod.load_state_dict(state, strict=not drop_classifier)
+    if drop_classifier and (unexpected or [k for k in missing if "classifier" not in k]):
+        raise RuntimeError(
+            f"Checkpoint {checkpoint_path} does not match the model: "
+            f"missing={missing}, unexpected={unexpected}"
+        )
     if not fine_tune:
-        if optimizer is not None:
+        if optimizer is not None and checkpoint.get("optimizer_state") is not None:
             optimizer.load_state_dict(checkpoint["optimizer_state"])
-        if scheduler is not None and "scheduler_state" in checkpoint.keys():
+        if scheduler is not None and "scheduler_state" in checkpoint:
             scheduler.load_state_dict(checkpoint["scheduler_state"])
+    epoch = int(checkpoint["epoch"])
+    if checkpoint.get("checkpoint_format", 1) < 2:
+        epoch -= 1  # old trainer saved epoch + 1
+    return epoch, checkpoint.get("best_metric", None), checkpoint.get("trainer_state", {})
 
-    return checkpoint["epoch"] + 1, checkpoint.get("best_metric", None)
 
+def build_atlas_metadata(cfg: yacs.config.CfgNode) -> dict | None:
+    """Self-describing task metadata stored in every checkpoint.
 
-def save_checkpoint(
-    checkpoint_dir: str | Path,
-    epoch: int,
-    best_metric,
-    num_gpus: int,
-    cfg: yacs.config.CfgNode,
-    model: torch.nn.Module,
-    optimizer: torch.optim.Optimizer,
-    scheduler: Scheduler | None = None,
-    best: bool = False,
-) -> None:
+    Keys: is_binary_task, num_classes, plane, atlas_name, dense_to_sparse_mapping
+    (index = bilateral dense class, value = sparse atlas ID; unchanged since v3.0 so old
+    readers keep working), and for sagittal models bilateral_dense_to_sagittal_dense
+    (index = bilateral dense class, value = sagittal dense class) used by inference to expand
+    sagittal predictions. contrast = image modality the model was trained on (e.g. T2w).
     """
-    Save the state of training for resume or fine-tune.
-
-    Parameters
-    ----------
-    checkpoint_dir : str, Path
-        Path to the checkpoint directory.
-    epoch : int
-        Current epoch.
-    best_metric : best_metric
-        Best calculated metric.
-    num_gpus : int
-        Number of used gpus.
-    cfg : yacs.config.CfgNode
-        Configuration node.
-    model : torch.nn.Module
-        Used network model.
-    optimizer : torch.optim.Optimizer
-        Used network optimizer.
-    scheduler : Optional[Scheduler]
-        Used network scheduler. Optional (Default value = None).
-    best : bool, default=False
-        Whether this was the best checkpoint so far (Default value = False).
-    """
-    save_name = f"Epoch_{epoch:05d}_training_state.pkl"
-    saving_model = model.module if num_gpus > 1 else model
-    checkpoint = {
-        "model_state": saving_model.state_dict(),
-        "optimizer_state": optimizer.state_dict(),
-        "epoch": epoch,
-        "best_metric": best_metric,
-        "config": cfg.dump(),
-    }
-
-    # Add task metadata to checkpoint for robust inference
-    # This ensures the checkpoint is self-contained and doesn't rely on external LUT files
-    try:
-        num_classes = cfg.MODEL.NUM_CLASSES
-        is_binary = num_classes == 2
-
-        # Binary brain mask mode - atlas_name is optional but can be provided (e.g., "brainmask")
-        if is_binary:
-            # Extract atlas name from config if available (e.g., CLASS_OPTIONS: ["brainmask"])
-            atlas_name = None
-            if hasattr(cfg.DATA, "CLASS_OPTIONS") and cfg.DATA.CLASS_OPTIONS:
-                atlas_name = cfg.DATA.CLASS_OPTIONS[0]
-
-            checkpoint["atlas_metadata"] = {
-                "is_binary_task": True,
-                "num_classes": num_classes,
-                "plane": cfg.DATA.PLANE,
-                "task_type": "binary_brainmask",
-            }
-            # Save atlas_name if provided (for unified naming: {modality}_seg-{atlas}_{plane}.pkl)
-            if atlas_name:
-                checkpoint["atlas_metadata"]["atlas_name"] = atlas_name
-                LOGGER.info(
-                    f"Saving checkpoint with binary task metadata ({num_classes} classes, atlas: {atlas_name})"
-                )
-            else:
-                LOGGER.info(
-                    f"Saving checkpoint with binary task metadata ({num_classes} classes, no atlas)"
-                )
-        else:
-            # Multi-class mode - save atlas metadata
-            # Extract atlas name from config
-            atlas_name = None
-            if hasattr(cfg.DATA, "CLASS_OPTIONS") and cfg.DATA.CLASS_OPTIONS:
-                atlas_name = cfg.DATA.CLASS_OPTIONS[0]
-
-            if atlas_name:
-                # Initialize AtlasManager to get the dense_to_sparse mapping
-                # This is the CRITICAL mapping that converts model output indices to label IDs
-                atlas_manager = AtlasManager(atlas_name)
-                dense_to_sparse = atlas_manager.get_dense_to_sparse_mapping()
-
-                checkpoint["atlas_metadata"] = {
-                    "is_binary_task": False,
-                    "atlas_name": atlas_name.upper(),
-                    "num_classes": num_classes,
-                    "plane": cfg.DATA.PLANE,
-                    "dense_to_sparse_mapping": dense_to_sparse.tolist(),  # Convert numpy array to list for serialization
-                }
-                LOGGER.info(
-                    f"Saving checkpoint with atlas metadata: {atlas_name} ({num_classes} classes)"
-                )
-            else:
-                LOGGER.warning(
-                    "Could not extract atlas name from config - checkpoint will not contain atlas metadata"
-                )
-    except Exception as e:
-        LOGGER.warning(f"Failed to add metadata to checkpoint: {e}")
-        # Continue saving without metadata (backward compatible)
-
-    if scheduler is not None:
-        checkpoint["scheduler_state"] = scheduler.state_dict()
-    if not isinstance(checkpoint_dir, Path):
-        checkpoint_dir = Path(checkpoint_dir)
-
-    torch.save(checkpoint, checkpoint_dir / save_name)
-
-    if best:
-        remove_ckpt(checkpoint_dir / "Best_training_state.pkl")
-        torch.save(checkpoint, checkpoint_dir / "Best_training_state.pkl")
-
-
-def save_best_checkpoint(
-    checkpoint_dir: str | Path,
-    epoch: int,
-    best_metric,
-    num_gpus: int,
-    cfg: yacs.config.CfgNode,
-    model: torch.nn.Module,
-    optimizer: torch.optim.Optimizer,
-    scheduler: Scheduler | None = None,
-) -> None:
-    """
-    Save only the best model checkpoint (overwrites previous best).
-    This function only saves the Best_training_state.pkl file without creating individual epoch files.
-
-    Parameters
-    ----------
-    checkpoint_dir : str, Path
-        Path to the checkpoint directory.
-    epoch : int
-        Current epoch.
-    best_metric : best_metric
-        Best calculated metric.
-    num_gpus : int
-        Number of used gpus.
-    cfg : yacs.config.CfgNode
-        Configuration node.
-    model : torch.nn.Module
-        Used network model.
-    optimizer : torch.optim.Optimizer
-        Used network optimizer.
-    scheduler : Optional[Scheduler]
-        Used network scheduler. Optional (Default value = None).
-    """
-    saving_model = model.module if num_gpus > 1 else model
-    checkpoint = {
-        "model_state": saving_model.state_dict(),
-        "optimizer_state": optimizer.state_dict(),
-        "epoch": epoch,
-        "best_metric": best_metric,
-        "config": cfg.dump(),
-    }
-
-    # Phase 2: Add atlas metadata to checkpoint for robust inference
-    # This ensures the checkpoint is self-contained and doesn't rely on external LUT files
-    try:
-        # Extract atlas name from config
-        atlas_name = None
-        if hasattr(cfg.DATA, "CLASS_OPTIONS") and cfg.DATA.CLASS_OPTIONS:
-            atlas_name = cfg.DATA.CLASS_OPTIONS[0]
-
+    num_classes = cfg.MODEL.NUM_CLASSES
+    plane = cfg.DATA.PLANE
+    atlas_name = cfg.DATA.CLASS_OPTIONS[0] if getattr(cfg.DATA, "CLASS_OPTIONS", None) else None
+    contrast = getattr(cfg.DATA, "CONTRAST", None) or None
+    if num_classes == 2:
+        meta = {"is_binary_task": True, "num_classes": num_classes, "plane": plane,
+                "task_type": "binary_brainmask"}
         if atlas_name:
-            # Initialize AtlasManager to get the dense_to_sparse mapping
-            # This is the CRITICAL mapping that converts model output indices to label IDs
-            atlas_manager = AtlasManager(atlas_name)
-            dense_to_sparse = atlas_manager.get_dense_to_sparse_mapping()
+            meta["atlas_name"] = atlas_name
+    else:
+        if not atlas_name:
+            LOGGER.warning("No atlas name in cfg.DATA.CLASS_OPTIONS - checkpoint lacks atlas metadata")
+            return None
+        am = AtlasManager(atlas_name)
+        meta = {
+            "is_binary_task": False,
+            "atlas_name": atlas_name.upper(),
+            "num_classes": num_classes,
+            "plane": plane,
+            "dense_to_sparse_mapping": am.get_dense_to_sparse_mapping().tolist(),
+        }
+        if plane == "sagittal":
+            meta["bilateral_dense_to_sagittal_dense"] = am.get_sagittal_to_bilateral_expansion()
+    if contrast:
+        meta["contrast"] = contrast
+    return meta
 
-            checkpoint["atlas_metadata"] = {
-                "atlas_name": atlas_name.upper(),
-                "num_classes": cfg.MODEL.NUM_CLASSES,
-                "plane": cfg.DATA.PLANE,
-                "dense_to_sparse_mapping": dense_to_sparse.tolist(),  # Convert numpy array to list for serialization
-            }
-            LOGGER.info(
-                f"Saving best checkpoint with atlas metadata: {atlas_name} ({cfg.MODEL.NUM_CLASSES} classes)"
-            )
-        else:
-            LOGGER.warning(
-                "Could not extract atlas name from config - checkpoint will not contain atlas metadata"
-            )
-    except Exception as e:
+
+def build_checkpoint(epoch, best_metric, cfg, model, optimizer, scheduler=None,
+                     extra_state: dict | None = None, provenance: dict | None = None) -> dict:
+    """Checkpoint dict: weights, optimizer/scheduler, config, atlas metadata, resume state.
+
+    ``epoch`` is the number of the last COMPLETED epoch (resume starts at epoch + 1).
+    ``extra_state`` carries trainer state needed for an exact resume (early stopping,
+    best epoch, global step). ``provenance`` records how the model was made (git commit,
+    data manifest hash, split).
+    """
+    saving_model = model.module if hasattr(model, "module") else model
+    saving_model = getattr(saving_model, "_orig_mod", saving_model)  # torch.compile wrapper
+    ckpt = {
+        "model_state": saving_model.state_dict(),
+        "optimizer_state": optimizer.state_dict() if optimizer is not None else None,
+        "epoch": epoch,
+        "best_metric": best_metric,
+        "config": cfg.dump(),
+        "checkpoint_format": 2,
+    }
+    try:
+        meta = build_atlas_metadata(cfg)
+        if meta is not None:
+            if provenance:
+                meta["provenance"] = provenance
+            ckpt["atlas_metadata"] = meta
+    except Exception as e:  # metadata must never block saving weights
         LOGGER.warning(f"Failed to add atlas metadata to checkpoint: {e}")
-        # Continue saving without metadata (backward compatible)
-
     if scheduler is not None:
-        checkpoint["scheduler_state"] = scheduler.state_dict()
-    if not isinstance(checkpoint_dir, Path):
-        checkpoint_dir = Path(checkpoint_dir)
+        ckpt["scheduler_state"] = scheduler.state_dict()
+    if extra_state:
+        ckpt["trainer_state"] = extra_state
+    return ckpt
 
-    # Remove old best checkpoint and save new one
-    remove_ckpt(checkpoint_dir / "Best_training_state.pkl")
-    torch.save(checkpoint, checkpoint_dir / "Best_training_state.pkl")
+
+def save_checkpoint(checkpoint_dir: str | Path, epoch: int, best_metric, num_gpus: int,
+                    cfg: yacs.config.CfgNode, model: torch.nn.Module,
+                    optimizer: torch.optim.Optimizer, scheduler: Scheduler | None = None,
+                    best: bool = False, extra_state: dict | None = None,
+                    provenance: dict | None = None) -> Path:
+    """Save ``Epoch_<epoch>_training_state.pkl`` (and ``Best_training_state.pkl`` if best).
+
+    ``num_gpus`` is kept for API compatibility (DataParallel is unwrapped automatically).
+    """
+    checkpoint_dir = Path(checkpoint_dir)
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    ckpt = build_checkpoint(epoch, best_metric, cfg, model, optimizer, scheduler,
+                            extra_state, provenance)
+    out = checkpoint_dir / f"Epoch_{epoch:05d}_training_state.pkl"
+    _atomic_save(ckpt, out)
+    if best:
+        _atomic_save(ckpt, checkpoint_dir / "Best_training_state.pkl")
+    return out
+
+
+def save_best_checkpoint(checkpoint_dir: str | Path, epoch: int, best_metric, num_gpus: int,
+                         cfg: yacs.config.CfgNode, model: torch.nn.Module,
+                         optimizer: torch.optim.Optimizer, scheduler: Scheduler | None = None,
+                         extra_state: dict | None = None,
+                         provenance: dict | None = None) -> Path:
+    """Save only ``Best_training_state.pkl`` (overwrites the previous best)."""
+    checkpoint_dir = Path(checkpoint_dir)
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    ckpt = build_checkpoint(epoch, best_metric, cfg, model, optimizer, scheduler,
+                            extra_state, provenance)
+    out = checkpoint_dir / "Best_training_state.pkl"
+    _atomic_save(ckpt, out)
+    return out
+
+
+def _atomic_save(obj, path: Path) -> None:
+    """torch.save to a temp file then rename, so a crash never leaves a truncated file."""
+    tmp = path.with_name(path.name + ".tmp")
+    torch.save(obj, tmp)
+    os.replace(tmp, path)
 
 
 def read_checkpoint_file(
@@ -701,6 +603,11 @@ def extract_atlas_metadata(checkpoint_path: str | Path) -> dict | None:
                     f"Multi-class checkpoint missing dense_to_sparse_mapping: {checkpoint_path}"
                 )
                 result["dense_to_sparse_mapping"] = None
+
+        # Optional keys written by newer checkpoints (older ones simply lack them)
+        for key in ("bilateral_dense_to_sagittal_dense", "contrast", "provenance"):
+            if key in metadata:
+                result[key] = metadata[key]
 
         return result
 

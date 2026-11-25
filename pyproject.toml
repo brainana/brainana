@@ -188,6 +188,8 @@ include = ["nhp_mri_prep*", "fastsurfer_nn*", "fastsurfer_surfrecon*", "nhp_skul
     "config/*.yaml",
     "atlas/**/*",
     "pretrained_model/*.pkl",
+    "scripts/*.html",
+    "scripts/*.sh",
 ]
 "fastsurfer_surfrecon" = [
     "config/*.yaml",

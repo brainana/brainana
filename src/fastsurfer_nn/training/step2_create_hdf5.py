@@ -82,7 +82,7 @@ def load_and_conform_image(image_path, preprocess_params):
     img = nib.load(image_path, mmap=True)
     zoom = img.header.get_zooms()[:3]
 
-    if np.any(np.abs(zoom) < 1e-6):
+    if np.any(np.abs(np.asarray(zoom)) < 1e-6):
         print(f"  ⚠️  SKIPPING: Invalid zoom values in {image_path.name}")
         return None, None
 
@@ -99,6 +99,11 @@ def load_and_conform_image(image_path, preprocess_params):
     # conform() already rescales to [0, RESCALE] range - keep that range in HDF5
     # Dataset loader will normalize to [0, 1] by dividing by RESCALE
     data = np.asarray(conformed_img.dataobj).astype(np.float32)
+    # Voxel size of the CONFORMED image, in the conformed axis order. The plane indices
+    # (get_zoom_indices_for_plane) refer to this order, and inference uses the conformed
+    # zooms too. (Before 2026-11 the original header zooms were stored here, which is wrong
+    # for anisotropic or non-LIA-stored inputs.)
+    zoom = conformed_img.header.get_zooms()[:3]
 
     del img, conformed_img
     return data, zoom
@@ -246,14 +251,17 @@ def _append_to_datasets(datasets, result, subject_name):
     num_slices = result["num_slices"]
     current_len = images_ds.shape[0]
 
+    images = result["images"]
+    if images_ds.dtype == np.uint8:
+        images = np.clip(np.rint(images), 0, 255).astype(np.uint8)
     images_ds.resize(current_len + num_slices, axis=0)
-    images_ds[current_len : current_len + num_slices] = result["images"]
+    images_ds[current_len : current_len + num_slices] = images
 
     labels_ds.resize(current_len + num_slices, axis=0)
-    labels_ds[current_len : current_len + num_slices] = result["labels"]
+    labels_ds[current_len : current_len + num_slices] = result["labels"].astype(labels_ds.dtype)
 
     weights_ds.resize(current_len + num_slices, axis=0)
-    weights_ds[current_len : current_len + num_slices] = result["weights"]
+    weights_ds[current_len : current_len + num_slices] = result["weights"].astype(weights_ds.dtype)
 
     zooms_ds.resize(current_len + num_slices, axis=0)
     zooms_ds[current_len : current_len + num_slices] = result["zooms"]
@@ -314,12 +322,13 @@ def process_subject(
         )
         return None
 
-    # Get cortex labels for weight mask
+    # Cortex classes for the thin-cortex weighting. label_data holds DENSE indices, so the
+    # (sparse) cortex IDs are mapped to this plane's dense indices. (Before 2026-11 the sparse
+    # IDs were matched against dense labels, weighting background and 3 random classes.)
     if num_classes == 2:
         cortex_labels = None
     else:
-        atlas_config = atlas_manager.get_atlas_config(plane)
-        cortex_labels = atlas_config.cortex_labels
+        cortex_labels = set(atlas_manager.cortex_dense(plane))
 
     # Create weight mask
     weights = create_weight_mask(
@@ -432,18 +441,32 @@ def check_memory_and_warn(threshold_percent=85):
     return True
 
 
-def _create_resizable_dataset(
-    hf_group, name, dtype, shape, compression="gzip", compression_opts=4, chunks=True
-):
-    """Create a resizable HDF5 dataset with compression."""
+HDF5_FORMAT_VERSION = "2.0"  # uint8 images/labels, float16 weights, lzf, 1 slice per chunk
+
+
+def _create_resizable_dataset(hf_group, name, dtype, shape):
+    """Resizable dataset, one slice per chunk, lzf (fast to decompress; little CPU)."""
     return hf_group.create_dataset(
         name,
-        data=np.empty(shape, dtype=dtype),
+        shape=shape,
+        dtype=dtype,
         maxshape=(None,) + shape[1:],
-        compression=compression,
-        compression_opts=compression_opts,
-        chunks=chunks,
+        compression="lzf",
+        chunks=(1,) + shape[1:],
     )
+
+
+def _source_signature(image_file, label_dir) -> list:
+    """[image path, size, mtime, label path, size, mtime] (resolved; symlinks followed)."""
+    image_file = Path(image_file)
+    base = image_file.name.replace(".nii.gz", "")
+    labels = sorted(Path(label_dir).glob(f"{base}_*.nii.gz"))
+    sig = []
+    for f in [image_file] + labels[:1]:
+        r = f.resolve()
+        st = r.stat()
+        sig += [str(r), st.st_size, int(st.st_mtime)]
+    return sig
 
 
 def _find_image_label_pairs(image_dir, label_dir):
@@ -619,6 +642,13 @@ def _check_resume_capability(output_hdf5, target_size, preprocess_params):
 
                     if "preprocessing_metadata" in hf_check:
                         meta = hf_check["preprocessing_metadata"]
+                        version = str(meta.attrs.get("version", "1.0"))
+                        if version != HDF5_FORMAT_VERSION:
+                            raise SystemExit(
+                                f"ERROR: {output_hdf5} has HDF5 format {version}, this code writes "
+                                f"{HDF5_FORMAT_VERSION} (uint8, conformed zooms, dense cortex "
+                                f"weights). Write to a new file or move the old one away."
+                            )
                         for key, expected_value in preprocess_params.items():
                             if key in meta.attrs and meta.attrs[key] != expected_value:
                                 print(
@@ -765,7 +795,7 @@ def create_hdf5_dataset(
             for key, value in preprocess_params.items():
                 preprocess_metadata.attrs[key] = value
             preprocess_metadata.attrs["created_with_conform"] = True
-            preprocess_metadata.attrs["version"] = "1.0"
+            preprocess_metadata.attrs["version"] = HDF5_FORMAT_VERSION
             preprocess_metadata.attrs["plane_mode"] = plane  # Store plane mode
             print("✓ Saved preprocessing metadata")
 
@@ -775,14 +805,15 @@ def create_hdf5_dataset(
             initial_label_weight_shape = (0, target_size, target_size)
             initial_zoom_shape = (0, 2)
 
+            label_dtype = np.uint8 if (num_classes or 0) <= 256 else np.int16
             images_ds = _create_resizable_dataset(
-                grp, "orig_dataset", np.float32, initial_img_shape
+                grp, "orig_dataset", np.uint8, initial_img_shape
             )
             labels_ds = _create_resizable_dataset(
-                grp, "aseg_dataset", np.int32, initial_label_weight_shape
+                grp, "aseg_dataset", label_dtype, initial_label_weight_shape
             )
             weights_ds = _create_resizable_dataset(
-                grp, "weight_dataset", np.float32, initial_label_weight_shape
+                grp, "weight_dataset", np.float16, initial_label_weight_shape
             )
             zooms_ds = _create_resizable_dataset(
                 grp, "zoom_dataset", np.float32, initial_zoom_shape
@@ -806,6 +837,24 @@ def create_hdf5_dataset(
             )
 
         datasets = (images_ds, labels_ds, weights_ds, zooms_ds, subjects_ds)
+
+        # Source files of each subject (path, size, mtime of image and label). On resume,
+        # subjects whose sources changed are removed and processed again, so an HDF5 never
+        # mixes slices from an old and a new label/image version.
+        sources = json.loads(grp.attrs.get("sources", "{}"))
+        stale = set()
+        for image_file in all_image_files:
+            name = image_file.name.replace(".nii.gz", "").strip()
+            if name in sources and sources[name] != _source_signature(image_file, label_dir):
+                stale.add(name)
+        if stale:
+            print(f"  {len(stale)} subject(s) changed since they were written; reprocessing: "
+                  f"{sorted(stale)[:5]}{' ...' if len(stale) > 5 else ''}")
+            keep = (subject_filter or set(sources)) - stale
+            _delete_samples_not_in_filter(datasets, keep)
+            image_files = image_files + [f for f in all_image_files
+                                         if f.name.replace(".nii.gz", "").strip() in stale
+                                         and f not in image_files]
 
         # Delete samples not in subject_filter if filter is provided and file exists
         if file_mode == "a" and subject_filter is not None and images_ds.shape[0] > 0:
@@ -869,6 +918,9 @@ def create_hdf5_dataset(
                                 datasets, result, subject_name
                             )
                             subjects_processed_set.add(subject_name)
+                            sources[subject_name] = _source_signature(
+                                image_dir / f"{subject_name}.nii.gz", label_dir)
+                            grp.attrs["sources"] = json.dumps(sources)
                             if len(subjects_processed_set) % 10 == 0:
                                 check_memory_and_warn()
                 finally:
@@ -906,6 +958,9 @@ def create_hdf5_dataset(
                             datasets, result, subject_name
                         )
                         subjects_processed_set.add(subject_name)
+                        sources[subject_name] = _source_signature(
+                            image_dir / f"{subject_name}.nii.gz", label_dir)
+                        grp.attrs["sources"] = json.dumps(sources)
                         if len(subjects_processed_set) % 10 == 0:
                             check_memory_and_warn()
         except KeyboardInterrupt:
@@ -1142,11 +1197,18 @@ def main():
     )
 
     split_json = data_dir / "data_split.json"
-    subject_filter = None
-    if split_json.exists():
-        with open(split_json) as f:
-            split = json.load(f)
-            subject_filter = set(split[args.split_type])
+    if not split_json.exists():
+        # Without a split, train and val HDF5 would both contain every subject (leakage).
+        raise SystemExit(
+            f"ERROR: {split_json} not found. Create it first (step1_split_data.py, or "
+            f"monkey_unet_prep/5_balance_sites.py), so train and val subjects differ."
+        )
+    with open(split_json) as f:
+        split = json.load(f)
+    subject_filter = set(split[args.split_type])
+    overlap = set(split.get("train", [])) & set(split.get("val", []))
+    if overlap:
+        raise SystemExit(f"ERROR: {len(overlap)} subjects are in both train and val: {sorted(overlap)[:5]}")
 
     print("\nConfiguration:")
     print(

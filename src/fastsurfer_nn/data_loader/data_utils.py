@@ -1809,7 +1809,10 @@ def get_labels_from_lut(
 
 
 def map_prediction_sagittal2full(
-    prediction_sag: npt.NDArray, num_classes: int, atlas_name: str | None = None
+    prediction_sag: npt.NDArray,
+    num_classes: int,
+    atlas_name: str | None = None,
+    idx_list: list[int] | None = None,
 ) -> np.ndarray:
     """
     Remap the prediction on the sagittal network to full label space used by coronal and axial networks.
@@ -1823,10 +1826,11 @@ def map_prediction_sagittal2full(
         Sagittal prediction (labels).
     num_classes : int
         Number of SAGITTAL classes.
-    lut : Optional[str]
-        Look-up table listing class labels (Default value = None).
     atlas_name : Optional[str]
-        Name of the atlas to use. If None, tries to determine from environment or context.
+        Name of the atlas, used to rebuild the mapping when idx_list is None.
+    idx_list : Optional[list[int]]
+        For each bilateral dense index, the sagittal dense index to copy (checkpoint key
+        ``bilateral_dense_to_sagittal_dense``).
 
     Returns
     -------
@@ -1839,15 +1843,15 @@ def map_prediction_sagittal2full(
             prediction_sag  # Already correct - brain is brain regardless of hemisphere
         )
 
-    # Multi-class mode - use atlas-specific expansion mapping
-    # Determine atlas name
-    if atlas_name is None:
-        atlas_name = os.environ.get("ATLAS_NAME", "ARM3")
-
-    atlas_manager = get_atlas_manager(atlas_name)
-
-    # Use atlas-specific expansion mapping
-    idx_list = atlas_manager.get_sagittal_to_bilateral_expansion()
+    # Multi-class: expand hemisphere-merged sagittal dense classes to bilateral dense
+    # classes. Prefer the mapping stored in the checkpoint (idx_list); otherwise rebuild it
+    # from the atlas roiinfo.
+    if idx_list is None:
+        if atlas_name is None:
+            atlas_name = os.environ.get("ATLAS_NAME")
+        if not atlas_name:
+            raise ValueError("map_prediction_sagittal2full needs atlas_name or idx_list")
+        idx_list = get_atlas_manager(atlas_name).get_sagittal_to_bilateral_expansion()
     return prediction_sag[:, idx_list, :, :]
 
 

@@ -73,6 +73,19 @@ def make_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--profile", type=int, default=0, metavar="N",
+        help="time N training iterations (data wait vs GPU step), write "
+             "monitor/profile.json and exit without saving checkpoints",
+    )
+    parser.add_argument(
+        "--resume", action="store_true",
+        help="continue from the newest checkpoint in OUTPUT_DIR/checkpoints",
+    )
+    parser.add_argument(
+        "--output_dir", default=None,
+        help="override OUTPUT_DIR (training output folder) from the YAML",
+    )
+    parser.add_argument(
         "opts",
         help="See fastsurfer_nn/config/defaults.py for all options",
         default=None,
@@ -102,10 +115,12 @@ def main(args):
     cfg.SUMMARY_PATH = misc.check_path(join(cfg.LOG_DIR, "training_summary"))
     cfg.CONFIG_LOG_PATH = misc.check_path(join(cfg.LOG_DIR, "config"))
 
-    with open(join(cfg.CONFIG_LOG_PATH, "config.yaml"), "w") as json_file:
-        json.dump(cfg, json_file, indent=2)
+    with open(join(cfg.CONFIG_LOG_PATH, "config.yaml"), "w") as fh:
+        fh.write(cfg.dump())  # real YAML (was JSON written to a .yaml file)
 
-    trainer = Trainer(cfg=cfg)
+    if args.resume:
+        cfg.TRAIN.RESUME = True
+    trainer = Trainer(cfg=cfg, profile_iters=args.profile)
     trainer.run()
 
 

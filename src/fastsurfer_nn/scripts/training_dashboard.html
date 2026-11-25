@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Segmentation training — live</title>
+<script src="/plotly.min.js"></script>
+<style>
+  :root {
+    --page: #fcfcfc; --surface: #ffffff; --cream: #fffddd; --border: #e1e4e5;
+    --ink: #333333; --ink2: #5f6b7a; --muted: #808080; --link: #6a4fb3;
+    --ok: #22704a; --ok-bg: #e8f6ee; --warn: #8a6400; --warn-bg: #fff6dc;
+    --fail: #9c4636; --fail-bg: #f8ece8; --grid: #eef0f2;
+    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+    --font: Lato, "Helvetica Neue", Arial, sans-serif;
+    --mono: SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page: #15161a; --surface: #1d1f24; --cream: #2a2818; --border: #33363d;
+      --ink: #e6e6e6; --ink2: #aab3bf; --muted: #8a8f98; --link: #a593e6;
+      --ok: #5fc08e; --ok-bg: #18302a; --warn: #e0b54a; --warn-bg: #33290f;
+      --fail: #e08a78; --fail-bg: #3a221d; --grid: #2a2d33;
+      --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.45 var(--font); }
+  header { position: sticky; top: 0; z-index: 5; background: var(--cream);
+           border-bottom: 1px solid var(--border); padding: 10px 20px;
+           display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0 8px 0 0; font-weight: 700; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { border: 1px solid var(--border); background: var(--surface); color: var(--ink);
+          border-radius: 999px; padding: 3px 10px 3px 8px; cursor: pointer; font: inherit;
+          display: inline-flex; gap: 6px; align-items: center; }
+  .chip[aria-pressed="false"] { opacity: .45; }
+  .chip .sw { width: 10px; height: 10px; border-radius: 3px; }
+  .chip.focus { outline: 2px solid var(--link); outline-offset: 1px; }
+  .meta { margin-left: auto; color: var(--muted); font-size: 12px; }
+  main { padding: 16px 20px 40px; max-width: 1500px; margin: 0 auto; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+          padding: 12px 14px; }
+  .card h2 { font-size: 14px; margin: 0 0 6px; display: flex; gap: 8px; align-items: center; }
+  .card h2 .sw { width: 10px; height: 10px; border-radius: 3px; }
+  .pill { font-size: 11px; border-radius: 999px; padding: 1px 8px; font-weight: 700; }
+  .st-training, .st-validating, .st-starting { background: var(--ok-bg); color: var(--ok); }
+  .st-finished, .st-profiled { background: var(--grid); color: var(--ink2); }
+  .st-failed, .st-stale { background: var(--fail-bg); color: var(--fail); }
+  .kv { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 10px; margin-top: 8px; }
+  .kv div { font-size: 11px; color: var(--muted); }
+  .kv b { display: block; font-size: 15px; color: var(--ink); font-weight: 700;
+          font-variant-numeric: tabular-nums; }
+  .bar { height: 6px; background: var(--grid); border-radius: 3px; overflow: hidden; margin-top: 6px; }
+  .bar > i { display: block; height: 100%; background: var(--link); }
+  .sub { color: var(--muted); font-size: 12px; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(560px, 1fr)); gap: 12px; margin-top: 12px; }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+           padding: 10px 12px; min-width: 0; }
+  .panel h3 { font-size: 13px; margin: 0 0 2px; }
+  .panel p.note { margin: 0 0 6px; color: var(--muted); font-size: 12px; }
+  .plot { height: 280px; }
+  .tall { height: 520px; }
+  section.focus { margin-top: 18px; }
+  section.focus > h2 { font-size: 15px; margin: 0 0 4px; }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 3px 8px; border-bottom: 1px solid var(--grid); }
+  th { color: var(--ink2); font-weight: 700; position: sticky; top: 0; background: var(--surface); }
+  td.num, th.num { text-align: right; }
+  .scroll { max-height: 300px; overflow: auto; }
+  .snap img { max-width: 100%; border-radius: 6px; background: #000; display: block; }
+  .snapbar { display: flex; gap: 10px; align-items: center; margin: 4px 0 8px; }
+  details summary { cursor: pointer; color: var(--link); font-size: 12px; }
+  .empty { color: var(--muted); padding: 40px; text-align: center; }
+  .warnbox { background: var(--warn-bg); color: var(--warn); border-radius: 6px; padding: 4px 8px;
+             font-size: 12px; margin-top: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Segmentation training</h1>
+  <div class="chips" id="chips" role="group" aria-label="runs"></div>
+  <div class="meta" id="meta">loading…</div>
+</header>
+<main>
+  <div class="cards" id="cards"></div>
+  <div class="grid2">
+    <div class="panel"><h3>Validation Dice</h3>
+      <p class="note">Mean per-subject foreground Dice (3-D). It picks the best checkpoint and drives early stopping. ◆ = best epoch.</p>
+      <div class="plot" id="p-dice"></div></div>
+    <div class="panel"><h3>Training loss</h3>
+      <p class="note">Dice + weighted cross-entropy, mean of each logging window. x = epoch.</p>
+      <div class="plot" id="p-loss"></div></div>
+    <div class="panel"><h3>Learning rate</h3>
+      <p class="note">Stepped every optimizer step.</p>
+      <div class="plot" id="p-lr"></div></div>
+    <div class="panel"><h3>Speed</h3>
+      <p class="note">Seconds per iteration. If data wait (next panel) is high, the loader is the bottleneck.</p>
+      <div class="plot" id="p-speed"></div></div>
+    <div class="panel"><h3>Data wait</h3>
+      <p class="note">Share of wall time spent waiting for the next batch.</p>
+      <div class="plot" id="p-wait"></div></div>
+    <div class="panel"><h3>GPU memory</h3>
+      <p class="note">Peak reserved memory (GB).</p>
+      <div class="plot" id="p-gpu"></div></div>
+  </div>
+
+  <section class="focus" id="focus">
+    <h2 id="focus-title">Details</h2>
+    <p class="sub">Click a run chip twice to focus it here.</p>
+    <div class="grid2">
+      <div class="panel"><h3>Per-class Dice by epoch</h3>
+        <p class="note">Classes sorted by their latest Dice, weakest at the top.</p>
+        <div class="tall" id="p-heat"></div></div>
+      <div class="panel snap"><h3>Validation snapshot</h3>
+        <div class="snapbar"><input type="range" id="snap-slider" min="0" max="0" value="0" style="flex:1">
+          <span class="sub" id="snap-label"></span></div>
+        <img id="snap-img" alt="validation slices: image, label, prediction"></div>
+      <div class="panel"><h3>Dice by site (latest epoch)</h3>
+        <div class="plot" id="p-site"></div></div>
+      <div class="panel"><h3>Dice by age bin (latest epoch)</h3>
+        <p class="note">Only where the data prep defines age bins (UNC-Wisconsin).</p>
+        <div class="plot" id="p-age"></div></div>
+      <div class="panel"><h3>Validation subjects (latest epoch, weakest first)</h3>
+        <div class="scroll"><table id="t-subj"></table></div></div>
+    </div>
+    <div class="panel" style="margin-top:12px">
+      <details><summary>Epoch table</summary><div class="scroll"><table id="t-epoch"></table></div></details>
+      <details><summary>Events</summary><div class="scroll"><table id="t-events"></table></div></details>
+    </div>
+  </section>
+</main>
+<script>
+const STATIC = /*__STATIC_DATA__*/null;
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const SERIES = ['--s1', '--s2', '--s3', '--s4'];
+const runs = {};          // name -> {records, iters, epochs, events, status, offset, snapshots, idx}
+const order = [];         // first-seen order -> fixed colour per run
+let shown = new Set(), focus = null;
+
+function color(name) {
+  const i = order.indexOf(name);
+  return i >= 0 && i < SERIES.length ? css(SERIES[i]) : css('--ink2');  // >4 runs: neutral
+}
+function fmt(v, d = 3) { return v == null || Number.isNaN(v) ? '–' : (+v).toFixed(d); }
+function dur(s) {
+  if (s == null || !isFinite(s)) return '–';
+  s = Math.round(s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+  return h ? `${h} h ${m} min` : `${m} min`;
+}
+function ensure(name) {
+  if (!runs[name]) {
+    runs[name] = {records: [], iters: [], epochs: [], events: [], status: {}, offset: 0, snapshots: []};
+    order.push(name); shown.add(name); if (!focus) focus = name;
+  }
+  return runs[name];
+}
+function ingest(name, recs) {
+  const r = ensure(name);
+  for (const x of recs) {
+    if (x.type === 'iter') r.iters.push(x);
+    else if (x.type === 'epoch') {
+      r.epochs = r.epochs.filter(e => e.epoch !== x.epoch); r.epochs.push(x);  // resume may repeat
+    } else if (x.type === 'event') r.events.push(x);
+  }
+}
+
+// ---------------------------------------------------------------- data
+async function poll() {
+  if (STATIC) {
+    for (const [n, d] of Object.entries(STATIC)) {
+      ensure(n); ingest(n, d.records); runs[n].status = d.status;
+      runs[n].snapshots = Object.keys(d.snapshots).map(Number).sort((a, b) => a - b);
+      runs[n].snapData = d.snapshots;
+    }
+    document.getElementById('meta').textContent = 'static export';
+    return render();
+  }
+  try {
+    const list = await (await fetch('/api/runs')).json();
+    await Promise.all(list.map(async ({name}) => {
+      const r = ensure(name);
+      const d = await (await fetch(`/api/data?run=${encodeURIComponent(name)}&since=${r.offset}`)).json();
+      ingest(name, d.records); r.offset = d.offset; r.status = d.status; r.snapshots = d.snapshots;
+    }));
+    document.getElementById('meta').textContent = 'updated ' + new Date().toLocaleTimeString() + ' · every 5 s';
+  } catch (e) {
+    document.getElementById('meta').textContent = 'cannot reach the dashboard server (' + e + ')';
+  }
+  render();
+}
+
+// ---------------------------------------------------------------- render
+function layout(ytitle, extra = {}) {
+  return Object.assign({
+    margin: {l: 52, r: 70, t: 8, b: 36}, paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+    font: {family: css('--font'), size: 12, color: css('--ink2')},
+    xaxis: {title: {text: 'epoch'}, gridcolor: css('--grid'), zeroline: false, linecolor: css('--border')},
+    yaxis: {title: {text: ytitle}, gridcolor: css('--grid'), zeroline: false, linecolor: css('--border')},
+    showlegend: true, legend: {orientation: 'h', y: 1.12, x: 0, font: {size: 11}},
+    hovermode: 'x unified', hoverlabel: {font: {family: css('--mono'), size: 11}},
+  }, extra);
+}
+const CONF = {displaylogo: false, responsive: true, modeBarButtonsToRemove: ['lasso2d', 'select2d']};
+
+function lineTraces(getXY, opts = {}) {
+  const traces = [], ann = [];
+  for (const n of order) {
+    if (!shown.has(n)) continue;
+    const {x, y} = getXY(runs[n]);
+    if (!x.length) continue;
+    traces.push(Object.assign({x, y, name: n, mode: 'lines', type: 'scatter',
+      line: {color: color(n), width: 2}, hovertemplate: `${n}: %{y:.4g}<extra></extra>`}, opts));
+    ann.push({x: x[x.length - 1], y: y[y.length - 1], text: n.replace(/^.*?_(axial|coronal|sagittal).*$/, '$1'),
+      xanchor: 'left', xshift: 6, showarrow: false, font: {size: 11, color: css('--ink2')}});
+  }
+  return {traces, ann};
+}
+function iterX(it) { return (it.epoch - 1) + it.iter / it.iters; }
+
+function drawCharts() {
+  // validation dice + best markers
+  let {traces, ann} = lineTraces(r => ({x: r.epochs.map(e => e.epoch), y: r.epochs.map(e => e.val_dice)}),
+                                 {mode: 'lines+markers', marker: {size: 8, line: {width: 2, color: css('--surface')}}});
+  for (const n of order) {
+    if (!shown.has(n)) continue;
+    const b = runs[n].epochs.filter(e => e.best).pop();
+    if (b) traces.push({x: [b.epoch], y: [b.val_dice], mode: 'markers', showlegend: false, hoverinfo: 'skip',
+      marker: {symbol: 'diamond', size: 13, color: color(n), line: {width: 2, color: css('--surface')}}});
+  }
+  Plotly.react('p-dice', traces, layout('Dice', {annotations: ann}), CONF);
+
+  ({traces, ann} = lineTraces(r => ({x: r.iters.map(iterX), y: r.iters.map(i => i.loss)})));
+  Plotly.react('p-loss', traces, layout('loss', {annotations: ann}), CONF);
+  ({traces, ann} = lineTraces(r => ({x: r.iters.map(iterX), y: r.iters.map(i => i.lr)})));
+  Plotly.react('p-lr', traces, layout('learning rate', {annotations: ann, yaxis: {type: 'log', title: {text: 'learning rate'}, gridcolor: css('--grid')}}), CONF);
+  ({traces, ann} = lineTraces(r => ({x: r.iters.map(iterX), y: r.iters.map(i => i.step_s)})));
+  Plotly.react('p-speed', traces, layout('s / iteration', {annotations: ann}), CONF);
+  ({traces, ann} = lineTraces(r => ({x: r.iters.map(iterX), y: r.iters.map(i => 100 * (i.data_wait_frac ?? 0))})));
+  Plotly.react('p-wait', traces, layout('% of time', {annotations: ann, yaxis: {range: [0, 100], title: {text: '% of time'}, gridcolor: css('--grid')}}), CONF);
+  ({traces, ann} = lineTraces(r => {
+    const it = r.iters.filter(i => i.gpu_mem_gb != null);
+    return {x: it.map(iterX), y: it.map(i => i.gpu_mem_gb)};
+  }));
+  Plotly.react('p-gpu', traces, layout('GB', {annotations: ann}), CONF);
+}
+
+function drawCards() {
+  const box = document.getElementById('cards');
+  box.innerHTML = '';
+  for (const n of order) {
+    if (!shown.has(n)) continue;
+    const r = runs[n], s = r.status || {}, c = s.config || {};
+    const last = r.epochs[r.epochs.length - 1] || {}, it = r.iters[r.iters.length - 1] || {};
+    const total = c.epochs || 0, ep = s.epoch || 0;
+    let state = s.state || 'unknown';
+    const age = s.last_update ? (Date.now() / 1000 - s.last_update) : null;
+    if (!STATIC && ['training', 'validating', 'starting'].includes(state) && age > 900) state = 'stale';
+    const frac = total ? Math.min(1, ((ep - 1) + (s.iter && s.iters ? s.iter / s.iters : 1)) / total) : 0;
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <h2><span class="sw" style="background:${color(n)}"></span>${n}
+        <span class="pill st-${state}">${state}</span></h2>
+      <div class="sub">${c.contrast || ''} ${c.plane || ''} · ${c.classes || ''} classes · lr ${c.lr ?? ''} ${c.scheduler || ''} · batch ${c.batch || ''} · ${c.amp || ''}</div>
+      <div class="bar" title="progress"><i style="width:${(100 * frac).toFixed(1)}%"></i></div>
+      <div class="sub">epoch ${ep} / ${total}${s.iter ? ` · iter ${s.iter} / ${s.iters}` : ''} · ETA ${dur(s.eta_s)}</div>
+      <div class="kv">
+        <div>best val Dice<b>${fmt(s.best_score ?? last.best_score, 4)}</b>${s.best_epoch ? 'epoch ' + s.best_epoch : ''}</div>
+        <div>last val Dice<b>${fmt(last.val_dice, 4)}</b>pooled ${fmt(last.val_dice_pooled, 4)}</div>
+        <div>early stop<b>${s.early_stop_count ?? 0} / ${s.early_stop_patience ?? '–'}</b>epochs w/o gain</div>
+        <div>speed<b>${fmt(it.step_s, 2)} s/it</b>${fmt(it.img_per_s, 0)} slices/s</div>
+        <div>data wait<b>${it.data_wait_frac == null ? '–' : (100 * it.data_wait_frac).toFixed(0) + ' %'}</b>of wall time</div>
+        <div>GPU<b>${it.gpu_util == null ? '–' : it.gpu_util + ' %'}</b>${it.gpu_mem_gb == null ? '' : it.gpu_mem_gb + ' GB'}</div>
+      </div>
+      ${state === 'stale' ? `<div class="warnbox">No update for ${dur(age)} — is the job still running?</div>` : ''}
+      <div class="sub" style="margin-top:6px">${c.aug ? 'aug: ' + c.aug : ''}</div>`;
+    box.appendChild(card);
+  }
+  if (!order.length) box.innerHTML = '<div class="empty">No runs with a monitor/ folder yet.</div>';
+}
+
+function drawChips() {
+  const box = document.getElementById('chips');
+  box.innerHTML = '';
+  for (const n of order) {
+    const b = document.createElement('button');
+    b.className = 'chip' + (n === focus ? ' focus' : '');
+    b.setAttribute('aria-pressed', shown.has(n));
+    b.innerHTML = `<span class="sw" style="background:${color(n)}"></span>${n}`;
+    b.title = 'click: show/hide · click the shown, unfocused run again: focus details';
+    b.onclick = () => {
+      if (shown.has(n) && focus !== n) focus = n;
+      else if (shown.has(n)) shown.delete(n);
+      else shown.add(n);
+      render();
+    };
+    box.appendChild(b);
+  }
+}
+
+function drawFocus() {
+  const r = runs[focus];
+  document.getElementById('focus-title').textContent = focus ? `Details — ${focus}` : 'Details';
+  if (!r) return;
+  const eps = r.epochs;
+  // heatmap
+  if (eps.length) {
+    const last = eps[eps.length - 1].per_class || {};
+    const names = Object.keys(last).filter(k => k !== 'background')
+      .sort((a, b) => (last[a] ?? -1) - (last[b] ?? -1));
+    const z = names.map(k => eps.map(e => e.per_class?.[k] ?? null));
+    Plotly.react('p-heat', [{type: 'heatmap', x: eps.map(e => e.epoch), y: names, z, zmin: 0.5, zmax: 1,
+      colorscale: [[0, '#f4f1fb'], [0.5, '#a593e6'], [1, '#3d2a7d']], xgap: 1, ygap: 1,
+      colorbar: {title: {text: 'Dice'}, thickness: 10},
+      hovertemplate: '%{y}<br>epoch %{x}: %{z:.3f}<extra></extra>'}],
+      layout('', {margin: {l: 180, r: 10, t: 8, b: 36}, showlegend: false, hovermode: 'closest',
+        yaxis: {automargin: true, tickfont: {size: 9}}, xaxis: {title: {text: 'epoch'}}}), CONF);
+    // sites
+    const ps = eps[eps.length - 1].per_site || {};
+    const sites = Object.keys(ps).sort((a, b) => ps[a] - ps[b]);
+    Plotly.react('p-site', [{type: 'bar', orientation: 'h', y: sites, x: sites.map(k => ps[k]),
+      marker: {color: color(focus)}, hovertemplate: '%{y}: %{x:.4f}<extra></extra>',
+      text: sites.map(k => ps[k].toFixed(3)), textposition: 'outside', cliponaxis: false}],
+      layout('', {showlegend: false, hovermode: 'closest', margin: {l: 130, r: 40, t: 8, b: 36},
+        xaxis: {title: {text: 'mean Dice'}, range: [0, 1], gridcolor: css('--grid')}, yaxis: {automargin: true}}), CONF);
+    // age bins (fixed developmental order)
+    const pa = eps[eps.length - 1].per_age || {};
+    const order_ = ['neonate', 'infant', 'juvenile', '13-24mo', 'older'].filter(k => k in pa);
+    Plotly.react('p-age', order_.length ? [{type: 'bar', x: order_, y: order_.map(k => pa[k]),
+      marker: {color: color(focus)}, text: order_.map(k => pa[k].toFixed(3)), textposition: 'outside',
+      cliponaxis: false, hovertemplate: '%{x}: %{y:.4f}<extra></extra>'}] : [],
+      layout('mean Dice', {showlegend: false, hovermode: 'closest', xaxis: {title: {text: 'age bin'}},
+        yaxis: {range: [0, 1], title: {text: 'mean Dice'}, gridcolor: css('--grid')}}), CONF);
+    // subjects
+    const psub = eps[eps.length - 1].per_subject || {};
+    const subs = Object.keys(psub).sort((a, b) => psub[a] - psub[b]);
+    document.getElementById('t-subj').innerHTML = '<tr><th>subject</th><th class="num">Dice</th></tr>' +
+      subs.map(k => `<tr><td>${k}</td><td class="num">${fmt(psub[k], 4)}</td></tr>`).join('');
+    document.getElementById('t-epoch').innerHTML =
+      '<tr><th>epoch</th><th class="num">lr</th><th class="num">train loss</th><th class="num">train Dice</th>' +
+      '<th class="num">val loss</th><th class="num">val Dice</th><th class="num">pooled</th><th class="num">min</th><th></th></tr>' +
+      eps.map(e => `<tr><td>${e.epoch}</td><td class="num">${(+e.lr).toExponential(2)}</td><td class="num">${fmt(e.train_loss, 4)}</td>
+        <td class="num">${fmt(e.train_dice, 4)}</td><td class="num">${fmt(e.val_loss, 4)}</td><td class="num">${fmt(e.val_dice, 4)}</td>
+        <td class="num">${fmt(e.val_dice_pooled, 4)}</td><td class="num">${fmt((e.epoch_s || 0) / 60, 1)}</td><td>${e.best ? 'best' : ''}</td></tr>`).join('');
+  }
+  document.getElementById('t-events').innerHTML = '<tr><th>time</th><th>event</th></tr>' +
+    r.events.map(e => `<tr><td>${new Date(e.time * 1000).toLocaleString()}</td><td>${e.message}</td></tr>`).join('');
+  // snapshots
+  const sl = document.getElementById('snap-slider');
+  const snaps = r.snapshots || [];
+  const wasAtEnd = +sl.value >= +sl.max;
+  sl.max = Math.max(0, snaps.length - 1);
+  if (wasAtEnd || sl.dataset.run !== focus) sl.value = sl.max;
+  sl.dataset.run = focus;
+  showSnap();
+}
+function showSnap() {
+  const r = runs[focus], sl = document.getElementById('snap-slider'), img = document.getElementById('snap-img');
+  const snaps = (r && r.snapshots) || [];
+  if (!snaps.length) { img.removeAttribute('src'); document.getElementById('snap-label').textContent = 'none yet'; return; }
+  const e = snaps[+sl.value];
+  const src = STATIC ? r.snapData[e] : `/api/snapshot?run=${encodeURIComponent(focus)}&epoch=${e}`;
+  if (img.getAttribute('src') !== src) img.src = src;
+  document.getElementById('snap-label').textContent = `epoch ${e}`;
+}
+document.getElementById('snap-slider').oninput = showSnap;
+
+function render() { drawChips(); drawCards(); drawCharts(); drawFocus(); }
+poll();
+if (!STATIC) setInterval(poll, 5000);
+</script>
+</body>
+</html>

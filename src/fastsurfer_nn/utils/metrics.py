@@ -533,3 +533,75 @@ def __surface_distances(result, reference, voxelspacing=None, connectivity=1):
     sds = dt[result_border]
 
     return sds
+
+
+# ----------------------------------------------------------------------------- fast Dice
+class DiceAccumulator:
+    """Per-subject, per-class overlap counts accumulated on the GPU with ``bincount``.
+
+    ``update(pred, target, subject)`` takes dense class maps [B, H, W] (long) and subject
+    indices [B]. No one-hot tensors are built, so it costs ~3 bincounts per batch.
+
+    * ``subject_dice()``  -> [S, C] Dice per subject and class (NaN where the class is in
+      neither the label nor the prediction of that subject).
+    * ``mean_subject_dice()`` -> mean over subjects of the mean foreground Dice per subject:
+      the 3-D, per-subject validation score used to pick the best checkpoint.
+    * ``pooled_dice()`` -> [C] Dice of all voxels pooled (the pre-2026 "val_dice" style).
+    Class 0 (background) is excluded from every mean.
+    """
+
+    def __init__(self, num_classes: int, num_subjects: int = 1, device="cpu"):
+        self.c = int(num_classes)
+        self.s = int(num_subjects)
+        shape = (self.s, self.c)
+        self.inter = torch.zeros(shape, dtype=torch.float64, device=device)
+        self.psum = torch.zeros(shape, dtype=torch.float64, device=device)
+        self.tsum = torch.zeros(shape, dtype=torch.float64, device=device)
+
+    @torch.no_grad()
+    def update(self, pred: torch.Tensor, target: torch.Tensor,
+               subject: torch.Tensor | None = None) -> None:
+        pred = pred.long()
+        target = target.long()
+        n = self.s * self.c
+        if subject is None:
+            offset = torch.zeros_like(target)
+        else:
+            offset = subject.to(target.device).long().view(-1, *([1] * (target.dim() - 1))) * self.c
+        t_idx = (offset + target).flatten()
+        p_idx = (offset + pred).flatten()
+        self.tsum += torch.bincount(t_idx, minlength=n).view(self.s, self.c)
+        self.psum += torch.bincount(p_idx, minlength=n).view(self.s, self.c)
+        hit = (pred == target).flatten()
+        self.inter += torch.bincount(t_idx[hit], minlength=n).view(self.s, self.c)
+
+    def subject_dice(self) -> torch.Tensor:
+        denom = self.psum + self.tsum
+        dice = 2 * self.inter / denom.clamp_min(1)
+        dice[denom == 0] = float("nan")
+        return dice
+
+    def subject_mean(self) -> torch.Tensor:
+        """[S] mean foreground Dice per subject (subjects without any voxel -> NaN)."""
+        return torch.nanmean(self.subject_dice()[:, 1:], dim=1)
+
+    def mean_subject_dice(self) -> float:
+        m = self.subject_mean()
+        m = m[~torch.isnan(m)]
+        return float(m.mean()) if m.numel() else float("nan")
+
+    def per_class_dice(self) -> torch.Tensor:
+        """[C] mean over subjects of each class's Dice."""
+        return torch.nanmean(self.subject_dice(), dim=0)
+
+    def pooled_dice(self) -> torch.Tensor:
+        i, p, t = self.inter.sum(0), self.psum.sum(0), self.tsum.sum(0)
+        denom = p + t
+        d = 2 * i / denom.clamp_min(1)
+        d[denom == 0] = float("nan")
+        return d
+
+    def mean_pooled_dice(self) -> float:
+        d = self.pooled_dice()[1:]
+        d = d[~torch.isnan(d)]
+        return float(d.mean()) if d.numel() else float("nan")

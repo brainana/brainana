@@ -126,6 +126,33 @@ _C.TRAIN.EARLY_STOPPING_WAIT = 10
 # Delta = change below which early stopping starts (previous - current < delta = stop)
 _C.TRAIN.EARLY_STOPPING_DELTA = 0.00001
 
+# Metric that selects the best checkpoint AND drives early stopping (one criterion):
+# "val_dice" (per-subject 3-D foreground Dice on the validation set, higher is better) or
+# "val_loss" (lower is better). EARLY_STOPPING_MODE is derived from it.
+_C.TRAIN.SELECTION_METRIC = "val_dice"
+
+# Mixed precision: "bf16" (Ampere+ GPUs), "fp16" (uses a grad scaler) or "none"
+_C.TRAIN.AMP = "bf16"
+
+# channels_last memory format. Off: with 71 filters (not a multiple of 8) it was 15% SLOWER
+# on an A6000 (2026-11 benchmark, bf16: 0.44 vs 0.51 s/iter).
+_C.TRAIN.CHANNELS_LAST = False
+
+# torch.compile the model (first epoch is slower; off by default)
+_C.TRAIN.COMPILE = False
+
+# Deterministic cuDNN (slower). When False, cudnn.benchmark is enabled.
+_C.TRAIN.DETERMINISTIC = False
+
+# Gradient accumulation: optimizer step every N batches (effective batch = N * BATCH_SIZE)
+_C.TRAIN.ACCUM_STEPS = 1
+
+# Number of fixed validation slices drawn in the per-epoch snapshot (monitor/snapshots)
+_C.TRAIN.SNAPSHOT_SLICES = 4
+
+# Write the live-monitor files (monitor/metrics.jsonl, status.json, snapshots)
+_C.TRAIN.MONITOR = True
+
 # ---------------------------------------------------------------------------- #
 # Testing options
 # ---------------------------------------------------------------------------- #
@@ -166,8 +193,24 @@ _C.DATA.SIZES = [256, 311, 320]
 # the size that all inputs are padded to
 _C.DATA.PADDED_SIZE = 320
 
-# Augmentations
+# Image contrast the model is trained for ("T1w", "T2w", "T2wExvivo"); stored in the
+# checkpoint metadata so the pipeline can check it picked the right model.
+_C.DATA.CONTRAST = ""
+
+# Augmentations. Geometric: Scaling, Rotation, Translation (one combined affine), Elastic,
+# RAnisotropy; intensity: BiasField, RGamma, Noise. "Gaussian" is NOT image noise: it
+# jitters the network's scale-factor input (FastSurfer legacy). Use "Noise" for image noise.
 _C.DATA.AUG = ["Scaling", "Translation"]
+
+# Where augmentation runs: "gpu" (batched, in the trainer; supports Scaling, Rotation,
+# Translation, BiasField, RGamma, Noise, Gaussian) or "cpu" (torchio in the data loader
+# workers; also supports Elastic and RAnisotropy, but is much slower).
+_C.DATA.AUG_DEVICE = "gpu"
+
+# Site balancing of the TRAINING draws (validation is never weighted). Subjects are grouped by
+# the "site-<name>_" prefix of their name. "none": uniform over slices; "sqrt": each site's
+# share of draws is proportional to sqrt(number of its subjects); "equal": every site the same.
+_C.DATA.SITE_BALANCE = "none"
 
 # Individual probabilities for each augmentation (0.0 to 1.0)
 # If not specified in config, defaults to 0.8 for each augmentation
@@ -180,6 +223,11 @@ _C.DATA.AUG_PROBABILITIES.Gaussian = 0.8
 _C.DATA.AUG_PROBABILITIES.Elastic = 0.8
 _C.DATA.AUG_PROBABILITIES.RAnisotropy = 0.8
 _C.DATA.AUG_PROBABILITIES.RGamma = 0.8
+_C.DATA.AUG_PROBABILITIES.Noise = 0.0
+
+# Image noise augmentation: additive Gaussian, std drawn from U(0, STD) (image in [0, 1])
+_C.DATA.AUG_NOISE = CN()
+_C.DATA.AUG_NOISE.STD = 0.03
 
 # Elastic deformation parameters (for performance tuning)
 # Reducing NUM_CONTROL_POINTS from 7 to 5 significantly speeds up Elastic transform
@@ -292,6 +340,12 @@ _C.DATA_LOADER.PREFETCH_FACTOR = 4
 # Load data to pinned host memory.
 _C.DATA_LOADER.PIN_MEMORY = True
 
+# Validation loader workers (validation is not augmented; 1 is usually enough)
+_C.DATA_LOADER.VAL_NUM_WORKERS = 1
+
+# HDF5 chunk cache per open file handle (each worker opens its own handle)
+_C.DATA_LOADER.HDF5_CACHE_MB = 64
+
 # ---------------------------------------------------------------------------- #
 # Optimizer options
 # ---------------------------------------------------------------------------- #
@@ -300,8 +354,13 @@ _C.OPTIMIZER = CN()
 # Base learning rate.
 _C.OPTIMIZER.BASE_LR = 0.01
 
-# Learning rate scheduler, step_lr, cosineWarmRestarts, reduceLROnPlateau
+# Learning rate scheduler: "cosine" (linear warmup for WARMUP_EPOCHS, then cosine decay to
+# ETA_MIN at NUM_EPOCHS), "cosineWarmRestarts" (T_ZERO/T_MULT in EPOCHS), "step_lr" or
+# "NoScheduler". All schedulers are stepped every optimizer step with fractional epochs.
 _C.OPTIMIZER.LR_SCHEDULER = "cosineWarmRestarts"
+
+# Linear warmup length in epochs (fractional allowed); used by "cosine"
+_C.OPTIMIZER.WARMUP_EPOCHS = 0.0
 
 # Multiplicative factor of learning rate decay in step_lr
 _C.OPTIMIZER.GAMMA = 0.3
@@ -312,13 +371,14 @@ _C.OPTIMIZER.STEP_SIZE = 5
 # minimum learning in cosine lr policy and reduceLROnPlateau
 _C.OPTIMIZER.ETA_MIN = 0.0001
 
-# number of iterations for the first restart in cosineWarmRestarts
+# length of the first cosine cycle in cosineWarmRestarts, in EPOCHS
 _C.OPTIMIZER.T_ZERO = 10
 
 # A factor increases T_i after a restart in cosineWarmRestarts
 _C.OPTIMIZER.T_MULT = 2
 
-# factor by which learning rate will be reduce (new_lr = lr*factor, default=0.1)
+# FACTOR/PATIENCE/THRESH/COOLDOWN are unused (no plateau scheduler); kept so configs
+# embedded in older checkpoints still load. MOMENTUM/DAMPENING/NESTEROV apply to sgd only.
 _C.OPTIMIZER.FACTOR = 0.1
 
 # number of epochs to wait before lowering lr (default=5)

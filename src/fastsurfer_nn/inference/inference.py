@@ -471,10 +471,14 @@ class Inference:
                             # Extract atlas name from class options (e.g., ["arm2"] -> "ARM2")
                             atlas_name = self.cfg.DATA.CLASS_OPTIONS[0].upper()
 
+                        idx_list = (self.atlas_metadata or {}).get(
+                            "bilateral_dense_to_sagittal_dense"
+                        )
                         pred = map_prediction_sagittal2full(
                             pred,
                             num_classes=self.get_num_classes(),
                             atlas_name=atlas_name,
+                            idx_list=idx_list,
                         )
 
                     # permute the prediction into the out slice order
